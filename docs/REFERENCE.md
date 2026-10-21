@@ -1387,6 +1387,8 @@ with (in place: comments and every other line are kept).
 | ------------ | --------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `GET /v1/ui` | `{"language":"auto","resolved":"es"}`: the setting, and what it means on the gateway's host                                                         |
 | `PUT /v1/ui` | `{"language":"es"}` saves it; `400` for anything but `auto`, `en`, `es`, `409` when the gateway runs on the built-in defaults with no file to write |
+| `GET /v1/ui/prefs` | `{"prefs":{"motita.ui.theme":"{...}"}}`: the web page's preferences (look, notifications, how the voice reads), kept in `~/.motita/ui-prefs.json` so every browser shows the same; the microphone, local voice models and phone density stay in each browser |
+| `PUT /v1/ui/prefs` | `{"prefs":{key:value}}` merges the values sent; `400` for a key the gateway does not keep or a value over 32 KB |
 
 ### LLM providers from the browser
 

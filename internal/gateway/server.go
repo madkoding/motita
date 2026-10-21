@@ -248,7 +248,8 @@ type Options struct {
 	Tailscale TailscaleService
 	// PushDir is where the VAPID key and the browsers subscribed to phone notifications are kept
 	// (see push.go). Empty means there are none.
-	PushDir string
+	PushDir   string
+	PrefsPath string // where the web page's preferences are kept (prefs.go); empty: in memory
 	// FrictionFile is the friction journal (see friction.go): what got in the way, kept on this
 	// computer. Empty keeps it in memory, until the gateway stops.
 	FrictionFile string
@@ -293,6 +294,7 @@ type Server struct {
 	// process started with (opts.UILanguage) is the answer. See ui.go.
 	uiMu       sync.Mutex
 	uiLanguage string
+	prefs      *prefsStore // the web page's preferences, see prefs.go
 
 	// voiceLive is speech input as PUT /v1/voice last applied it; nil until then, when the
 	// options the process started with are the answer. See voice.go.
@@ -879,6 +881,7 @@ func (s *Server) routes() *http.ServeMux {
 	// one configuration every conversation runs on.
 	mux.Handle("GET /v1/ui", plain(s.handleGetUI))
 	mux.Handle("PUT /v1/ui", plain(s.handlePutUI))
+	s.routePrefs(mux, plain)
 	// The LLM providers and the default model: process-wide too, saved beside and in the
 	// configuration. See llm.go.
 	s.llmRoutes(mux, plain)

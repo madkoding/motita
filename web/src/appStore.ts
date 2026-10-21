@@ -25,6 +25,7 @@ import { useNextSuggestion } from "./useNextSuggestion";
 import { useProjectHint } from "./useProjectHint";
 import { useCheckpoints } from "./useCheckpoints";
 import { useAuth, useLanguage } from "./useAuth";
+import { usePrefsSync } from "./usePrefsSync";
 import { useRemoteChanges } from "./useRemoteChanges";
 import { useUpdates } from "./useUpdates";
 import { useRowMenus } from "./useRowMenus";
@@ -171,6 +172,7 @@ export function useAppStore(api: Api) {
     setToast,
   });
   const language = useLanguage(api, auth.authState, setToast);
+  usePrefsSync(api, auth.authState);
   const menus = useRowMenus();
   const [showSettings, setShowSettings] = useState(false);
   const openSettings = useCallback(() => setShowSettings(true), []);

@@ -1,4 +1,6 @@
-// Visual settings of the chat, saved in localStorage and applied to <html> as data attributes.
+// Visual settings of the chat, saved in localStorage and on the gateway (see serverPrefs.ts) and
+// applied to <html> as data attributes.
+import { pushPref } from "./serverPrefs.ts";
 export const SETTINGS_KEY = "motita.ui.settings";
 export type FontSize = "small" | "normal" | "large";
 export type Density = "comfortable" | "compact";
@@ -55,6 +57,7 @@ export function applySettings(s: UISettings): void {
 export function saveSettings(s: UISettings): void {
   try {
     localStorage.setItem(SETTINGS_KEY, JSON.stringify(s));
+    pushPref(SETTINGS_KEY);
   } catch {
     /* ignore */
   }
@@ -83,6 +86,7 @@ export function loadNotify(): boolean {
 export function saveNotify(on: boolean): void {
   try {
     localStorage.setItem(NOTIFY_KEY, onOff(on));
+    pushPref(NOTIFY_KEY);
   } catch {
     /* ignore */
   }
@@ -103,6 +107,7 @@ export function loadCiToast(): boolean {
 export function saveCiToast(on: boolean): void {
   try {
     localStorage.setItem(CI_TOAST_KEY, onOff(on));
+    pushPref(CI_TOAST_KEY);
   } catch {
     /* ignore */
   }
@@ -123,6 +128,7 @@ export function loadNextHint(): boolean {
 export function saveNextHint(on: boolean): void {
   try {
     localStorage.setItem(NEXT_HINT_KEY, onOff(on));
+    pushPref(NEXT_HINT_KEY);
   } catch {
     /* ignore */
   }
@@ -218,6 +224,7 @@ export function loadUsageStyle(): UsageStyle {
 export function saveUsageStyle(style: UsageStyle): void {
   try {
     localStorage.setItem(USAGE_STYLE_KEY, style);
+    pushPref(USAGE_STYLE_KEY);
   } catch {
     /* ignore */
   }
@@ -240,6 +247,7 @@ export function loadUsageOpen(): boolean {
 export function saveUsageOpen(open: boolean): void {
   try {
     localStorage.setItem(USAGE_OPEN_KEY, USAGE_OPEN_VALUES[Number(open)]);
+    pushPref(USAGE_OPEN_KEY);
   } catch {
     /* ignore */
   }

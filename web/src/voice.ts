@@ -6,6 +6,7 @@
 // content policy allows neither) and sends each spoken phrase to the same endpoint, which says
 // whether it opened with one of the configured wake phrases.
 import type { Api } from "./prApi";
+import { pushPref } from "./serverPrefs.ts";
 
 // The voice block as the gateway's configuration file has it. The key is never sent back: only
 // whether there is one.
@@ -179,6 +180,7 @@ export function loadVoicePrefs(): VoicePrefs {
 export function saveVoicePrefs(p: VoicePrefs): void {
   try {
     localStorage.setItem(VOICE_KEY, JSON.stringify(p));
+    pushPref(VOICE_KEY);
   } catch {
     /* ignore */
   }
