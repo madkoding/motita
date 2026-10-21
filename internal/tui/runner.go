@@ -308,40 +308,6 @@ func (r *AppRunner) approveAllCommands() bool {
 	return r.Cfg.Agent.ApproveAllCommands
 }
 
-// RunShell runs one command line a PERSON typed, under the same policy and sandbox as the
-// agent's own commands, and confirms it through the approver it is handed.
-//
-// It builds an agent only to reach its policy and its executor: no model is called, so it works
-// without a key and does not touch the conversation. The approver is a parameter and not the
-// runner's installed one, because that one belongs to whichever run is in flight and a shell
-// command typed meanwhile must not borrow its question.
-//
-// Every line is a new process, so a `cd` typed on its own would change nothing for the next one:
-// reported from a real session, `cd motita` answered [ok] and `pwd` still printed the project
-// folder, so git kept failing with "not a git repository". A lone cd is therefore kept here, as a
-// folder inside the workspace, and later lines run there (see shellDir).
-func (r *AppRunner) RunShell(ctx context.Context, command string, approver agent.Approver) (string, int, error) {
-	r.cfgMu.Lock()
-	cfg, engine := r.Cfg, r.Engine
-	r.cfgMu.Unlock()
-	ws := workspaceRoot(cfg)
-	if target, ok := loneCd(command); ok {
-		return r.shell.change(ws, target)
-	}
-	line, dir, err := r.shell.prefix(ws, agent.ShellFor(cfg), command)
-	if err != nil {
-		return "[" + err.Error() + "]\n", 1, err
-	}
-	ag := r.newAgent(cfg, r.Log, engine, r.Box, nil, true)
-	installApproverOn(ag, approver)
-	r.installLiveApproveAll(ag)
-	out, exit, err := ag.RunCommand(ctx, line)
-	if exit != 0 {
-		out += repoHint(dir, out)
-	}
-	return out, exit, err
-}
-
 // Config returns the current configuration.
 func (r *AppRunner) Config() config.Config {
 	r.cfgMu.Lock()
