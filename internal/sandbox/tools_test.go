@@ -206,3 +206,79 @@ func TestScratchDirectoryThatCannotBeMadeIsNone(t *testing.T) {
 		t.Errorf("scratchDir = %q, want none", got)
 	}
 }
+
+// A command that leaves a read-only directory in $TMPDIR (Go's module cache, `chmod -R a-w`) used
+// to leave the whole temporary directory behind: os.RemoveAll cannot empty it.
+func TestATemporaryDirectoryMadeReadOnlyIsStillRemoved(t *testing.T) {
+	tools := t.TempDir()
+	s := toolsSandbox(t, t.TempDir(), tools)
+	out, _, exit, err := s.Run(context.Background(), execx.Request{
+		Command: "/bin/sh", Args: []string{"-c", `mkdir -p "$TMPDIR/ro/deep" && touch "$TMPDIR/ro/deep/f" && chmod -R a-w "$TMPDIR/ro"`},
+	})
+	if err != nil || exit != 0 {
+		t.Fatalf("exit=%d err=%v out=%q", exit, err, out)
+	}
+	if left, _ := filepath.Glob(filepath.Join(tools, "tmp", "tmp-*")); len(left) != 0 {
+		t.Errorf("the temporary directory was left behind: %v", left)
+	}
+}
+
+// A temporary directory a dead gateway left is removed by the next run once it is a day old; a
+// recent one may belong to a run in progress, and neither is touched when keeping them is asked.
+func TestStaleTemporaryDirectoriesAreSwept(t *testing.T) {
+	tools := t.TempDir()
+	root := filepath.Join(tools, "tmp")
+	old, recent, other := filepath.Join(root, "tmp-old"), filepath.Join(root, "tmp-recent"), filepath.Join(root, "other")
+	for _, d := range []string{filepath.Join(old, "ro"), recent, other} {
+		if err := os.MkdirAll(d, 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := os.Chmod(filepath.Join(old, "ro"), 0o555); err != nil {
+		t.Fatal(err)
+	}
+	past := time.Now().Add(-2 * staleTempAge)
+	for _, d := range []string{old, other} {
+		if err := os.Chtimes(d, past, past); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	kept := &Sandbox{op: Options{ToolsDir: tools, Keep: true}, base: t.TempDir()}
+	kept.tempRoot()
+	if _, err := os.Stat(old); err != nil {
+		t.Error("with keep_ephemeral nothing is swept")
+	}
+
+	s := &Sandbox{op: Options{ToolsDir: tools}, base: t.TempDir()}
+	if got := s.tempRoot(); got != root {
+		t.Fatalf("tempRoot = %q", got)
+	}
+	if _, err := os.Stat(old); err == nil {
+		t.Error("a day-old temporary directory must be swept")
+	}
+	for _, d := range []string{recent, other} {
+		if _, err := os.Stat(d); err != nil {
+			t.Errorf("%s must stay: %v", d, err)
+		}
+	}
+}
+
+// removeTree reports what it still could not remove.
+func TestRemoveTreeReportsWhatItCannotRemove(t *testing.T) {
+	parent := t.TempDir()
+	dir := filepath.Join(parent, "d")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chmod(parent, 0o555); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { os.Chmod(parent, 0o755) })
+	if os.Geteuid() == 0 {
+		t.Skip("root removes it anyway")
+	}
+	if err := removeTree(dir); err == nil {
+		t.Error("a directory in a read-only parent cannot be removed, and must say so")
+	}
+}

@@ -433,7 +433,7 @@ func (s *Sandbox) Run(ctx context.Context, p execx.Request) (string, bool, int, 
 	}
 	if !s.op.Keep {
 		defer func() {
-			if err := os.RemoveAll(tempDir); err != nil {
+			if err := removeTree(tempDir); err != nil {
 				s.log.Warn("could not delete the temporary directory", "dir", tempDir, "error", err)
 			}
 		}()
