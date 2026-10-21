@@ -489,15 +489,24 @@ func (s *Sandbox) Run(ctx context.Context, p execx.Request) (string, bool, int, 
 		"isolation", strings.Join(modesToStrings(s.Isolation()), ","))
 
 	out, truncated, code, err := s.launch(ctx, command, args, workDir, timeout, maxOutput, spec.Limits)
-	if code != 0 && s.op.GPG.Enabled() && gpgagent.FailedToSign(out) {
-		// A sandboxed command has no terminal for pinentry: say what to do instead of leaving git's
-		// one line to be guessed at.
-		out = strings.TrimRight(out, "\n") + "\n" + gpgagent.Hint + "\n"
-	}
-	if confine && !p.Approved && code != 0 && refusedSystemTemp(out) {
-		out = strings.TrimRight(out, "\n") + "\n" + fmt.Sprintf(tempHint, tempDir) + "\n"
+	if code != 0 {
+		out = s.withFailureHint(out, confine && !p.Approved, tempDir)
 	}
 	return out, truncated, code, err
+}
+
+// withFailureHint appends to the output of a failed command the hint that fits it: how to sign
+// with gpg, or where a confined command can put temporary files.
+func (s *Sandbox) withFailureHint(out string, confinedRun bool, tempDir string) string {
+	switch {
+	case s.op.GPG.Enabled() && gpgagent.FailedToSign(out):
+		// A sandboxed command has no terminal for pinentry: say what to do instead of leaving git's
+		// one line to be guessed at.
+		return strings.TrimRight(out, "\n") + "\n" + gpgagent.Hint + "\n"
+	case confinedRun && refusedSystemTemp(out):
+		return strings.TrimRight(out, "\n") + "\n" + fmt.Sprintf(tempHint, tempDir) + "\n"
+	}
+	return out
 }
 
 // tempHint says where a confined command can put temporary files. A model's habit is /tmp, which
