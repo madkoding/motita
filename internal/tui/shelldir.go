@@ -86,12 +86,14 @@ func (d *shellDir) change(ws, target string) (string, int, error) {
 
 // insideWorkspace is abs relative to ws when it is a folder inside it, links resolved: a link
 // inside the workspace that points out of it is outside. The path is first checked by its spelling,
-// so nothing outside the workspace is even looked at, and then by where its links lead.
+// so nothing outside the workspace is even looked at, and then by where its links lead. A name with
+// ".." anywhere in it is refused with the climbs: telling `a..b` from `../b` is not worth the doubt.
 func insideWorkspace(ws, abs string) (string, error) {
-	abs = filepath.Clean(abs)
-	if abs != ws && !strings.HasPrefix(abs, ws+string(filepath.Separator)) {
+	spelled, err := filepath.Rel(ws, filepath.Clean(abs))
+	if err != nil || strings.Contains(spelled, "..") {
 		return "", outsideWorkspace(ws)
 	}
+	abs = filepath.Join(ws, spelled)
 	info, err := os.Stat(abs)
 	if err != nil {
 		return "", errors.New("no such folder")
