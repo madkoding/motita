@@ -605,6 +605,18 @@ func rmTargets(args []string) []string {
 	return out
 }
 
+// isSystemRootOrHome reports whether a clean absolute path is a system root or a home directory
+// itself: neither is ever local work.
+func isSystemRootOrHome(p string) bool {
+	switch p {
+	case "/", "/home", "/root", "/etc", "/usr", "/var", "/bin", "/boot", "/lib", "/opt", "/srv":
+		return true
+	default:
+		rest, ok := strings.CutPrefix(p, "/home/")
+		return ok && !strings.ContainsRune(rest, '/')
+	}
+}
+
 // isRootLike reports whether a path names something whose deletion is not local work.
 //
 // The comparison is on the RESOLVED path, because `..` and a symlink are the two ways a
@@ -629,29 +641,17 @@ func isRootLike(target, dir string) bool {
 	if !filepath.IsAbs(abs) && dir != "" {
 		abs = filepath.Join(dir, abs)
 	}
-	if resolved, err := filepath.EvalSymlinks(abs); err == nil {
-		abs = resolved
+	paths := writtenAndResolved(abs)
+	for _, p := range paths {
+		if isSystemRootOrHome(p) {
+			return true
+		}
 	}
-	abs = filepath.Clean(abs)
-
-	switch abs {
-	case "/", "/home", "/root", "/etc", "/usr", "/var", "/bin", "/boot", "/lib", "/opt", "/srv":
-		return true
-	default:
-		// Not a system root itself: the home and parent-tree checks below decide.
-	}
-	// A home directory itself, which is the other thing that is never local work.
-	if rest, ok := strings.CutPrefix(abs, "/home/"); ok && !strings.ContainsRune(rest, '/') {
-		return true
-	}
+	abs = paths[1]
 	// The tree above the workspace: its parent, and everything further up. A path inside
 	// the workspace is local work; the directory that CONTAINS the work is not.
 	if dir != "" {
-		base := dir
-		if resolved, err := filepath.EvalSymlinks(base); err == nil {
-			base = resolved
-		}
-		base = filepath.Clean(base)
+		base := writtenAndResolved(dir)[1]
 		if abs != base && strings.HasPrefix(base, abs+string(filepath.Separator)) {
 			return true
 		}

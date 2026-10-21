@@ -27,7 +27,11 @@ type anthropicContent struct {
 }
 
 // joinSystem adds one more system message to the system prompt, a blank line apart.
+// A blank message adds nothing: the API refuses empty text blocks, system prompt included.
 func joinSystem(system, content string) string {
+	if strings.TrimSpace(content) == "" {
+		return system
+	}
 	if system != "" {
 		system += "\n\n"
 	}
@@ -48,7 +52,7 @@ func anthropicTextConversation(messages []Message) (string, []map[string]any) {
 		if role != "assistant" {
 			role = "user"
 		}
-		blocks := append([]map[string]any{{"type": "text", "text": m.Content}}, anthropicImages(m.Images)...)
+		blocks := anthropicBlocks(Message{Content: m.Content, Images: m.Images})
 		conversation = append(conversation, map[string]any{"role": role, "content": blocks})
 	}
 	return system, conversation

@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from "preact/hooks";
-import { notifyPlatform, type NotifyPlatform } from "./settings";
+import { notifyPlatform, type NotifyPlatform } from "./uiPrefs";
 
 // The guide section that says how to give the page a secure address.
 export const NOTIFY_GUIDE =

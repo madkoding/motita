@@ -284,6 +284,12 @@ func TestIsRootWriteTargetCoversTheSystemTrees(t *testing.T) {
 		"~/x":          true,
 		"/dev/null":    false, // a harmless device is not a tree
 		"":             false,
+		// macOS: /etc and /var are links into /private, and /var/folders is the user's $TMPDIR.
+		"/private/etc/passwd":    true,
+		"/private/var":           true,
+		"/private/etcetera/x":    false,
+		"/var/folders/ab/T/x":    false,
+		"/private/var/folders/x": false,
 	}
 	for in, want := range cases {
 		if got := isRootWriteTarget(in); got != want {
@@ -296,7 +302,11 @@ func TestIsRootWriteTargetCoversTheSystemTrees(t *testing.T) {
 // through its links. It is the rule that stops a symlink inside the workspace from being a
 // way out of it, and it has to work on a path that is part root and part not-yet-created.
 func TestResolveAsFarAsPossibleFollowsWhatExists(t *testing.T) {
-	real := t.TempDir()
+	// The temp dir is itself reached through a link on macOS (/var -> /private/var).
+	real, err := filepath.EvalSymlinks(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
 	link := filepath.Join(t.TempDir(), "enlace")
 	if err := os.Symlink(real, link); err != nil {
 		t.Skipf("symlinks are not available here: %v", err)

@@ -9,6 +9,7 @@ import (
 	"image/color"
 	"image/png"
 	"os"
+	"runtime"
 	"slices"
 	"strings"
 	"testing"
@@ -101,6 +102,13 @@ func TestDetectPicksTheSessionsBackend(t *testing.T) {
 func TestNewFollowsTheEnvironment(t *testing.T) {
 	t.Setenv("WAYLAND_DISPLAY", "")
 	t.Setenv("DISPLAY", "")
+	if runtime.GOOS == "darwin" || runtime.GOOS == "windows" {
+		// macOS and Windows always have their own screen: New ignores DISPLAY there.
+		if _, err := New(); err != nil {
+			t.Fatal(err)
+		}
+		return
+	}
 	if _, err := New(); !errors.Is(err, ErrNoDisplay) {
 		t.Fatalf("no display: %v", err)
 	}

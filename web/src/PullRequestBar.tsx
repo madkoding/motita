@@ -1,7 +1,7 @@
 // The pull request bar under the conversation, and the toasts that follow its CI.
 import { useState, useEffect, useRef, useCallback } from "preact/hooks";
 import { t, tf } from "./i18n";
-import { loadCiToast, loadNotify } from "./settings";
+import { loadCiToast, loadNotify } from "./uiPrefs";
 import { showNotification } from "./notify";
 import { sayNotice } from "./speech";
 import { loadPushOn } from "./pushApi";

@@ -28,6 +28,9 @@ export interface SecurityView {
   // Whether the suggestions of a finished task are applied without asking. Missing from a gateway
   // older than the setting.
   auto_apply_suggestions?: boolean;
+  // Whether every command the policy would ask about runs without asking. Missing from a gateway
+  // older than the setting.
+  approve_all_commands?: boolean;
   // Whether the agent may see this computer's screen and use its mouse, keyboard and windows,
   // asking before every step, and why there is no desktop here when there is none. Missing from a
   // gateway older than the setting.
@@ -96,6 +99,20 @@ export async function setAutoApplySuggestions(
     method: "PUT",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ auto_apply_suggestions: on, confirm: on }),
+  });
+  return view(res);
+}
+
+// setApproveAllCommands saves whether every command runs without asking. Turning it on is sent
+// only after the person confirmed what it implies, with confirm; turning it off needs none.
+export async function setApproveAllCommands(
+  api: Api,
+  on: boolean,
+): Promise<SecurityView> {
+  const res = await api(SECURITY_PATH, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ approve_all_commands: on, confirm: on }),
   });
   return view(res);
 }

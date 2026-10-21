@@ -18,11 +18,19 @@ var getenv = os.Getenv
 // profile (%USERPROFILE%, holding .ssh, .motita and the rest), the folder of every profile
 // (C:\Users) and the HOME that motita's own home is under when it is set were readable by every
 // read tool.
+//
+// On macOS people's files are under /Users, external disks under /Volumes, and /home is a link to
+// /System/Volumes/Data/home: a read tool judges the resolved path, which none of the POSIX trees
+// match.
 func platformPrivateTrees() []string {
-	if goos != "windows" {
+	switch goos {
+	case "windows":
+		return windowsPrivateTrees(getenv)
+	case "darwin":
+		return []string{"/Users", "/Volumes", "/System/Volumes/Data/home"}
+	default:
 		return nil
 	}
-	return windowsPrivateTrees(getenv)
 }
 
 // windowsPrivateTrees are the Windows trees that hold people's files: the profile, the folder of

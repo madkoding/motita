@@ -44,14 +44,13 @@ var gitHarmless = map[string]bool{
 }
 
 // gitRule allows read-only git: a reading subcommand, with the options before it limited to
-// the ones that change nothing (`-c core.pager=…` and `-C dir` change what runs and where),
-// no `--output` file, and `branch`, `tag` and `remote` only in their listing forms.
+// the ones that change nothing (`-c core.pager=…` changes what runs), `-C dir` only to read
+// another working tree (the sandbox still decides what that tree may show), no `--output`
+// file, and `branch`, `tag` and `remote` only in their listing forms.
 func gitRule(args []string) (string, bool) {
-	i := 0
-	for ; i < len(args) && strings.HasPrefix(args[i], "-"); i++ {
-		if !gitHarmless[args[i]] {
-			return fmt.Sprintf("git %s changes what git runs or where, and read-only mode cannot check it", args[i]), true
-		}
+	i, reason := gitGlobalOptions(args)
+	if reason != "" {
+		return reason, true
 	}
 	if i == len(args) {
 		return "", false
@@ -375,4 +374,24 @@ func sortShort(a string, i *int) (string, bool) {
 		}
 	}
 	return "", false
+}
+
+// gitGlobalOptions skips the options before the subcommand and returns the index of the
+// subcommand, or the reason one of them is refused. `-C dir` only moves where git reads; a
+// missing directory is git's own error.
+func gitGlobalOptions(args []string) (int, string) {
+	i := 0
+	for ; i < len(args) && strings.HasPrefix(args[i], "-"); i++ {
+		switch {
+		case args[i] == "-C" && i+1 == len(args):
+			return i, "git -C needs a directory"
+		case args[i] == "-C":
+			i++
+		case !gitHarmless[args[i]]:
+			return i, fmt.Sprintf("git %s changes what git runs or where, and read-only mode cannot check it", args[i])
+		default:
+			// A harmless option: nothing to skip.
+		}
+	}
+	return i, ""
 }

@@ -98,6 +98,20 @@ func (t Tx) SetAutoApplySuggestions(on bool) error {
 		func(cfg Config) bool { return cfg.Agent.AutoApplySuggestions == on })
 }
 
+// SetApproveAllCommands writes on into the configuration file at path as agent.approve_all_commands,
+// in place and with the same checks as SetDiskAccess.
+func SetApproveAllCommands(path string, on bool) error {
+	configWriteMu.Lock()
+	defer configWriteMu.Unlock()
+	return Tx{path}.SetApproveAllCommands(on)
+}
+
+// SetApproveAllCommands is SetApproveAllCommands inside a transaction.
+func (t Tx) SetApproveAllCommands(on bool) error {
+	return setBlockKey(t.path, "agent", "approve_all_commands", strconv.FormatBool(on),
+		func(cfg Config) bool { return cfg.Agent.ApproveAllCommands == on })
+}
+
 // SetDesktopControl is agent.desktop_control inside a transaction, with the same checks as
 // SetDiskAccess.
 func (t Tx) SetDesktopControl(on bool) error {

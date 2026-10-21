@@ -233,8 +233,12 @@ func sensitiveNeedsConfirm(w http.ResponseWriter, dir string, confirmed bool) bo
 	return false
 }
 
-// systemFolder reports whether dir is one of the system's trees or inside one.
+// systemFolder reports whether dir is one of the system's trees or inside one. The user's own
+// temporary folder is not, even where the system keeps it inside one (macOS: /var/folders).
 func systemFolder(dir string) bool {
+	if pathWithinOrSame(os.TempDir(), dir) {
+		return false
+	}
 	for _, tree := range systemTrees() {
 		if pathWithinOrSame(tree, dir) {
 			return true
@@ -349,7 +353,12 @@ const errNoFolder = "that folder does not exist"
 
 // projectFolderProblem says why dir cannot be a project's folder, empty when it can.
 func (s *Server) projectFolderProblem(dir string) string {
+	// The workspace is compared resolved too: reached through a link (on macOS, anything under
+	// /var or /tmp), it would otherwise be a different path from the folder.
 	ws := s.opts.WorkspaceDir
+	if real, err := filepath.EvalSymlinks(ws); err == nil {
+		ws = real
+	}
 	home, _ := os.UserHomeDir()
 	problem := ""
 	switch {

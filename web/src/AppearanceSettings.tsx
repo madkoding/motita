@@ -11,7 +11,7 @@ import {
   loadUsageStyle,
   saveUsageStyle,
   type UsageStyle,
-} from "./settings";
+} from "./uiPrefs";
 import { Row, Segmented } from "./SettingsControls";
 
 export interface AppearanceSettingsProps {

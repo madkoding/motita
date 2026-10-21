@@ -3,7 +3,7 @@
 // usual hint, and nothing here touches the run or the conversation.
 import { useEffect, useRef, useState } from "preact/hooks";
 import { lang } from "./i18n";
-import { loadNextHint } from "./settings";
+import { loadNextHint } from "./uiPrefs";
 import type { Api } from "./prApi";
 import type { Message } from "./appTypes";
 import { JSON_HEADERS, SESSIONS_PATH } from "./appConst";

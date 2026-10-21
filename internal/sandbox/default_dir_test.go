@@ -89,6 +89,9 @@ func TestRunReportsAWorkingDirectoryThatCannotBeResolved(t *testing.T) {
 			t.Errorf("could not go back to %s: %v", safe, err)
 		}
 	}()
+	if wd, err := os.Getwd(); err == nil {
+		t.Skipf("this system still names the removed working directory (%s), as macOS does", wd)
+	}
 
 	box, err := New(Options{Dir: safe, Log: logx.Global()})
 	if err != nil {

@@ -61,7 +61,8 @@ func TestProjectSessionRunsInItsOwnWorktree(t *testing.T) {
 	if branch := gitx.Display(ctx, want); branch != sessionBranch(ss.ID) {
 		t.Errorf("worktree branch = %q, want %q", branch, sessionBranch(ss.ID))
 	}
-	if root, err := gitx.Root(ctx, want); err != nil || root != want {
+	// git answers the resolved path (on macOS the temp dir is under a link to /private/var).
+	if root, err := gitx.Root(ctx, want); err != nil || !gitx.SamePath(root, want) {
 		t.Errorf("Root(worktree) = %q, %v: the worktree must be its own checkout root", root, err)
 	}
 

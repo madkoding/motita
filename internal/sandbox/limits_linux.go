@@ -168,7 +168,7 @@ func minimumMemoryMB() int {
 var procStatusPath = "/proc/self/status"
 
 // peakVirtualMemory reads the current process's virtual memory peak, in bytes.
-// It returns 0 if it cannot be determined (it is not used outside Linux).
+// It returns 0 if it cannot be determined. Only Linux has it.
 func peakVirtualMemory() uint64 {
 	data, err := os.ReadFile(procStatusPath)
 	if err != nil {

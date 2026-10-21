@@ -527,6 +527,14 @@ func (r *AppRunner) SetAutoApplySuggestions(on bool) {
 	r.cfgMu.Unlock()
 }
 
+// SetApproveAllCommands says whether every command the policy asks about runs without asking
+// (agent.approve_all_commands). The next command follows it.
+func (r *AppRunner) SetApproveAllCommands(on bool) {
+	r.cfgMu.Lock()
+	r.Cfg.Agent.ApproveAllCommands = on
+	r.cfgMu.Unlock()
+}
+
 // SetDesktopControl says whether the agent may see and drive this computer's desktop
 // (agent.desktop_control). The next turn follows it.
 func (r *AppRunner) SetDesktopControl(on bool) {
