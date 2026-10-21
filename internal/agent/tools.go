@@ -36,9 +36,9 @@ func describeTools(sb config.Sandbox, home string) string {
 - Read the "installing-a-toolchain" procedure before installing one.
 - Temporary files: /tmp is NOT writable from a confined command. Use $TMPDIR (private to one command and deleted
   when it ends, so no background job or later command may depend on it); to keep a file between commands put it
-  under %s or in the working directory.
+  in $MOTITA_SCRATCH (%s, kept a day) or in the working directory.
 `, home, tools, filepath.Join(tools, "tools"), filepath.Join(tools, "tools"),
-		filepath.Join(tools, "bin"), home)
+		filepath.Join(tools, "bin"), filepath.Join(home, "scratch"))
 }
 
 // powerShellSection is the prompt section of a run whose commands PowerShell runs.

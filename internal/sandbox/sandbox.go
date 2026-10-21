@@ -505,7 +505,7 @@ func (s *Sandbox) Run(ctx context.Context, p execx.Request) (string, bool, int, 
 // refuses the write and the model, seeing only "Permission denied", spends rounds on TMPDIR and
 // chmod instead of changing the path.
 const tempHint = "motita: /tmp is not writable from this sandbox. Write temporary files under $TMPDIR (%s, " +
-	"private to this command and deleted when it ends) or, to keep them between commands, under $HOME or the working directory."
+	"private to this command and deleted when it ends) or, to keep them between commands, under $MOTITA_SCRATCH."
 
 // refusedSystemTemp reports whether out shows a write under /tmp that the kernel refused.
 func refusedSystemTemp(out string) bool {
@@ -856,6 +856,9 @@ func (s *Sandbox) environmentWithTmp(tempDir string, logins bool) []string {
 		"HOME=" + home,
 		"LANG=C.UTF-8",
 		"TMPDIR=" + tempDir,
+	}
+	if scratch := s.scratchDir(); scratch != "" {
+		base = append(base, "MOTITA_SCRATCH="+scratch)
 	}
 	for _, key := range []string{"TERM", "USER", "SHELL"} {
 		if v, ok := os.LookupEnv(key); ok {

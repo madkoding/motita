@@ -149,3 +149,60 @@ func TestToolEnvironment(t *testing.T) {
 		t.Errorf("the process environment must be inherited with the tools on PATH: %s", inherited)
 	}
 }
+
+// A file one command leaves for the next needs somewhere that survives it: $TMPDIR is deleted with
+// the command and /tmp is refused. The scratch directory is in HOME, and what is old goes.
+func TestTheScratchDirectorySurvivesTheCommandAndDropsOldFiles(t *testing.T) {
+	tools := t.TempDir()
+	s, err := New(Options{Dir: t.TempDir(), ToolsDir: tools})
+	if err != nil {
+		t.Fatal(err)
+	}
+	scratch := filepath.Join(s.Home(), "scratch")
+	if err := os.MkdirAll(scratch, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	old := filepath.Join(scratch, "old.txt")
+	if err := os.WriteFile(old, []byte("x"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	past := time.Now().Add(-2 * scratchMaxAge)
+	if err := os.Chtimes(old, past, past); err != nil {
+		t.Fatal(err)
+	}
+	out, _, _, err := s.Run(context.Background(), execx.Request{
+		Command: "/bin/sh", Args: []string{"-c", `echo "$MOTITA_SCRATCH" && echo kept > "$MOTITA_SCRATCH/new.txt"`}})
+	if err != nil || !strings.Contains(out, scratch) {
+		t.Fatalf("err=%v out=%q", err, out)
+	}
+	if _, err := os.Stat(filepath.Join(scratch, "new.txt")); err != nil {
+		t.Error("a file in the scratch directory must outlive the command")
+	}
+	if _, err := os.Stat(old); err == nil {
+		t.Error("a file older than the limit must be removed")
+	}
+}
+
+func TestNoScratchDirectoryWithoutToolsDirectory(t *testing.T) {
+	s, err := New(Options{Dir: t.TempDir()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := s.scratchDir(); got != "" {
+		t.Errorf("scratchDir = %q, want none", got)
+	}
+}
+
+func TestScratchDirectoryThatCannotBeMadeIsNone(t *testing.T) {
+	tools := t.TempDir()
+	s, err := New(Options{Dir: t.TempDir(), ToolsDir: tools})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(s.Home(), "scratch"), nil, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if got := s.scratchDir(); got != "" {
+		t.Errorf("scratchDir = %q, want none", got)
+	}
+}
