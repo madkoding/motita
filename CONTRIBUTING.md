@@ -152,12 +152,24 @@ If `verify.sh` passes locally, CI will pass.
 The CI pipeline (`.github/workflows/ci.yml`) runs on every push to
 `main`, every tag, and every pull request:
 
-| Job                      | What it does                                                                                                                                                                |
-| ------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **verify**               | `gofmt`, `go vet`, `go test -race`, `staticcheck`, `govulncheck`, Go floor check, 100% coverage gate per package                                                            |
-| **build** (10 platforms) | Cross-compiles for every supported OS/arch, verifies the binary format (ELF/PE/Mach-O), runs smoke tests in containers, validates config without an LLM key, runs E2E tests |
-| **gateway**              | HTTP E2E test of the gateway + binary size ceiling                                                                                                                          |
-| **release**              | Only on tags (`v*`): publishes binaries + SHA256SUMS to GitHub Releases                                                                                                     |
+Jobs run in parallel. The web UI is built once (`web`) and every Go job downloads the same
+assets; the coverage reports the gates produce are reused by the Sonar analysis.
+
+| Job                                | What it does                                                                                     |
+| ---------------------------------- | ------------------------------------------------------------------------------------------------ |
+| **web**                            | Builds the web UI once, web tests with the 100% per-file coverage gate, type check               |
+| **hygiene**                        | `gofmt`, no `unsafe`, Go floor check, POSIX and Windows installers end to end (no build needed)  |
+| **vet**                            | `go vet` and a cross-platform `go build` (windows, darwin, android)                              |
+| **staticcheck** / **govulncheck**  | One job each                                                                                     |
+| **test**                           | `go test -race` and the 100% coverage gate per package                                           |
+| **coverage**                       | Aggregate coverage (`-coverpkg`), kept as an artifact for Sonar                                  |
+| **windows**                        | PowerShell, policy and procedures on a Windows runner                                            |
+| **gateway**                        | HTTP E2E test of the gateway + binary size ceiling                                               |
+| **verify** (`fmt · vet · test`)    | The required check: green only when every quality job above is green                             |
+| **sast**                           | Semgrep and CodeQL (`sast.yml`); on a PR only new findings count                                 |
+| **sonar**                          | Only on `main` / by hand: Sonar analysis + quality gate from the reports above, nothing rerun    |
+| **build** (10 platforms)           | Only on tags (`v*`) or by hand: cross-compiles, checks the binary format, smoke and E2E tests    |
+| **release**                        | Only on tags (`v*`): publishes binaries + SHA256SUMS to GitHub Releases                          |
 
 A PR must have **all required jobs green** before it can be merged.
 
