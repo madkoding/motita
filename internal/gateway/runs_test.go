@@ -536,13 +536,13 @@ func TestAnApprovalWithTheWrongIDIsRefused(t *testing.T) {
 // answering client forever.
 func TestAnAnswerForAQuestionThatWasAskedIsAcceptedEvenWhenLate(t *testing.T) {
 	var id string
-	// ready holds the question until the client is attached: a reattach replays only the question
-	// the run is still blocked on, so one asked and given up before the client attached would never
-	// reach it.
-	ready := make(chan struct{})
+	release := make(chan struct{})
 	svc := &fakeService{}
+	var conv *conversation
 	svc.task = func(ctx context.Context, _ string, _ func(string, ...any)) (string, error) {
-		<-ready
+		// The question must reach the client's stream live: one that attached after the question
+		// was already withdrawn is not replayed it (an answered approval is not shown again).
+		waitForSubscriber(conv)
 		// Ask, then give up immediately: the question is asked and the run moves on without
 		// waiting, which is what a cancelled run looks like from the handler's side.
 		dead, cancel := context.WithCancel(ctx)
@@ -556,6 +556,7 @@ func TestAnAnswerForAQuestionThatWasAskedIsAcceptedEvenWhenLate(t *testing.T) {
 	// Capture the id of the question as it goes out, so the answer can carry it.
 	svc.approverWrap = func(fn agent.Approver) { _ = fn }
 	srv := newTestServer(t, svc)
+	conv = srv.sessions[DefaultSession]
 
 	req, _ := http.NewRequest(
 		http.MethodPost,
@@ -568,12 +569,12 @@ func TestAnAnswerForAQuestionThatWasAskedIsAcceptedEvenWhenLate(t *testing.T) {
 		t.Fatalf("run: %v", err)
 	}
 	defer resp.Body.Close()
-	close(ready)
 
 	br := bufio.NewReader(resp.Body)
 	ask := waitForApproval(t, br)
 	id = ask.ID
 	_, _ = io.ReadAll(br)
+	close(release)
 
 	// The question is closed, so an answer is refused rather than silently accepted. This is the
 	// path that keeps a stale answer from landing on the NEXT question.

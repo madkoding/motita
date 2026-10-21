@@ -43,7 +43,7 @@ func TestToolsDirKeepsHomeTmpAndToolchainsOutOfTheWorkingDirectory(t *testing.T)
 	if !strings.HasPrefix(parts[1], filepath.Join(tools, "tmp", "tmp-")) {
 		t.Errorf("TMPDIR = %q, want a tmp-* under the tools directory", parts[1])
 	}
-	if parts[2] != systemPath {
+	if parts[2] != s.commandPath() || !strings.HasPrefix(parts[2], systemPath) {
 		t.Errorf("with nothing installed PATH is the system one, got %q", parts[2])
 	}
 	if entries, _ := filepath.Glob(filepath.Join(base, "tmp-*")); len(entries) != 0 {
@@ -204,5 +204,140 @@ func TestScratchDirectoryThatCannotBeMadeIsNone(t *testing.T) {
 	}
 	if got := s.scratchDir(); got != "" {
 		t.Errorf("scratchDir = %q, want none", got)
+	}
+}
+
+// A command that leaves a read-only directory in $TMPDIR (Go's module cache, `chmod -R a-w`) used
+// to leave the whole temporary directory behind: os.RemoveAll cannot empty it.
+func TestATemporaryDirectoryMadeReadOnlyIsStillRemoved(t *testing.T) {
+	tools := t.TempDir()
+	s := toolsSandbox(t, t.TempDir(), tools)
+	out, _, exit, err := s.Run(context.Background(), execx.Request{
+		Command: "/bin/sh",
+		Args:    []string{"-c", `mkdir -p "$TMPDIR/ro/deep" && touch "$TMPDIR/ro/deep/f" && chmod -R a-w "$TMPDIR/ro"`},
+	})
+	if err != nil || exit != 0 {
+		t.Fatalf("exit=%d err=%v out=%q", exit, err, out)
+	}
+	if left, _ := filepath.Glob(filepath.Join(tools, "tmp", "tmp-*")); len(left) != 0 {
+		t.Errorf("the temporary directory was left behind: %v", left)
+	}
+}
+
+// A temporary directory a dead gateway left is removed by the next run once it is a day old; a
+// recent one may belong to a run in progress, and neither is touched when keeping them is asked.
+func TestStaleTemporaryDirectoriesAreSwept(t *testing.T) {
+	tools := t.TempDir()
+	root := filepath.Join(tools, "tmp")
+	old, recent, other := filepath.Join(root, "tmp-old"), filepath.Join(root, "tmp-recent"), filepath.Join(root, "other")
+	for _, d := range []string{filepath.Join(old, "ro"), recent, other} {
+		if err := os.MkdirAll(d, 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := os.Chmod(filepath.Join(old, "ro"), 0o555); err != nil {
+		t.Fatal(err)
+	}
+	past := time.Now().Add(-2 * staleTempAge)
+	for _, d := range []string{old, other} {
+		if err := os.Chtimes(d, past, past); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	kept := &Sandbox{op: Options{ToolsDir: tools, Keep: true}, base: t.TempDir()}
+	kept.tempRoot()
+	if _, err := os.Stat(old); err != nil {
+		t.Error("with keep_ephemeral nothing is swept")
+	}
+
+	s := &Sandbox{op: Options{ToolsDir: tools}, base: t.TempDir()}
+	if got := s.tempRoot(); got != root {
+		t.Fatalf("tempRoot = %q", got)
+	}
+	if _, err := os.Stat(old); err == nil {
+		t.Error("a day-old temporary directory must be swept")
+	}
+	for _, d := range []string{recent, other} {
+		if _, err := os.Stat(d); err != nil {
+			t.Errorf("%s must stay: %v", d, err)
+		}
+	}
+}
+
+// removeTree reports what it still could not remove.
+func TestRemoveTreeReportsWhatItCannotRemove(t *testing.T) {
+	parent := t.TempDir()
+	dir := filepath.Join(parent, "d")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chmod(parent, 0o555); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { os.Chmod(parent, 0o755) })
+	if os.Geteuid() == 0 {
+		t.Skip("root removes it anyway")
+	}
+	if err := removeTree(dir); err == nil {
+		t.Error("a directory in a read-only parent cannot be removed, and must say so")
+	}
+}
+
+// The PATH a command gets keeps the system-wide installs of motita's own PATH (/usr/local/go/bin,
+// /snap/bin, /opt/homebrew/bin): with systemPath alone `go` and `node` were "not found" on machines
+// that have them. The user's home, relative entries and duplicates stay out.
+func TestCommandPathKeepsTheMachinesToolchains(t *testing.T) {
+	onPlatform(t, "linux", map[string]string{
+		"PATH": "/opt/go/bin:/usr/bin:relative:/home/me/.cargo/bin:/snap/bin/:/work/root/bin",
+	})
+	s := &Sandbox{op: Options{GitHome: "/home/me", PrivateRoots: []string{"/work/root"}}}
+	want := systemPath + ":/opt/go/bin:/snap/bin"
+	if got := s.commandPath(); got != want {
+		t.Errorf("commandPath = %q, want %q", got, want)
+	}
+	if !s.HasTool("sh") {
+		t.Error("sh is on the system PATH")
+	}
+
+	chroot := &Sandbox{op: Options{UseChroot: true}}
+	if got := chroot.commandPath(); got != systemPath {
+		t.Errorf("under a chroot commandPath = %q, want the system one", got)
+	}
+}
+
+// On Windows there is no POSIX system PATH: a command got "/usr/local/sbin:..." and found nothing,
+// not even PowerShell's own modules. It gets motita's PATH, the profiles left out.
+func TestCommandPathOnWindowsIsMotitasOwn(t *testing.T) {
+	onPlatform(t, "windows", map[string]string{
+		"PATH": "/c/Windows/System32:/c/Users/me/bin", "USERPROFILE": "/c/Users/me",
+	})
+	s := &Sandbox{}
+	if got := s.commandPath(); got != "/c/Windows/System32" {
+		t.Errorf("commandPath = %q", got)
+	}
+}
+
+// A Windows command gets what Windows programs need to start (SystemRoot, PATHEXT...), its
+// temporary directory as TEMP and TMP, and its profile folders in the sandbox's HOME.
+func TestWindowsCommandsGetTheSystemVariables(t *testing.T) {
+	onPlatform(t, "windows", map[string]string{"SystemRoot": `C:\Windows`, "PATHEXT": ".COM;.EXE"})
+	s := &Sandbox{base: "/work"}
+	env := strings.Join(s.environmentWithTmp("/tmp/run", false), "\n") + "\n"
+	for _, want := range []string{"TEMP=/tmp/run\n", "TMP=/tmp/run\n", "USERPROFILE=/work\n",
+		"APPDATA=" + filepath.Join("/work", "AppData", "Roaming") + "\n",
+		"LOCALAPPDATA=" + filepath.Join("/work", "AppData", "Local") + "\n",
+		"SystemRoot=C:\\Windows\n", "PATHEXT=.COM;.EXE\n"} {
+		if !strings.Contains(env, want) {
+			t.Errorf("missing %q in\n%s", want, env)
+		}
+	}
+	if strings.Contains(env, "ComSpec=") {
+		t.Error("a variable motita does not have is not invented")
+	}
+
+	onPlatform(t, "linux", nil)
+	if env := strings.Join(s.environmentWithTmp("/tmp/run", false), "\n"); strings.Contains(env, "TEMP=") {
+		t.Errorf("only Windows gets TEMP: %s", env)
 	}
 }
