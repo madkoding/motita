@@ -389,6 +389,8 @@ func gitGlobalOptions(args []string) (int, string) {
 			i++
 		case !gitHarmless[args[i]]:
 			return i, fmt.Sprintf("git %s changes what git runs or where, and read-only mode cannot check it", args[i])
+		default:
+			// A harmless option: nothing to skip.
 		}
 	}
 	return i, ""
