@@ -102,6 +102,10 @@ type Mode struct {
 	//
 	// It does NOT reach the mandatory floor.
 	Strict bool
+	// ApproveAll turns every Ask into Allow, like Enforce=false, but leaves the rest of the
+	// mode alone: the sandbox keeps confining the command. The mandatory floor and Strict's
+	// refusals stay refused.
+	ApproveAll bool
 	// Have reports whether a program is installed where the agent's commands will look for it.
 	// It is optional: with nil the policy cannot tell a missing tool from a present one and says
 	// nothing about it.
@@ -1333,6 +1337,9 @@ func (m Mode) Relaxing(d Decision) Decision {
 	}
 	if !m.Enforce && d.Verdict == Ask {
 		return Decision{Allow, d.Reason + " (approved automatically: the policy is not enforced)", d.Rule, false}
+	}
+	if m.ApproveAll && d.Verdict == Ask {
+		return Decision{Allow, d.Reason + " (approved automatically: allowed in the settings)", d.Rule, false}
 	}
 	return d
 }

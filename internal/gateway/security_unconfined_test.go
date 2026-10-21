@@ -207,3 +207,57 @@ func TestAutoApplySuggestionsIsOffUntilAConfirmedChange(t *testing.T) {
 		t.Fatalf("turning it off needs no confirmation: %+v", v)
 	}
 }
+
+// approveAllService is the fake that also takes the run-every-command choice, like the runner.
+type approveAllService struct {
+	fakeService
+	set []bool
+}
+
+func (u *approveAllService) SetApproveAllCommands(on bool) { u.set = append(u.set, on) }
+
+// Running every command without asking is off by default, refused without confirm, saved and handed
+// to the open and the new conversations once confirmed, and turning it back off needs nothing.
+func TestApproveAllCommandsNeedsAConfirmedChange(t *testing.T) {
+	withConfinement(t, true)
+	path := networkConfig(t, "sandbox:\n  kind: none\n")
+	svc := &approveAllService{}
+	srv := newTestServer(t, svc, func(o *Options) {
+		o.ConfigPath = path
+		o.NewService = func() (Service, error) { return &approveAllService{}, nil }
+	})
+	if v := decodeSecurity(t, get(t, srv, "/v1/security", testToken)); v.ApproveAllCommands {
+		t.Fatalf("GET = %+v, want asking", v)
+	}
+	w := sendNetwork(t, srv, http.MethodPut, "/v1/security", `{"approve_all_commands":true}`)
+	if w.Code != http.StatusBadRequest || !strings.Contains(w.Body.String(), "confirm") {
+		t.Fatalf("unconfirmed = %d %s, want 400", w.Code, w.Body.String())
+	}
+	if mustLoad(t, path).Agent.ApproveAllCommands || len(svc.set) != 0 {
+		t.Fatal("a refused change reached the file or a session")
+	}
+	v := decodeSecurity(t, sendNetwork(t, srv, http.MethodPut, "/v1/security",
+		`{"approve_all_commands":true,"confirm":true}`))
+	if !v.ApproveAllCommands || !mustLoad(t, path).Agent.ApproveAllCommands {
+		t.Fatalf("PUT on = %+v", v)
+	}
+	if len(svc.set) != 1 || !svc.set[0] {
+		t.Errorf("the open session takes the change: %v", svc.set)
+	}
+	w = sendNetwork(t, srv, http.MethodPost, "/v1/sessions", `{}`)
+	var created struct {
+		ID string `json:"id"`
+	}
+	_ = json.Unmarshal(w.Body.Bytes(), &created)
+	conv := srv.sessions[created.ID]
+	if conv == nil {
+		t.Fatalf("create: %d %s", w.Code, w.Body.String())
+	}
+	if got := conv.svc.(*approveAllService).set; len(got) != 1 || !got[0] {
+		t.Errorf("a new session starts with the saved choice: %v", got)
+	}
+	v = decodeSecurity(t, sendNetwork(t, srv, http.MethodPut, "/v1/security", `{"approve_all_commands":false}`))
+	if v.ApproveAllCommands || mustLoad(t, path).Agent.ApproveAllCommands {
+		t.Fatalf("turning it off needs no confirmation: %+v", v)
+	}
+}
