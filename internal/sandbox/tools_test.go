@@ -213,7 +213,8 @@ func TestATemporaryDirectoryMadeReadOnlyIsStillRemoved(t *testing.T) {
 	tools := t.TempDir()
 	s := toolsSandbox(t, t.TempDir(), tools)
 	out, _, exit, err := s.Run(context.Background(), execx.Request{
-		Command: "/bin/sh", Args: []string{"-c", `mkdir -p "$TMPDIR/ro/deep" && touch "$TMPDIR/ro/deep/f" && chmod -R a-w "$TMPDIR/ro"`},
+		Command: "/bin/sh",
+		Args:    []string{"-c", `mkdir -p "$TMPDIR/ro/deep" && touch "$TMPDIR/ro/deep/f" && chmod -R a-w "$TMPDIR/ro"`},
 	})
 	if err != nil || exit != 0 {
 		t.Fatalf("exit=%d err=%v out=%q", exit, err, out)
@@ -308,7 +309,9 @@ func TestCommandPathKeepsTheMachinesToolchains(t *testing.T) {
 // On Windows there is no POSIX system PATH: a command got "/usr/local/sbin:..." and found nothing,
 // not even PowerShell's own modules. It gets motita's PATH, the profiles left out.
 func TestCommandPathOnWindowsIsMotitasOwn(t *testing.T) {
-	onPlatform(t, "windows", map[string]string{"PATH": "/c/Windows/System32:/c/Users/me/bin", "USERPROFILE": "/c/Users/me"})
+	onPlatform(t, "windows", map[string]string{
+		"PATH": "/c/Windows/System32:/c/Users/me/bin", "USERPROFILE": "/c/Users/me",
+	})
 	s := &Sandbox{}
 	if got := s.commandPath(); got != "/c/Windows/System32" {
 		t.Errorf("commandPath = %q", got)
