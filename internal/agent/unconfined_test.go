@@ -76,3 +76,24 @@ func TestTheOperatorMayTrustUnconfinedRuns(t *testing.T) {
 		t.Errorf("cat ../../x: got %s/%s, want ask/unconfined-read", p.Verdict, p.Rule)
 	}
 }
+
+// Allowing every command in the settings reaches the mode, the commands keep their sandbox, and
+// what the policy refuses outright stays refused.
+func TestApproveAllCommandsReachesThePolicyMode(t *testing.T) {
+	a := agentWith(t, false)
+	a.cfg.Agent.Policy.Enforce = true
+	if a.policyMode().ApproveAll {
+		t.Fatal("asking is the default")
+	}
+	a.cfg.Agent.ApproveAllCommands = true
+	if !a.policyMode().ApproveAll {
+		t.Fatal("the setting must reach the mode")
+	}
+	p := a.planRequest("sudo ls")
+	if p.Verdict != policy.Allow || p.Request.Unconfined {
+		t.Errorf("sudo ls: got %s, unconfined %v; want allow, still confined", p.Verdict, p.Request.Unconfined)
+	}
+	if p := a.planRequest("mkfs.ext4 /dev/sda1"); p.Verdict != policy.Deny {
+		t.Errorf("the mandatory floor: got %s", p.Verdict)
+	}
+}

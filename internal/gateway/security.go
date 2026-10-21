@@ -50,6 +50,9 @@ type securityView struct {
 	// AutoApplySuggestions says the suggestions of a finished task are applied without asking
 	// (agent.auto_apply_suggestions).
 	AutoApplySuggestions bool `json:"auto_apply_suggestions"`
+	// ApproveAllCommands says the commands the policy would ask about run without asking
+	// (agent.approve_all_commands).
+	ApproveAllCommands bool `json:"approve_all_commands"`
 	// NetworkReason says why it cannot, and NetworkHint what would make it possible, when there is
 	// one (Ubuntu 24.04: the AppArmor profile motita installs). Both are empty where it can.
 	NetworkReason string `json:"network_reason,omitempty"`
@@ -69,6 +72,8 @@ type securityChange struct {
 	IsolateNetwork    *bool  `json:"isolate_network"`
 	// AutoApplySuggestions turns on applying every suggestion without asking.
 	AutoApplySuggestions *bool `json:"auto_apply_suggestions"`
+	// ApproveAllCommands turns on running every command without asking.
+	ApproveAllCommands *bool `json:"approve_all_commands"`
 	// DesktopControl turns on the agent's control of this computer's desktop.
 	DesktopControl *bool `json:"desktop_control"`
 	Confirm        bool  `json:"confirm"`
@@ -77,8 +82,10 @@ type securityChange struct {
 // widens says whether the change turns off asking or the network isolation, or turns on applying
 // suggestions without asking or the desktop control: what needs confirm.
 func (c securityChange) widens() bool {
-	return isFalse(c.AskUnconfinedRuns) || isFalse(c.IsolateNetwork) || isTrue(c.AutoApplySuggestions) ||
-		isTrue(c.DesktopControl)
+	if isFalse(c.AskUnconfinedRuns) || isFalse(c.IsolateNetwork) {
+		return true
+	}
+	return isTrue(c.AutoApplySuggestions) || isTrue(c.ApproveAllCommands) || isTrue(c.DesktopControl)
 }
 
 // empty says the change names nothing.
@@ -102,7 +109,7 @@ func (c securityChange) refusal(mode string) string {
 	switch {
 	case c.empty(mode):
 		return "send disk_access (workspace or full), ask_unconfined_runs, isolate_network, " +
-			"auto_apply_suggestions, desktop_control, or several"
+			"auto_apply_suggestions, approve_all_commands, desktop_control, or several"
 	case mode != "" && !config.ValidDiskAccess(mode):
 		return "disk_access must be workspace or full"
 	case mode == config.DiskFull && !c.Confirm:
@@ -110,8 +117,9 @@ func (c securityChange) refusal(mode string) string {
 			"sent after the person has been told what the change means"
 	case c.widens() && !c.Confirm:
 		return "running the project's code without asking where nothing confines it, giving the " +
-			"commands the network, applying suggestions without asking, or letting the agent control " +
-			"the desktop needs confirm: true, sent after the person has been told what the change means"
+			"commands the network, applying suggestions without asking, running every command without " +
+			"asking, or letting the agent control the desktop needs confirm: true, " +
+			"sent after the person has been told what the change means"
 	default:
 		return ""
 	}
@@ -132,6 +140,11 @@ type autoApplySetter interface {
 	SetAutoApplySuggestions(on bool)
 }
 
+// approveAllSetter is a service that can take the run-every-command choice for its next command.
+type approveAllSetter interface {
+	SetApproveAllCommands(on bool)
+}
+
 // desktopControlSetter is a service that can take the desktop control choice for its next turn.
 type desktopControlSetter interface {
 	SetDesktopControl(on bool)
@@ -149,6 +162,7 @@ var (
 	setAskUnconfinedRuns = config.Tx.SetAskUnconfinedRuns
 	setIsolateNetwork    = config.Tx.SetIsolateNetwork
 	setAutoApply         = config.Tx.SetAutoApplySuggestions
+	setApproveAll        = config.Tx.SetApproveAllCommands
 	setDesktopControl    = config.Tx.SetDesktopControl
 	desktopProbe         = probeDesktop
 	confinementAvailable = sandbox.ConfinementAvailable
@@ -194,6 +208,7 @@ func (s *Server) writeSecurity(w http.ResponseWriter) {
 		NetworkEnforced:   networkAvailable(),
 
 		AutoApplySuggestions: cfg.Agent.AutoApplySuggestions,
+		ApproveAllCommands:   cfg.Agent.ApproveAllCommands,
 	}
 	if !view.NetworkEnforced {
 		view.NetworkReason, view.NetworkHint = networkReason(), networkHint()
@@ -279,6 +294,8 @@ func (c securityChange) toggles() []toggle {
 			"the network isolation of the commands", "isolate_network"},
 		{c.AutoApplySuggestions, setAutoApply, applyAutoApply,
 			"applying suggestions without asking", "auto_apply_suggestions"},
+		{c.ApproveAllCommands, setApproveAll, applyApproveAll,
+			"running every command without asking", "approve_all_commands"},
 		{c.DesktopControl, setDesktopControl, applyDesktopControl,
 			"the agent's control of this computer's desktop", "desktop_control"},
 	}
@@ -314,6 +331,7 @@ func (s *Server) startingDiskAccess(svc Service) {
 		applyAskUnconfinedRuns(svc, cfg.Sandbox.AskUnconfinedRuns)
 		applyIsolateNetwork(svc, cfg.Sandbox.IsolateNetwork)
 		applyAutoApply(svc, cfg.Agent.AutoApplySuggestions)
+		applyApproveAll(svc, cfg.Agent.ApproveAllCommands)
 		applyDesktopControl(svc, cfg.Agent.DesktopControl)
 	}
 }
@@ -322,6 +340,13 @@ func (s *Server) startingDiskAccess(svc Service) {
 func applyDesktopControl(svc Service, on bool) {
 	if ds, ok := svc.(desktopControlSetter); ok {
 		ds.SetDesktopControl(on)
+	}
+}
+
+// applyApproveAll gives svc the run-every-command choice, when it can take one.
+func applyApproveAll(svc Service, on bool) {
+	if as, ok := svc.(approveAllSetter); ok {
+		as.SetApproveAllCommands(on)
 	}
 }
 

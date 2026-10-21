@@ -84,6 +84,7 @@ func (a *Agent) policyMode() policy.Mode {
 	mode := policy.Mode{
 		Enforce:    a.cfg.Agent.Policy.Enforce,
 		Strict:     a.cfg.Agent.Policy.Strict,
+		ApproveAll: a.cfg.Agent.ApproveAllCommands,
 		PowerShell: execx.IsPowerShell(shell),
 		Cmd:        execx.IsCmd(shell),
 		// Where nothing confines a command (Windows, macOS, a kernel without Landlock) the
