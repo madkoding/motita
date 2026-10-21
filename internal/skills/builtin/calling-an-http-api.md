@@ -34,7 +34,7 @@ a `404` exits `22` with `-f` and `0` without it. So without `-f`, a typo in a UR
 Always:
 
 ```sh
-curl -s -f -m 20 -o /tmp/answer.json "https://api.example.com/thing"
+curl -s -f -m 20 -o "$TMPDIR/answer.json" "https://api.example.com/thing"
 ```
 
 - `-s` — no progress meter to mix into the output.
@@ -60,11 +60,11 @@ it falls wherever the byte budget ends, so a truncated JSON document is a prefix
 Measured: `https://pypi.org/pypi/<package>/json` is **192 KB for one ordinary package**, three times
 the model-facing cap. Never let a response like that arrive whole:
 
-- **Write to a file, then read the field with a reader.** Two calls, and neither is a write to
-  anywhere the user cares about:
+- **Write to a file, then read the field with a reader.** In ONE command: `$TMPDIR` is private to
+  a command and deleted when it ends (`/tmp` is not writable from the sandbox), so a second call
+  would find nothing:
   ```sh
-  curl -s -f -m 20 -o /tmp/answer.json "https://api.example.com/thing"
-  grep -o '"version":"[^"]*"' /tmp/answer.json
+  curl -s -f -m 20 -o "$TMPDIR/answer.json" "https://api.example.com/thing" && grep -o '"version":"[^"]*"' "$TMPDIR/answer.json"
   ```
 - **Ask for the endpoint that returns the little thing.** A per-resource endpoint
   (`/repos/<owner>/<repo>`) beats a search that returns fifty of them.

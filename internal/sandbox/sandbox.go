@@ -494,7 +494,27 @@ func (s *Sandbox) Run(ctx context.Context, p execx.Request) (string, bool, int, 
 		// one line to be guessed at.
 		out = strings.TrimRight(out, "\n") + "\n" + gpgagent.Hint + "\n"
 	}
+	if confine && !p.Approved && code != 0 && refusedSystemTemp(out) {
+		out = strings.TrimRight(out, "\n") + "\n" + fmt.Sprintf(tempHint, tempDir) + "\n"
+	}
 	return out, truncated, code, err
+}
+
+// tempHint says where a confined command can put temporary files. A model's habit is /tmp, which
+// is shared with every other program of the machine and so is not among the write roots: the kernel
+// refuses the write and the model, seeing only "Permission denied", spends rounds on TMPDIR and
+// chmod instead of changing the path.
+const tempHint = "motita: /tmp is not writable from this sandbox. Write temporary files under $TMPDIR (%s, " +
+	"private to this command and deleted when it ends) or, to keep them between commands, under $HOME or the working directory."
+
+// refusedSystemTemp reports whether out shows a write under /tmp that the kernel refused.
+func refusedSystemTemp(out string) bool {
+	if !strings.Contains(out, "/tmp/") {
+		return false
+	}
+	lower := strings.ToLower(out)
+	return strings.Contains(lower, "permission denied") || strings.Contains(lower, "read-only file system") ||
+		strings.Contains(lower, "operation not permitted")
 }
 
 // writeRoots are the directories a confined command may write: where it works, the home the

@@ -429,3 +429,22 @@ func TestConfinementFailsWhenTheKernelBufferCannotBeMapped(t *testing.T) {
 		t.Errorf("the rule buffer: %v", err)
 	}
 }
+
+// Reported from a real session: the model wrote to /tmp, the kernel said "Permission denied", and
+// twelve rounds went into TMPDIR instead of the path. The refusal now names the directory to use.
+func TestARefusedWriteToSystemTempNamesTheTempDirectory(t *testing.T) {
+	needLandlock(t)
+	s := confined(t, t.TempDir())
+	script := `echo x > /tmp/motita-hint-probe.txt; echo "tmp=$TMPDIR"; exit 1`
+	out, _, _, err := s.Run(context.Background(), execx.Request{Command: "/bin/sh", Args: []string{"-c", script}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, statErr := os.Stat("/tmp/motita-hint-probe.txt"); statErr == nil {
+		_ = os.Remove("/tmp/motita-hint-probe.txt")
+		t.Fatalf("a confined command wrote to /tmp:\n%s", out)
+	}
+	if !strings.Contains(out, "/tmp is not writable") || !strings.Contains(out, "$TMPDIR") {
+		t.Errorf("the refusal must say where temporary files go: %q", out)
+	}
+}

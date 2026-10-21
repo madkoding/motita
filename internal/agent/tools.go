@@ -34,8 +34,11 @@ func describeTools(sb config.Sandbox, home string) string {
 		`Never install into the repository or system directories, never use sudo, and do not re-export PATH: `+
 		`it is already set.
 - Read the "installing-a-toolchain" procedure before installing one.
+- Temporary files: /tmp is NOT writable from a confined command. Use $TMPDIR (private to one command and deleted
+  when it ends, so no background job or later command may depend on it); to keep a file between commands put it
+  under %s or in the working directory.
 `, home, tools, filepath.Join(tools, "tools"), filepath.Join(tools, "tools"),
-		filepath.Join(tools, "bin"))
+		filepath.Join(tools, "bin"), home)
 }
 
 // powerShellSection is the prompt section of a run whose commands PowerShell runs.
