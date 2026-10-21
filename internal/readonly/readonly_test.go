@@ -23,6 +23,8 @@ func TestReadersAreAllowed(t *testing.T) {
 		{"go", []string{"version"}},
 		{"git", []string{"status"}},
 		{"git", []string{"log", "--oneline", "-5"}},
+		{"git", []string{"-C", "/work/repo", "status", "--short"}},
+		{"git", []string{"-C", "a", "-C", "b", "--no-pager", "log", "-1"}},
 		{"systemctl", []string{"status", "nginx"}},
 	}
 	for _, tc := range cases {
