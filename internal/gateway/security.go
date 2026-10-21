@@ -82,8 +82,10 @@ type securityChange struct {
 // widens says whether the change turns off asking or the network isolation, or turns on applying
 // suggestions without asking or the desktop control: what needs confirm.
 func (c securityChange) widens() bool {
-	return isFalse(c.AskUnconfinedRuns) || isFalse(c.IsolateNetwork) || isTrue(c.AutoApplySuggestions) ||
-		isTrue(c.ApproveAllCommands) || isTrue(c.DesktopControl)
+	if isFalse(c.AskUnconfinedRuns) || isFalse(c.IsolateNetwork) {
+		return true
+	}
+	return isTrue(c.AutoApplySuggestions) || isTrue(c.ApproveAllCommands) || isTrue(c.DesktopControl)
 }
 
 // empty says the change names nothing.
@@ -116,7 +118,8 @@ func (c securityChange) refusal(mode string) string {
 	case c.widens() && !c.Confirm:
 		return "running the project's code without asking where nothing confines it, giving the " +
 			"commands the network, applying suggestions without asking, running every command without " +
-			"asking, or letting the agent control the desktop needs confirm: true, sent after the person has been told what the change means"
+			"asking, or letting the agent control the desktop needs confirm: true, " +
+			"sent after the person has been told what the change means"
 	default:
 		return ""
 	}
