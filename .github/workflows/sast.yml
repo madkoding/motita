@@ -1,0 +1,71 @@
+# Static analysis: Semgrep OSS and CodeQL. Sonar Community does no taint analysis (SQLi, XSS,
+# path traversal...): these do, and ci.yml's `sonar` job imports their SARIF into Sonar.
+#
+# Called by ci.yml (workflow_call), so its jobs belong to the same run: the SARIF they upload is
+# downloaded there without a second workflow. On a pull request they analyse only new code:
+# Semgrep against the base commit and CodeQL with its queries limited to the diff, and any finding
+# fails the job.
+name: sast
+
+on:
+  workflow_call:
+
+permissions:
+  contents: read
+
+jobs:
+  semgrep:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0 # --baseline-commit needs the PR's history
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.12"
+      - name: Semgrep OSS
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+        run: |
+          # Pinned: a new release brings new rules, and --error would turn an untouched PR red.
+          pip install semgrep==1.181.0
+          # On a PR: only the findings the PR introduces, and --error fails the job.
+          pr_args=()
+          if [ -n "$BASE_SHA" ]; then pr_args=(--baseline-commit "$BASE_SHA" --error); fi
+          semgrep scan --config p/owasp-top-ten --config p/security-audit --config p/golang \
+            --exclude node_modules --exclude vendor --exclude target --exclude dist \
+            --sarif --output semgrep.sarif --metrics=off "${pr_args[@]}"
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: sarif-semgrep
+          path: semgrep.sarif
+          # Small diagnostics; the 90-day default would keep thousands of copies.
+          retention-days: 7
+
+  codeql:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      security-events: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: github/codeql-action/init@24c54180a607b1449ed407dd24f251e4e9147c8d # v4.38.3
+        with:
+          languages: go
+          queries: security-extended
+      - uses: github/codeql-action/analyze@24c54180a607b1449ed407dd24f251e4e9147c8d # v4.38.3
+        with:
+          output: codeql-sarif
+      - run: cp codeql-sarif/*.sarif codeql.sarif
+      # On a PR CodeQL already limits results to the changed lines: any result is new.
+      - name: No new CodeQL findings
+        if: github.event_name == 'pull_request'
+        run: |
+          jq -r '.runs[].results[] | "::error file=\(.locations[0].physicalLocation.artifactLocation.uri),line=\(.locations[0].physicalLocation.region.startLine)::\(.ruleId): \(.message.text)"' codeql.sarif
+          test "$(jq '[.runs[].results[]] | length' codeql.sarif)" -eq 0
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: sarif-codeql
+          path: codeql.sarif
+          # Small diagnostics; the 90-day default would keep thousands of copies.
+          retention-days: 7

@@ -82,7 +82,7 @@ jobs:
             --skip-dirs '**/node_modules,**/vendor,**/.git,**/dist,**/build,**/target,**/.venv' \
             --format sarif --output "$KV/reports/trivy.sarif" .
 
-      # On a PR, sonar.yml runs Semgrep (against the base commit, and it fails on any new finding).
+      # On a PR, sast.yml (called by ci.yml) runs Semgrep (against the base commit, and it fails on any new finding).
       - name: Semgrep (static security analysis)
         if: env.EVENT_NAME != 'pull_request'
         continue-on-error: true
