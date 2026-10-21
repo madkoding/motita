@@ -152,9 +152,17 @@ jobs:
 
       - uses: actions/configure-pages@45bfe0192ca1faeb007ade9deae92b16b8254a0d # v6.0.0
 
+      # One artifact name per ATTEMPT. A re-run keeps the artifacts of the earlier
+      # attempts in the same run, and deploy-pages refuses to choose between
+      # several called "github-pages" ("Artifact count is 3", v4.55.4 on
+      # 2026-10-21: attempt 1 hit a transient "other side closed" from the Pages
+      # API, and every re-run after it then failed on the duplicates).
       - uses: actions/upload-pages-artifact@fc324d3547104276b827a68afc52ff2a11cc49c9 # v5.0.0
         with:
+          name: github-pages-${{ github.run_attempt }}
           path: site
 
       - id: deployment
         uses: actions/deploy-pages@368f82528645a54fb793d4d04e342629a3f51346 # v5.0.1
+        with:
+          artifact_name: github-pages-${{ github.run_attempt }}
