@@ -484,3 +484,18 @@ func TestSandboxBaseDirectoryMissing(t *testing.T) {
 		t.Errorf("the base directory should NOT be created when UseChroot is false: got error %v", err)
 	}
 }
+
+func TestRefusedSystemTemp(t *testing.T) {
+	for out, want := range map[string]bool{
+		"sh: 1: cannot create /tmp/a.out: Permission denied":             true,
+		"cp: cannot create regular file '/tmp/x': Read-only file system": true,
+		"rm: cannot remove '/tmp/x': Operation not permitted":            true,
+		"cannot create /srv/a.out: Permission denied":                    false,
+		"/tmp/a.out written": false,
+		"":                   false,
+	} {
+		if got := refusedSystemTemp(out); got != want {
+			t.Errorf("refusedSystemTemp(%q) = %v, want %v", out, got, want)
+		}
+	}
+}

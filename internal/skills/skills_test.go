@@ -436,3 +436,20 @@ func TestArchivedListsNamesAndToleratesAMissingDirectory(t *testing.T) {
 		t.Errorf("Archived = %v, want [one]", got)
 	}
 }
+
+// A confined command cannot write to /tmp, so no built-in procedure may tell the model to.
+func TestBuiltinProceduresNeverWriteToSystemTemp(t *testing.T) {
+	entries, err := builtinFS.ReadDir(builtinDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, e := range entries {
+		body, err := builtinFS.ReadFile(builtinDir + "/" + e.Name())
+		if err != nil {
+			t.Fatal(err)
+		}
+		if strings.Contains(string(body), "/tmp/") {
+			t.Errorf("%s names a path under /tmp, which a confined command cannot write: use $TMPDIR", e.Name())
+		}
+	}
+}
