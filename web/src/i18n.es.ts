@@ -205,6 +205,7 @@ const first: Record<string, string> = {
   Compact: "Compacto",
   Comfortable: "Cómodo",
   Density: "Densidad",
+  "Only on this device.": "Solo en este dispositivo.",
   Large: "Grande",
   Normal: "Normal",
   Small: "Pequeño",

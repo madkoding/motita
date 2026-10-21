@@ -8,7 +8,8 @@ import { VOICE_PREFS_EVENT } from "./voice";
 
 // usePrefsSync keeps the page's preferences on the gateway: once the browser holds a credential it
 // reads them (and sends up the ones only this browser had), and from then on every save goes there.
-// When the gateway's values differ from the ones this browser had, they are applied at once.
+// When the gateway's values differ from the ones this browser had, they are applied at once, and
+// again each time the tab comes back into view.
 export function usePrefsSync(api: Api, authState: string) {
   useEffect(() => {
     if (authState !== "ok") {
@@ -16,7 +17,7 @@ export function usePrefsSync(api: Api, authState: string) {
     }
     bindPrefs(api);
     let cancelled = false;
-    (async () => {
+    const run = async () => {
       try {
         if ((await syncPrefs(api)) && !cancelled) {
           applyTheme(loadTheme());
@@ -32,9 +33,18 @@ export function usePrefsSync(api: Api, authState: string) {
       } catch {
         /* an older gateway, or one out of reach: this browser's values stand */
       }
-    })();
+    };
+    // Another browser may have changed them: look again whenever this tab comes back into view.
+    const onVisible = () => {
+      if (document.visibilityState === "visible") {
+        void run();
+      }
+    };
+    document.addEventListener("visibilitychange", onVisible);
+    void run();
     return () => {
       cancelled = true;
+      document.removeEventListener("visibilitychange", onVisible);
       bindPrefs(null);
     };
   }, [authState]);

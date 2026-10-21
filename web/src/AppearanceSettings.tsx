@@ -79,7 +79,11 @@ export function AppearanceSettings({
             ]}
           />
         </Row>
-        <Row id="settings-density" label={t("Density")}>
+        <Row
+          id="settings-density"
+          label={t("Density")}
+          hint={t("Only on this device.")}
+        >
           <Segmented<Density>
             name="settings-density"
             labelledBy="settings-density"

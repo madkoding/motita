@@ -196,6 +196,22 @@ test("the hook reads the gateway once signed in and applies what changed", async
   assert.equal(document.documentElement.dataset.fontSize, "large");
   assert.deepEqual(seen.sort(), ["motita-usage-style", "motita-voice-prefs"]);
 
+  // Another browser changed the theme: coming back into view picks it up, being hidden does not.
+  held[THEME] = '{"mode":"dark","scheme":"slate"}';
+  const view = (state) => {
+    Object.defineProperty(document, "visibilityState", {
+      value: state,
+      configurable: true,
+    });
+    document.dispatchEvent(new window.Event("visibilitychange"));
+  };
+  view("hidden");
+  await flush();
+  assert.equal(document.documentElement.dataset.scheme, "rose");
+  view("visible");
+  await flush();
+  assert.equal(document.documentElement.dataset.scheme, "slate");
+
   // Signing out unbinds: a save no longer goes up.
   await r.unmount();
   ui.saveNotify(false);
@@ -227,4 +243,17 @@ test("the hook leaves the page alone when nothing changed, was unmounted, or the
   );
   await flush();
   await broken.unmount();
+});
+
+test("syncing waits while a save is still on its way", async () => {
+  localStorage.clear();
+  const g = gateway({ [THEME]: '{"mode":"light"}' });
+  prefs.bindPrefs(g.fn);
+  ui.saveNotify(false);
+  assert.equal(await prefs.syncPrefs(g.fn), false);
+  assert.equal(localStorage.getItem(THEME), null);
+  prefs.flushPrefs();
+  await flush();
+  assert.equal(await prefs.syncPrefs(g.fn), true);
+  prefs.bindPrefs(null);
 });
