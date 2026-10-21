@@ -216,6 +216,9 @@ type AppRunner struct {
 	// Guarded like the transcript: a run reads it while the interface may set it.
 	approverMu sync.Mutex
 	approver   agent.Approver
+
+	// shell is the folder the commands a person types run in (see RunShell).
+	shell shellDir
 }
 
 // NewAppRunner creates the production runner.
@@ -303,23 +306,6 @@ func (r *AppRunner) approveAllCommands() bool {
 	r.cfgMu.Lock()
 	defer r.cfgMu.Unlock()
 	return r.Cfg.Agent.ApproveAllCommands
-}
-
-// RunShell runs one command line a PERSON typed, under the same policy and sandbox as the
-// agent's own commands, and confirms it through the approver it is handed.
-//
-// It builds an agent only to reach its policy and its executor: no model is called, so it works
-// without a key and does not touch the conversation. The approver is a parameter and not the
-// runner's installed one, because that one belongs to whichever run is in flight and a shell
-// command typed meanwhile must not borrow its question.
-func (r *AppRunner) RunShell(ctx context.Context, command string, approver agent.Approver) (string, int, error) {
-	r.cfgMu.Lock()
-	cfg, engine := r.Cfg, r.Engine
-	r.cfgMu.Unlock()
-	ag := r.newAgent(cfg, r.Log, engine, r.Box, nil, true)
-	installApproverOn(ag, approver)
-	r.installLiveApproveAll(ag)
-	return ag.RunCommand(ctx, command)
 }
 
 // Config returns the current configuration.
@@ -427,6 +413,8 @@ func (r *AppRunner) SetWorkspace(dir string) {
 	r.Cfg.Agent.WorkspaceDir = dir
 	cfg, home, root := r.Cfg, r.toolsHome, r.rootDir
 	r.cfgMu.Unlock()
+	// A folder of the old workspace means nothing in the new one.
+	r.shell.reset()
 	// Rebuild the sandbox with the new workspace directory so commands
 	// actually execute there, not in the directory the runner was born with.
 	op := sandbox.Options{
