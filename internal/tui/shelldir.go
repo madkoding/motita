@@ -85,8 +85,13 @@ func (d *shellDir) change(ws, target string) (string, int, error) {
 }
 
 // insideWorkspace is abs relative to ws when it is a folder inside it, links resolved: a link
-// inside the workspace that points out of it is outside.
+// inside the workspace that points out of it is outside. The path is first checked by its spelling,
+// so nothing outside the workspace is even looked at, and then by where its links lead.
 func insideWorkspace(ws, abs string) (string, error) {
+	abs = filepath.Clean(abs)
+	if abs != ws && !strings.HasPrefix(abs, ws+string(filepath.Separator)) {
+		return "", outsideWorkspace(ws)
+	}
 	info, err := os.Stat(abs)
 	if err != nil {
 		return "", errors.New("no such folder")
@@ -98,12 +103,17 @@ func insideWorkspace(ws, abs string) (string, error) {
 	realAbs, errAbs := filepath.EvalSymlinks(abs)
 	rel, err := filepath.Rel(realWs, realAbs)
 	if errors.Join(errWs, errAbs, err) != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
-		return "", fmt.Errorf("outside the session's folder (%s): typed commands stay in it", ws)
+		return "", outsideWorkspace(ws)
 	}
 	if rel == "." {
 		rel = ""
 	}
 	return rel, nil
+}
+
+// outsideWorkspace is why a cd out of the workspace did not move.
+func outsideWorkspace(ws string) error {
+	return fmt.Errorf("outside the session's folder (%s): typed commands stay in it", ws)
 }
 
 // errFolderGone is why a line did not run: the folder it would have run in was deleted.
