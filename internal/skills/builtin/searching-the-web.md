@@ -77,11 +77,10 @@ even under strict, while `curl | python3` and `curl | w3m` become a hard _deny_ 
 
 Practical consequences:
 
-- **Write the response to a file, then read the field with a reader.** Two calls, and both are
-  ordinary work:
+- **Write the response to a file, then read the field with a reader**, in ONE command: `$TMPDIR`
+  is private to a command and deleted when it ends, and `/tmp` is not writable from the sandbox:
   ```sh
-  curl -s -f -o /tmp/answer.json "https://en.wikipedia.org/api/rest_v1/page/summary/Zephyr_(operating_system)"
-  grep -o '"extract":"[^"]\{0,80\}' /tmp/answer.json
+  curl -s -f -o "$TMPDIR/answer.json" "https://en.wikipedia.org/api/rest_v1/page/summary/Zephyr_(operating_system)" && grep -o '"extract":"[^"]\{0,80\}' "$TMPDIR/answer.json"
   ```
 - **`grep -o` is the poor man's JSON reader** and it is on the reader list. It is enough for one
   flat field. It is not enough for nested data — and note that `jq` is on the reader list but is
@@ -107,7 +106,7 @@ record. The two places that cost most:
 Set a timeout on anything that leaves the machine. A hanging fetch is a hung task:
 
 ```sh
-curl -s -f -m 20 -o /tmp/answer.json "https://api.github.com/repos/zephyrproject-rtos/zephyr"
+curl -s -f -m 20 -o "$TMPDIR/answer.json" "https://api.github.com/repos/zephyrproject-rtos/zephyr"
 ```
 
 ## Always `-f`, and always check

@@ -5,6 +5,7 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+	"time"
 )
 
 // systemPath is the PATH a sandboxed command starts from: the system directories and
@@ -171,4 +172,29 @@ func (s *Sandbox) PrivateRoots() []string {
 		return nil
 	}
 	return append([]string(nil), s.op.PrivateRoots...)
+}
+
+// scratchMaxAge is how long a file in the scratch directory is kept.
+const scratchMaxAge = 24 * time.Hour
+
+// scratchDir is a temporary directory that outlives one command: $TMPDIR is deleted when the command
+// ends, and /tmp is not writable, so a file one command writes for the next (a test log, a diff) had
+// nowhere to go. It lives in the sandbox's HOME, a write root, and what is older than scratchMaxAge
+// is removed each time it is handed out. "" when there is no tools directory or it cannot be made.
+func (s *Sandbox) scratchDir() string {
+	home := s.Home()
+	if home == "" {
+		return ""
+	}
+	dir := filepath.Join(home, "scratch")
+	if err := os.MkdirAll(dir, 0o750); err != nil {
+		return ""
+	}
+	entries, _ := os.ReadDir(dir)
+	for _, e := range entries {
+		if info, err := e.Info(); err == nil && time.Since(info.ModTime()) > scratchMaxAge {
+			_ = os.RemoveAll(filepath.Join(dir, e.Name()))
+		}
+	}
+	return dir
 }

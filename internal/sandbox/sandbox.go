@@ -489,12 +489,41 @@ func (s *Sandbox) Run(ctx context.Context, p execx.Request) (string, bool, int, 
 		"isolation", strings.Join(modesToStrings(s.Isolation()), ","))
 
 	out, truncated, code, err := s.launch(ctx, command, args, workDir, timeout, maxOutput, spec.Limits)
-	if code != 0 && s.op.GPG.Enabled() && gpgagent.FailedToSign(out) {
-		// A sandboxed command has no terminal for pinentry: say what to do instead of leaving git's
-		// one line to be guessed at.
-		out = strings.TrimRight(out, "\n") + "\n" + gpgagent.Hint + "\n"
+	if code != 0 {
+		out = s.withFailureHint(out, confine && !p.Approved, tempDir)
 	}
 	return out, truncated, code, err
+}
+
+// withFailureHint appends to the output of a failed command the hint that fits it: how to sign
+// with gpg, or where a confined command can put temporary files.
+func (s *Sandbox) withFailureHint(out string, confinedRun bool, tempDir string) string {
+	if s.op.GPG.Enabled() && gpgagent.FailedToSign(out) {
+		// A sandboxed command has no terminal for pinentry: say what to do instead of leaving git's
+		// one line to be guessed at.
+		return strings.TrimRight(out, "\n") + "\n" + gpgagent.Hint + "\n"
+	}
+	if confinedRun && refusedSystemTemp(out) {
+		return strings.TrimRight(out, "\n") + "\n" + fmt.Sprintf(tempHint, tempDir) + "\n"
+	}
+	return out
+}
+
+// tempHint says where a confined command can put temporary files. A model's habit is /tmp, which
+// is shared with every other program of the machine and so is not among the write roots: the kernel
+// refuses the write and the model, seeing only "Permission denied", spends rounds on TMPDIR and
+// chmod instead of changing the path.
+const tempHint = "motita: /tmp is not writable from this sandbox. Write temporary files under $TMPDIR (%s, " +
+	"private to this command and deleted when it ends) or, to keep them between commands, under $MOTITA_SCRATCH."
+
+// refusedSystemTemp reports whether out shows a write under /tmp that the kernel refused.
+func refusedSystemTemp(out string) bool {
+	if !strings.Contains(out, "/tmp/") {
+		return false
+	}
+	lower := strings.ToLower(out)
+	return strings.Contains(lower, "permission denied") || strings.Contains(lower, "read-only file system") ||
+		strings.Contains(lower, "operation not permitted")
 }
 
 // writeRoots are the directories a confined command may write: where it works, the home the
@@ -836,6 +865,9 @@ func (s *Sandbox) environmentWithTmp(tempDir string, logins bool) []string {
 		"HOME=" + home,
 		"LANG=C.UTF-8",
 		"TMPDIR=" + tempDir,
+	}
+	if scratch := s.scratchDir(); scratch != "" {
+		base = append(base, "MOTITA_SCRATCH="+scratch)
 	}
 	for _, key := range []string{"TERM", "USER", "SHELL"} {
 		if v, ok := os.LookupEnv(key); ok {
