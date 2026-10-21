@@ -491,7 +491,6 @@ func Start(opts Options) (*Server, error) {
 	// lock once the gateway serves.
 	s.openScheduleStore()
 	s.openPush()
-	s.prefs = openPrefs(s.opts.PrefsPath)
 	s.openFriction()
 	s.openPeers()
 	resumeInterrupted(s)
@@ -882,8 +881,7 @@ func (s *Server) routes() *http.ServeMux {
 	// one configuration every conversation runs on.
 	mux.Handle("GET /v1/ui", plain(s.handleGetUI))
 	mux.Handle("PUT /v1/ui", plain(s.handlePutUI))
-	mux.Handle("GET /v1/ui/prefs", plain(s.handleGetPrefs))
-	mux.Handle("PUT /v1/ui/prefs", plain(s.handlePutPrefs))
+	s.routePrefs(mux, plain)
 	// The LLM providers and the default model: process-wide too, saved beside and in the
 	// configuration. See llm.go.
 	s.llmRoutes(mux, plain)

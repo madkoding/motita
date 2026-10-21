@@ -113,6 +113,13 @@ func writeFileAtomic(path string, data []byte) error {
 	return os.Rename(tmp, path)
 }
 
+// routePrefs opens the preferences and serves them under /v1/ui/prefs.
+func (s *Server) routePrefs(mux *http.ServeMux, plain func(http.HandlerFunc) http.Handler) {
+	s.prefs = openPrefs(s.opts.PrefsPath)
+	mux.Handle("GET /v1/ui/prefs", plain(s.handleGetPrefs))
+	mux.Handle("PUT /v1/ui/prefs", plain(s.handlePutPrefs))
+}
+
 // prefsView is what GET and PUT /v1/ui/prefs answer.
 type prefsView struct {
 	Prefs map[string]string `json:"prefs"`

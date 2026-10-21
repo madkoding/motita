@@ -169,7 +169,9 @@ export async function syncPrefs(api: Api): Promise<boolean> {
     const theirs = server[key];
     if (typeof theirs === "string") {
       changed = adopt(key, merged(key, theirs, local), local) || changed;
-    } else if (local !== null) {
+      continue;
+    }
+    if (local !== null) {
       up[key] = shared(key, local);
     }
   }
