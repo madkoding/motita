@@ -383,7 +383,7 @@ test("the time to a reset reads in days, hours and minutes", () => {
 });
 
 test("the open or closed state survives a storage that refuses", async () => {
-  const S = await load("settings.ts");
+  const S = await load("uiPrefs.ts");
   const proto = window.Storage.prototype;
   const { getItem, setItem } = proto;
   proto.getItem = proto.setItem = () => {
@@ -473,7 +473,7 @@ test("leaving the panel ignores a late answer", async () => {
 });
 
 test("the usage style falls back to bars and survives a storage that refuses", async () => {
-  const S = await load("settings.ts");
+  const S = await load("uiPrefs.ts");
   localStorage.setItem(S.USAGE_STYLE_KEY, "nonsense");
   assert.equal(S.loadUsageStyle(), "bars");
   const proto = window.Storage.prototype;

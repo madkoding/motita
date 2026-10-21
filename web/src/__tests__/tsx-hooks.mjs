@@ -12,8 +12,9 @@
 // and stop merging. Node loads .ts files itself (type stripping), and a .css import becomes an
 // empty module.
 //
-// Extensionless relative imports resolve to .ts before .tsx, as esbuild and Vite try them, so
-// "./settings" is settings.ts and not Settings.tsx on a case-sensitive filesystem.
+// Extensionless relative imports resolve to .ts before .tsx, as esbuild and Vite try them. No two
+// sources may differ only in case ("./settings" and "./Settings"): on macOS or Windows the
+// filesystem is case-insensitive, and the import finds the wrong file.
 //
 // One module graph is shared per test file (node runs each in its own process), so a context such
 // as AppCtx is the same object for every module that imports it, as it is in the app.

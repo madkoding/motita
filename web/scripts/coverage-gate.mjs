@@ -69,10 +69,21 @@ function parse(text) {
 
 const report = parse(readFileSync(lcovPath, "utf8"));
 let wanted = sources("src");
+let failed = 0;
+// Two sources whose import paths differ only in case ("./settings" and "./Settings") resolve to
+// the same file on macOS and Windows, whose filesystems ignore case: the build breaks there only.
+const byImport = new Map();
+for (const f of wanted) {
+  const key = f.replace(/\.tsx?$/, "").toLowerCase();
+  if (byImport.has(key)) {
+    say(`${f}: its import path differs only in case from ${byImport.get(key)}`);
+    failed++;
+  }
+  byImport.set(key, f);
+}
 if (only.length) {
   wanted = only.map((f) => relative(".", f));
 }
-let failed = 0;
 for (const f of wanted.sort((a, b) => a.localeCompare(b))) {
   const r = report.get(f);
   if (!r) {

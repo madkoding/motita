@@ -11,7 +11,7 @@ import {
   loadUsageStyle,
   saveUsageOpen,
   type UsageStyle,
-} from "./settings";
+} from "./uiPrefs";
 import { plural, t, tf } from "./i18n";
 import { choose } from "./choose";
 import { formatTokens, tokenBreakdown } from "./appFormat";

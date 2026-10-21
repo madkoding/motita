@@ -423,10 +423,15 @@ func TestGateFingerprint(t *testing.T) {
 func TestAutoRunsMakeWithTheFileItRead(t *testing.T) {
 	dir := t.TempDir()
 	writeFile(t, dir, "Makefile", "check:\n\t@true\n")
+	want := "Makefile"
+	if _, err := os.Stat(filepath.Join(dir, "makefile")); err == nil {
+		// A filesystem that ignores case (macOS): make itself opens "makefile" before "Makefile".
+		want = "makefile"
+	}
 	checks := autoAnchor(dir).detectChecks()
 	if len(checks) != 1 || checks[0].Command != "make" ||
-		strings.Join(checks[0].Args, " ") != "-f Makefile check" {
-		t.Fatalf("make must be run with -f Makefile: %+v", checks)
+		strings.Join(checks[0].Args, " ") != "-f "+want+" check" {
+		t.Fatalf("make must be run with -f %s: %+v", want, checks)
 	}
 }
 

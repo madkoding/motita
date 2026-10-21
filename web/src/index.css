@@ -3358,7 +3358,7 @@ html[data-density="compact"] .provider-choice .git-account-icon {
 
 /* ─── Global typography & density ─────────────────────────────────
  * The two settings in the Settings modal are applied to <html> as
- * `data-font-size` / `data-density` (settings.ts). They used to reach only the
+ * `data-font-size` / `data-density` (uiPrefs.ts). They used to reach only the
  * chat bubbles (`.msg`) and the turn gap, so a reader who picked "Large" got
  * bigger answers and an unchanged sidebar, header, composer and drawers.
  *

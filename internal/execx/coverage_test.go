@@ -30,7 +30,7 @@ func TestRunAppliesDefaultTimeoutAndMaxOutput(t *testing.T) {
 // TestKillGroupWithoutProcess: with no started process there is nothing to kill
 // and it must say so instead of panicking.
 func TestKillGroupWithoutProcess(t *testing.T) {
-	cmd := exec.Command("/bin/true")
+	cmd := exec.Command("true") // /usr/bin/true on macOS
 	if err := killGroup(cmd); err == nil {
 		t.Error("with no process started it must return an error")
 	}
@@ -39,7 +39,7 @@ func TestKillGroupWithoutProcess(t *testing.T) {
 // TestKillGroupOnFinishedProcess: killing a group whose process already exited
 // must also report it instead of panicking.
 func TestKillGroupOnFinishedProcess(t *testing.T) {
-	cmd := exec.Command("/bin/true")
+	cmd := exec.Command("true") // /usr/bin/true on macOS
 	if err := cmd.Start(); err != nil {
 		t.Fatal(err)
 	}

@@ -10,7 +10,7 @@ import (
 //
 // Both steps DEGRADE rather than fail. A path that cannot be made absolute
 // (there is no working directory to be relative to) or whose symlinks cannot be
-// resolved (it does not exist yet) is compared as it was written: refusing to
+// resolved at all is compared as it was written: refusing to
 // compare two paths is a worse answer than comparing them literally, because
 // samePath's only caller is a guard that would then reject a worktree that is
 // perfectly valid.
@@ -22,10 +22,20 @@ func resolve(p string) string {
 	if abs, err := filepath.Abs(p); err == nil {
 		p = abs
 	}
-	if resolved, err := filepath.EvalSymlinks(p); err == nil {
-		return resolved
+	// A path that does not exist (a worktree whose directory was removed) resolves through its
+	// deepest parent that does: on macOS /var is a link to /private/var, and git lists the
+	// resolved form.
+	dir, rest := p, ""
+	resolved, err := filepath.EvalSymlinks(dir)
+	for err != nil && filepath.Dir(dir) != dir {
+		rest = filepath.Join(filepath.Base(dir), rest)
+		dir = filepath.Dir(dir)
+		resolved, err = filepath.EvalSymlinks(dir)
 	}
-	return p
+	if err == nil {
+		dir = resolved
+	}
+	return filepath.Join(dir, rest)
 }
 
 // samePath reports whether two paths name the same directory.

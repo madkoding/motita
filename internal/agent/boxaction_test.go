@@ -58,6 +58,10 @@ func (f *fakeBoxes) Runtime() string {
 func boxAgent(t *testing.T, fb *fakeBoxes, answer bool) (*fixture, *[]ApprovalRequest) {
 	t.Helper()
 	e := fileAgent(t)
+	// The actions name the workspace resolved; on macOS the temp dir is reached through /var.
+	if real, err := filepath.EvalSymlinks(e.dir); err == nil {
+		e.dir = real
+	}
 	old := newBoxes
 	t.Cleanup(func() { newBoxes = old })
 	newBoxes = func(context.Context) (boxes, error) { return fb, nil }

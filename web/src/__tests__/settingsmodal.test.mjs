@@ -77,7 +77,6 @@ Object.defineProperty(dom.window.navigator, "permissions", {
 globalThis.requestAnimationFrame = (cb) => setTimeout(() => cb(Date.now()), 0);
 globalThis.cancelAnimationFrame = (id) => clearTimeout(id);
 
-// "./settings" is settings.ts: tsx-hooks.mjs tries .ts before .tsx, so it is not Settings.tsx.
 const { SettingsModal, unblockSteps } = await load("Settings.tsx");
 const { h, render } = await import("preact");
 const { act } = await import("preact/test-utils");
