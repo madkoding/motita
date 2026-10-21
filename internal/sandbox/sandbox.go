@@ -526,16 +526,22 @@ func refusedSystemTemp(out string) bool {
 		strings.Contains(lower, "operation not permitted")
 }
 
+// sharedMemory is where POSIX shared memory and named semaphores live. /dev itself is granted only
+// the files already there (`> /dev/null`), which left Python's multiprocessing (a Lock, a process
+// pool, pytest-xdist) and headless Chromium failing with "Permission denied" even for a command the
+// user approved. A missing directory (macOS) is skipped when the rules are made.
+const sharedMemory = "/dev/shm"
+
 // writeRoots are the directories a confined command may write: where it works, the home the
 // sandbox keeps for it, its own temporary directory, the git directories a worktree writes into,
-// and /dev for `> /dev/null`.
+// /dev for `> /dev/null` and sharedMemory.
 //
 // The tools directory's bin/ and tools/ are not among them. They come first on the PATH of every
 // session of every project, so a command one project's agent ran unasked could otherwise plant a
 // `git` or a `make` there for all the others. Installing a toolchain is a command the user
 // approves, and an approved command is not confined.
 func (s *Sandbox) writeRoots(workDir, tempDir string) []string {
-	roots := []string{s.base, workDir, tempDir, "/dev"}
+	roots := []string{s.base, workDir, tempDir, "/dev", sharedMemory}
 	if home := s.Home(); home != "" {
 		roots = append(roots, home)
 	}
@@ -553,7 +559,7 @@ func (s *Sandbox) writeRoots(workDir, tempDir string) []string {
 // the user's files elsewhere (privatePaths).
 func (s *Sandbox) confine(spec *Spec, workDir, tempDir string) {
 	if s.FullDisk() {
-		spec.WriteRoots = []string{"/"}
+		spec.WriteRoots = []string{"/", sharedMemory}
 		spec.HiddenPaths = s.hiddenPaths(spec.WriteRoots)
 		// With the whole disk writable, the secrets above are kept unreadable AND unwritable (a
 		// command could otherwise rewrite motita.yaml to disable the policy), and the tools bin
@@ -588,7 +594,7 @@ var privateTrees = []string{"/home", "/root", "/mnt", "/media", "/srv", "/run/me
 // model logins. The git logins stay readable: an approved `git push` is what they are for, and the
 // credential helper git starts runs inside the same confinement.
 func (s *Sandbox) confineApproved(spec *Spec) {
-	spec.WriteRoots = []string{"/"}
+	spec.WriteRoots = []string{"/", sharedMemory}
 	spec.HiddenPaths = s.approvedHidden()
 }
 

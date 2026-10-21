@@ -448,3 +448,32 @@ func TestARefusedWriteToSystemTempNamesTheTempDirectory(t *testing.T) {
 		t.Errorf("the refusal must say where temporary files go: %q", out)
 	}
 }
+
+// Python's multiprocessing (a Lock, a process pool) and headless Chromium create files in
+// /dev/shm. /dev is granted only the files already in it, so every one of them failed with
+// "Permission denied": confined to the workspace, on the whole disk and approved alike.
+func TestSharedMemoryStaysWritable(t *testing.T) {
+	needLandlock(t)
+	if !isDir(sharedMemory) {
+		t.Skip("no " + sharedMemory + " here")
+	}
+	base := t.TempDir()
+	s, err := New(Options{Dir: base, ConfineWrites: true, HiddenPaths: []string{filepath.Join(t.TempDir(), "secret")}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	script := `f=` + sharedMemory + `/motita-test-$$ && echo x > "$f" && rm "$f" && echo shm-ok`
+	for _, tc := range []struct {
+		name     string
+		fullDisk bool
+		approved bool
+	}{{"workspace", false, false}, {"full disk", true, false}, {"approved", false, true}} {
+		s.SetFullDisk(tc.fullDisk)
+		out, _, exit, err := s.Run(context.Background(), execx.Request{
+			Command: "/bin/sh", Args: []string{"-c", script}, Approved: tc.approved,
+		})
+		if err != nil || exit != 0 || !strings.Contains(out, "shm-ok") {
+			t.Errorf("%s: exit=%d err=%v out=%q", tc.name, exit, err, out)
+		}
+	}
+}
