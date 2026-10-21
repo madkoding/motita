@@ -233,6 +233,10 @@ func (a *Agent) readOnly() bool {
 	return a.cfg.Agent.ReadOnly
 }
 
+// ShellFor is the interpreter cfg's command lines run through, for a caller that writes a line
+// for it (the typed shell's folder prefix, see tui.AppRunner.RunShell).
+func ShellFor(cfg config.Config) string { return shellFor(cfg) }
+
 // shellFor returns the interpreter for the platform this binary runs on. It is a
 // small indirection so the agent does not import the platform files of cmd/chat.
 func shellFor(cfg config.Config) string {
