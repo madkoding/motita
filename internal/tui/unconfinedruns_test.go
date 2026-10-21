@@ -67,7 +67,10 @@ func TestApproveAllReachesTheAgentOfARunningTurn(t *testing.T) {
 	ag := agent.New(r.Config(), logx.Global(), &llm.Client{}, nil, nil)
 	ag.ExecCommand = func(context.Context, execx.Request) (string, bool, int, error) { return "", false, 0, nil }
 	asked := 0
-	ag.SetApprover(func(context.Context, agent.ApprovalRequest) (bool, error) { asked++; return false, nil })
+	ag.SetApprover(func(context.Context, agent.ApprovalRequest) (bool, error) {
+		asked++
+		return false, nil
+	})
 	r.installLiveApproveAll(ag)
 	if _, _, err := ag.RunCommand(context.Background(), "sudo ls"); err == nil || asked != 1 {
 		t.Fatalf("before the change sudo is asked about: asked %d, err %v", asked, err)
