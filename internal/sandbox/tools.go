@@ -143,12 +143,16 @@ func removeTree(dir string) error {
 	if err := os.RemoveAll(dir); err == nil {
 		return nil
 	}
-	_ = filepath.WalkDir(dir, func(p string, d fs.DirEntry, err error) error {
-		if err == nil && d.IsDir() {
-			_ = os.Chmod(p, 0o700)
-		}
-		return nil
-	})
+	// Through an os.Root: a symlink the command left (or swapped in) cannot lead the chmod outside.
+	if root, err := os.OpenRoot(dir); err == nil {
+		_ = fs.WalkDir(root.FS(), ".", func(p string, d fs.DirEntry, err error) error {
+			if err == nil && d.IsDir() {
+				_ = root.Chmod(p, 0o700) // #nosec G302 -- a directory must keep its search bit to be emptied.
+			}
+			return nil
+		})
+		_ = root.Close()
+	}
 	return os.RemoveAll(dir)
 }
 
