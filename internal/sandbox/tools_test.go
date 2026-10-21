@@ -43,7 +43,7 @@ func TestToolsDirKeepsHomeTmpAndToolchainsOutOfTheWorkingDirectory(t *testing.T)
 	if !strings.HasPrefix(parts[1], filepath.Join(tools, "tmp", "tmp-")) {
 		t.Errorf("TMPDIR = %q, want a tmp-* under the tools directory", parts[1])
 	}
-	if parts[2] != systemPath {
+	if parts[2] != s.commandPath() || !strings.HasPrefix(parts[2], systemPath) {
 		t.Errorf("with nothing installed PATH is the system one, got %q", parts[2])
 	}
 	if entries, _ := filepath.Glob(filepath.Join(base, "tmp-*")); len(entries) != 0 {
@@ -280,5 +280,61 @@ func TestRemoveTreeReportsWhatItCannotRemove(t *testing.T) {
 	}
 	if err := removeTree(dir); err == nil {
 		t.Error("a directory in a read-only parent cannot be removed, and must say so")
+	}
+}
+
+// The PATH a command gets keeps the system-wide installs of motita's own PATH (/usr/local/go/bin,
+// /snap/bin, /opt/homebrew/bin): with systemPath alone `go` and `node` were "not found" on machines
+// that have them. The user's home, relative entries and duplicates stay out.
+func TestCommandPathKeepsTheMachinesToolchains(t *testing.T) {
+	onPlatform(t, "linux", map[string]string{
+		"PATH": "/opt/go/bin:/usr/bin:relative:/home/me/.cargo/bin:/snap/bin/:/work/root/bin",
+	})
+	s := &Sandbox{op: Options{GitHome: "/home/me", PrivateRoots: []string{"/work/root"}}}
+	want := systemPath + ":/opt/go/bin:/snap/bin"
+	if got := s.commandPath(); got != want {
+		t.Errorf("commandPath = %q, want %q", got, want)
+	}
+	if !s.HasTool("sh") {
+		t.Error("sh is on the system PATH")
+	}
+
+	chroot := &Sandbox{op: Options{UseChroot: true}}
+	if got := chroot.commandPath(); got != systemPath {
+		t.Errorf("under a chroot commandPath = %q, want the system one", got)
+	}
+}
+
+// On Windows there is no POSIX system PATH: a command got "/usr/local/sbin:..." and found nothing,
+// not even PowerShell's own modules. It gets motita's PATH, the profiles left out.
+func TestCommandPathOnWindowsIsMotitasOwn(t *testing.T) {
+	onPlatform(t, "windows", map[string]string{"PATH": "/c/Windows/System32:/c/Users/me/bin", "USERPROFILE": "/c/Users/me"})
+	s := &Sandbox{}
+	if got := s.commandPath(); got != "/c/Windows/System32" {
+		t.Errorf("commandPath = %q", got)
+	}
+}
+
+// A Windows command gets what Windows programs need to start (SystemRoot, PATHEXT...), its
+// temporary directory as TEMP and TMP, and its profile folders in the sandbox's HOME.
+func TestWindowsCommandsGetTheSystemVariables(t *testing.T) {
+	onPlatform(t, "windows", map[string]string{"SystemRoot": `C:\Windows`, "PATHEXT": ".COM;.EXE"})
+	s := &Sandbox{base: "/work"}
+	env := strings.Join(s.environmentWithTmp("/tmp/run", false), "\n") + "\n"
+	for _, want := range []string{"TEMP=/tmp/run\n", "TMP=/tmp/run\n", "USERPROFILE=/work\n",
+		"APPDATA=" + filepath.Join("/work", "AppData", "Roaming") + "\n",
+		"LOCALAPPDATA=" + filepath.Join("/work", "AppData", "Local") + "\n",
+		"SystemRoot=C:\\Windows\n", "PATHEXT=.COM;.EXE\n"} {
+		if !strings.Contains(env, want) {
+			t.Errorf("missing %q in\n%s", want, env)
+		}
+	}
+	if strings.Contains(env, "ComSpec=") {
+		t.Error("a variable motita does not have is not invented")
+	}
+
+	onPlatform(t, "linux", nil)
+	if env := strings.Join(s.environmentWithTmp("/tmp/run", false), "\n"); strings.Contains(env, "TEMP=") {
+		t.Errorf("only Windows gets TEMP: %s", env)
 	}
 }
