@@ -293,6 +293,21 @@ func installApproverOn(ag AgentRunner, fn agent.Approver) {
 	}
 }
 
+// installLiveApproveAll makes the agent read the run-every-command choice from this runner at each
+// command, so a change made in the settings while a turn runs reaches that turn's next command.
+func (r *AppRunner) installLiveApproveAll(ag AgentRunner) {
+	if setter, ok := ag.(interface{ SetApproveAllSource(func() bool) }); ok {
+		setter.SetApproveAllSource(r.approveAllCommands)
+	}
+}
+
+// approveAllCommands reports whether every command the policy asks about runs without asking, now.
+func (r *AppRunner) approveAllCommands() bool {
+	r.cfgMu.Lock()
+	defer r.cfgMu.Unlock()
+	return r.Cfg.Agent.ApproveAllCommands
+}
+
 // RunShell runs one command line a PERSON typed, under the same policy and sandbox as the
 // agent's own commands, and confirms it through the approver it is handed.
 //
@@ -319,6 +334,7 @@ func (r *AppRunner) RunShell(ctx context.Context, command string, approver agent
 	}
 	ag := r.newAgent(cfg, r.Log, engine, r.Box, nil, true)
 	installApproverOn(ag, approver)
+	r.installLiveApproveAll(ag)
 	out, exit, err := ag.RunCommand(ctx, line)
 	if exit != 0 {
 		out += repoHint(dir, out)
@@ -1083,6 +1099,7 @@ func (r *AppRunner) RunTask(ctx context.Context, task string, progress func(stri
 	// about is proposed in the middle of the turn, and an approver installed afterwards would
 	// arrive after the question had already been answered with a refusal.
 	installApproverOn(ag, r.approverOrNil())
+	r.installLiveApproveAll(ag)
 	r.equipAgent(ag)
 	// The project this session works in, the same sentences Plan mode's system prompt ends with:
 	// a turn in Task mode is as bound to the project as a question in Plan mode, and it is the one

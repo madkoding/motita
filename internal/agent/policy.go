@@ -84,7 +84,7 @@ func (a *Agent) policyMode() policy.Mode {
 	mode := policy.Mode{
 		Enforce:    a.cfg.Agent.Policy.Enforce,
 		Strict:     a.cfg.Agent.Policy.Strict,
-		ApproveAll: a.cfg.Agent.ApproveAllCommands,
+		ApproveAll: a.approveAll(),
 		PowerShell: execx.IsPowerShell(shell),
 		Cmd:        execx.IsCmd(shell),
 		// Where nothing confines a command (Windows, macOS, a kernel without Landlock) the
@@ -98,6 +98,19 @@ func (a *Agent) policyMode() policy.Mode {
 		mode.Have = a.sandbox.HasTool
 	}
 	return mode
+}
+
+// SetApproveAllSource makes the agent read agent.approve_all_commands from fn at each command
+// instead of from the configuration it was built with, so a choice made in the settings while a
+// turn runs reaches that turn's next command. Nil goes back to the configuration.
+func (a *Agent) SetApproveAllSource(fn func() bool) { a.approveAllNow = fn }
+
+// approveAll reports whether every command the policy asks about runs without asking, now.
+func (a *Agent) approveAll() bool {
+	if a.approveAllNow != nil {
+		return a.approveAllNow()
+	}
+	return a.cfg.Agent.ApproveAllCommands
 }
 
 // policyDir is the directory the policy measures "inside" against: the workspace the

@@ -888,7 +888,9 @@ func (m Mode) DecideLine(line, dir string) Decision {
 	for _, seg := range lineSegments(main) {
 		d, skip, final := m.segmentDecision(seg, dir)
 		if final {
-			return d
+			// A segment that cannot be read decides the line, and the mode still has its say:
+			// `ls $(pwd)` asked even with every command allowed in the settings.
+			return m.Relaxing(d)
 		}
 		if skip {
 			continue

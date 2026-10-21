@@ -76,6 +76,9 @@ type Agent struct {
 	//
 	// Both are better than refusing, which is what the agent used to do in either case.
 	Interactive bool
+	// approveAllNow, when set, is where agent.approve_all_commands is read at each command: see
+	// SetApproveAllSource.
+	approveAllNow func() bool
 	// steer is what the person says while a task runs: see steer.go.
 	steer steering
 
