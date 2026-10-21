@@ -61,7 +61,9 @@ func TestReadOnlyModeRefusesEveryKnownBypass(t *testing.T) {
 		{"tree", "-o", "out"}, {"tree", "-ao", "out"}, {"tree", "-R", "-H", ".", "-L", "1"},
 		// git: options before the subcommand, --output, grep -O, and the non-listing forms of
 		// branch, tag, remote and config.
-		{"git", "-c", "core.pager=./x", "log"}, {"git", "-C", "/tmp", "status"},
+		{"git", "-c", "core.pager=./x", "log"}, {"git", "-C"},
+		{"git", "-C", "/tmp", "commit", "-m", "x"}, {"git", "-C", "/tmp", "-c", "core.pager=x", "log"},
+		{"git", "-C", "/tmp", "push"}, {"git", "-C", "/tmp", "log", "--output=x"},
 		{"git", "--exec-path=/x", "status"}, {"git", "--config-env=core.pager=X", "log"},
 		{"git", "log", "--output=x"}, {"git", "diff", "--output", "x"}, {"git", "show", "--output=x", "HEAD"},
 		{"git", "grep", "-O./x", "p"}, {"git", "grep", "-O", "./x", "p"}, {"git", "grep", "-nO./x", "p"},
