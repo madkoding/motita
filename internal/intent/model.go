@@ -9,21 +9,24 @@ import (
 	"time"
 )
 
-// SourceModel means the rules matched nothing and a model call picked the mode.
+// SourceModel means the model picked the mode.
 const SourceModel = "model"
 
+// SourceFallback means the model was asked and did not decide, so the rules' guess was kept; its
+// Note says so, so that guess is not mistaken for the model's.
+const SourceFallback = "fallback"
+
 // ModelTimeout bounds the model call. It runs before the turn starts, so the person is waiting
-// on it; a slow answer falls back to the rules' default instead of holding the turn. 15 seconds
+// on it; a slow answer falls back to the rules' guess instead of holding the turn. 15 seconds
 // was too short for the claude-code provider, which starts the claude CLI for every call: the
-// call timed out and every message the rules could not read became a task (reported from real
-// use as "it cannot tell whether I ask for a plan or a task"). Gate keeps that wait to one turn
-// when the provider keeps failing.
+// call timed out and every message became the rules' guess (reported from real use as "it
+// cannot tell whether I ask for a plan or a task"). Gate keeps that wait to one turn when the
+// provider keeps failing.
 const ModelTimeout = 30 * time.Second
 
-// ReasonModelFailed is the Reason of a message the rules could not place and the model did not
-// decide (an error, a timeout, an answer that is not a kind): the person reads that the guess is
-// the bare default, and that switching the mode is likely worth it.
-const ReasonModelFailed = "default, the model did not decide"
+// NoteNoModel ends the Note of a fallback (an error, a timeout, an answer that is not a kind):
+// the person reads that the rules guessed, and that switching the mode may be worth it.
+const NoteNoModel = "the model did not decide"
 
 // ModelRest is how long the model is not asked again after a call failed. A provider that times
 // out once ("context deadline exceeded") usually does it again, and every ask holds the turn for
@@ -72,7 +75,7 @@ func (g *Gate) Wrap(complete Completer) Completer {
 }
 
 // ModelSystem is the instruction of the model call. It is short on purpose: the call decides
-// one word, and every token of it is spent before every ambiguous turn.
+// one word, and every token of it is spent before every turn auto mode routes.
 const ModelSystem = "You route a user's message to a coding agent. " +
 	`Answer with JSON only: {"kind":"plan"} or {"kind":"task"}.` + "\n" +
 	`"plan": the user wants an answer, an explanation, a review or a design, ` +
@@ -80,21 +83,26 @@ const ModelSystem = "You route a user's message to a coding agent. " +
 	"and nothing in the project should change yet.\n" +
 	`"task": the user wants something done or changed in the project; ` +
 	"also greetings, thanks and small talk.\n" +
-	`A wish is an order ("I need it to...", "quiero que..."): "task". ` +
-	`Asking to make a plan, a proposal or a design is "plan", even with "make" or "haz".` + "\n" +
+	`A wish is an order ("I need it to...", "quiero que..."), ` + // spanish-fixture: what the model reads
+	`and so is a go-ahead ("ok", "dale"): "task". ` +
+	`Being told not to change anything, or asked to make a plan or a proposal, is "plan".` + "\n" +
 	`When unsure, answer "plan": planning when work was wanted costs one message, ` +
 	"working when a plan was wanted changes files."
 
 // Completer asks a model for one completion of a system and a user message.
 type Completer func(ctx context.Context, system, user string) (string, error)
 
-// Refine asks the model to decide what the rules could not. A decision the rules made, or an
-// explicit one, is returned as it is: the model is the fallback, never an override, so the
-// cheap and explainable path stays the one that runs whenever it can. Any failure of the call
-// (an error, a timeout, an answer that is not one of the two kinds) keeps the rules' default,
-// with ReasonModelFailed so the person can tell that guess from one the model made.
+// Refine asks the model whether the message wants a plan or a task, and the model decides: word
+// lists cannot follow every way people ask (reported from real use: "auto mode should ask the
+// cheap model, not decide it with ordinary ifs"). Every message that does not name its mode is
+// asked about, whatever the rules guessed. The rules' guess in d is what is kept when there is no
+// model or the call fails (an error, a timeout, a resting Gate, an answer that is not one of the
+// two kinds), as SourceFallback. An explicit /plan or /task, or an empty message, is never asked.
+//
+// A go-ahead the model also reads as a task keeps ReasonGoAhead, so the plan on the table is the
+// one carried out.
 func Refine(ctx context.Context, d Decision, complete Completer) Decision {
-	if d.Source != SourceDefault || complete == nil {
+	if d.Source == SourceExplicit || complete == nil || strings.TrimSpace(d.Prompt) == "" {
 		return d
 	}
 	ctx, cancel := context.WithTimeout(ctx, ModelTimeout)
@@ -102,10 +110,14 @@ func Refine(ctx context.Context, d Decision, complete Completer) Decision {
 	text, err := complete(ctx, ModelSystem, d.Prompt)
 	kind, ok := modelKind(text)
 	if err != nil || !ok {
-		d.Reason = ReasonModelFailed
+		d.Source = SourceFallback
 		return d
 	}
-	return Decision{kind, d.Prompt, SourceModel, "model"}
+	reason := "model"
+	if kind == KindTask && d.Reason == ReasonGoAhead {
+		reason = ReasonGoAhead
+	}
+	return Decision{kind, d.Prompt, SourceModel, reason}
 }
 
 // modelKind reads the model's answer: the JSON object it was asked for, found inside whatever

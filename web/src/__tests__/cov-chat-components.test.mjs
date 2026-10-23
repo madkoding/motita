@@ -614,7 +614,7 @@ test("the mode badge says what auto mode picked, and the menu sends the message 
       turn: 2,
       liveHere: false,
       mode: "task",
-      why: "default, the model did not decide",
+      why: "question; the model did not decide",
     }),
     {
       cpInfo: { 2: { files: true } },
@@ -623,11 +623,15 @@ test("the mode badge says what auto mode picked, and the menu sends the message 
   );
   const still = busy.q("span.mode-badge");
   assert.ok(still);
-  assert.equal(text(still), "Task?", "a bare default is marked unsure");
+  assert.equal(
+    text(still),
+    "Task?",
+    "a guess the model did not make is marked unsure",
+  );
   assert.equal(still.dataset.unsure, "");
   assert.match(
     still.getAttribute("title"),
-    /default, the model did not decide/,
+    /question; the model did not decide/,
   );
   assert.equal(busy.q("button.cp-btn"), null);
   await busy.m.unmount();

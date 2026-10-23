@@ -82,16 +82,19 @@ func (m *modelService) CompleteIntent(context.Context, string, string) (string, 
 }
 
 // A model that does not answer is said so on the turn, logged, and then left alone for a while:
-// the next message the rules cannot place does not wait on it again.
+// the next message does not wait on it again, and the rules decide meanwhile.
 func TestAutoRunRestsAModelThatDidNotAnswer(t *testing.T) {
 	var got []string
 	sink := newLogSink(t)
 	svc := &modelService{fakeService: autoService(&got), err: context.DeadlineExceeded}
 	srv := newTestServer(t, svc, func(o *Options) { o.Log = sink.log })
 	path := sessionPath(srv, DefaultSession, "/run")
-	for _, body := range []string{`{"task":"the retry policy"}`, `{"task":"the cache"}`} {
+	for body, note := range map[string]string{
+		`{"task":"the retry policy"}`:     `mode: task (default; the model did not decide)`,
+		`{"task":"fix the retry policy"}`: `mode: task (action \"fix\"; the model did not decide)`,
+	} {
 		events := withoutPreamble(t, collect(t, srv, http.MethodPost, path, body))
-		if len(events) == 0 || !strings.Contains(events[0].Data, "mode: task (default, the model did not decide)") {
+		if len(events) == 0 || !strings.Contains(events[0].Data, note) {
 			t.Fatalf("%s: the failed guess was not announced: %+v", body, events)
 		}
 	}
@@ -103,8 +106,9 @@ func TestAutoRunRestsAModelThatDidNotAnswer(t *testing.T) {
 	}
 }
 
-// When the rules have nothing, the service's model decides; when they do, it is not asked.
-func TestAutoRunAsksTheModelOnlyWhenTheRulesHaveNothing(t *testing.T) {
+// The service's model decides every message that does not name its mode, even one the rules would
+// have read as an order; an explicit /task is never asked about.
+func TestAutoRunLetsTheModelDecide(t *testing.T) {
 	var got []string
 	svc := &modelService{fakeService: autoService(&got), answer: `{"kind":"plan"}`}
 	srv := newTestServer(t, svc)
@@ -115,10 +119,12 @@ func TestAutoRunAsksTheModelOnlyWhenTheRulesHaveNothing(t *testing.T) {
 		t.Fatalf("the model's decision was not announced: %+v", events)
 	}
 	collect(t, srv, http.MethodPost, path, `{"task":"fix the retry policy"}`)
-	if svc.asked != 1 {
-		t.Errorf("the model was asked %d times, want 1", svc.asked)
+	collect(t, srv, http.MethodPost, path, `{"task":"/task fix the retry policy"}`)
+	if svc.asked != 2 {
+		t.Errorf("the model was asked %d times, want 2", svc.asked)
 	}
-	if strings.Join(got, ",") != "plan:the retry policy,task:fix the retry policy" {
+	want := "plan:the retry policy,plan:fix the retry policy,task:fix the retry policy"
+	if strings.Join(got, ",") != want {
 		t.Errorf("ran %v", got)
 	}
 }
