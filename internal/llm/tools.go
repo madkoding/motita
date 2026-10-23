@@ -3,6 +3,8 @@ package llm
 import (
 	"encoding/json"
 	"fmt"
+	"reflect"
+	"strconv"
 	"strings"
 )
 
@@ -73,10 +75,126 @@ func (fc FunctionCall) DecodeArguments(dest any) error {
 	if len(trimmed) == 0 {
 		return nil
 	}
-	if err := json.Unmarshal(trimmed, dest); err != nil {
+	var generic any
+	if err := json.Unmarshal(trimmed, &generic); err != nil {
+		return fmt.Errorf("could not decode arguments object: %w", err)
+	}
+	normalized, err := json.Marshal(CoerceValue(generic, reflect.TypeOf(dest)))
+	if err != nil {
+		return fmt.Errorf("could not decode arguments object: %w", err)
+	}
+	if err := json.Unmarshal(normalized, dest); err != nil {
 		return fmt.Errorf("could not decode arguments object: %w", err)
 	}
 	return nil
+}
+
+// CoerceValue turns the values a model sent as text into the type the destination
+// field declares, when the conversion loses nothing. It walks the destination type,
+// not the JSON, so a string field keeps a numeric-looking string ("123" stays "123")
+// and only a field that is really a number or a bool is converted.
+//
+// The accepted formats are:
+//   - int, int8..int64: a base-10 integer in text ("50", "-3"), trimmed of spaces.
+//     A decimal ("1.5") or anything ParseInt refuses is left as it came, so the
+//     decode reports a type error instead of truncating or rounding.
+//   - uint, uint8..uint64: a base-10 unsigned integer in text ("50"), trimmed.
+//   - float32, float64: a decimal number in text ("1.5", "2"), trimmed.
+//   - bool: "true" or "false" in any case, trimmed.
+//   - struct: each exported field is coerced by its json tag name (or Go name).
+//   - slice, array: each element is coerced by the element type.
+//   - map: each value is coerced by the value type.
+//
+// Anything else is returned unchanged.
+func CoerceValue(v any, t reflect.Type) any {
+	if t == nil {
+		return v
+	}
+	for t.Kind() == reflect.Pointer {
+		t = t.Elem()
+	}
+	switch t.Kind() {
+	case reflect.Struct:
+		m, ok := v.(map[string]any)
+		if !ok {
+			return v
+		}
+		out := make(map[string]any, len(m))
+		for k, val := range m {
+			out[k] = val
+		}
+		for i := 0; i < t.NumField(); i++ {
+			f := t.Field(i)
+			if f.PkgPath != "" {
+				continue
+			}
+			name := f.Name
+			if tag := f.Tag.Get("json"); tag != "" {
+				if tag == "-" {
+					continue
+				}
+				if n, _, _ := strings.Cut(tag, ","); n != "" {
+					name = n
+				}
+			}
+			if val, ok := out[name]; ok {
+				out[name] = CoerceValue(val, f.Type)
+			}
+		}
+		return out
+	case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64:
+		if s, ok := v.(string); ok {
+			if n, err := strconv.ParseInt(strings.TrimSpace(s), 10, 64); err == nil {
+				return n
+			}
+		}
+		return v
+	case reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64:
+		if s, ok := v.(string); ok {
+			if n, err := strconv.ParseUint(strings.TrimSpace(s), 10, 64); err == nil {
+				return n
+			}
+		}
+		return v
+	case reflect.Float32, reflect.Float64:
+		if s, ok := v.(string); ok {
+			if f, err := strconv.ParseFloat(strings.TrimSpace(s), 64); err == nil {
+				return f
+			}
+		}
+		return v
+	case reflect.Bool:
+		if s, ok := v.(string); ok {
+			switch strings.ToLower(strings.TrimSpace(s)) {
+			case "true":
+				return true
+			case "false":
+				return false
+			}
+		}
+		return v
+	case reflect.Slice, reflect.Array:
+		arr, ok := v.([]any)
+		if !ok {
+			return v
+		}
+		out := make([]any, len(arr))
+		for i, e := range arr {
+			out[i] = CoerceValue(e, t.Elem())
+		}
+		return out
+	case reflect.Map:
+		m, ok := v.(map[string]any)
+		if !ok {
+			return v
+		}
+		out := make(map[string]any, len(m))
+		for k, e := range m {
+			out[k] = CoerceValue(e, t.Elem())
+		}
+		return out
+	}
+	return v
 }
 
 // trimSpace returns a trimmed copy of the raw message.

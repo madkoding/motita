@@ -21,6 +21,15 @@ func TestDecodeArgsCoercesNumericText(t *testing.T) {
 	}
 }
 
+// A decimal is not an integer. "1.5" must be rejected, not truncated to 1 or rounded
+// to 2: the coercion only accepts a lossless conversion, and ParseInt refuses it.
+func TestDecodeArgsRejectsDecimalTextForInt(t *testing.T) {
+	var args searchIndexArgs
+	if err := decodeArgs(raw(`{"query":"x","limit":"1.5"}`), &args); err == nil {
+		t.Fatalf("limit = %d, want a type error for \"1.5\"", args.Limit)
+	}
+}
+
 func TestDecodeArgsCoercesBooleanText(t *testing.T) {
 	var args struct {
 		Literal bool `json:"literal"`
