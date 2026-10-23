@@ -62,12 +62,15 @@ export function useSessionActions({
 
   // createSession opens a new conversation and switches to it. It says which one it opened, so
   // a message typed with no conversation on screen can go on into the one made for it; nothing
-  // when the gateway refused or could not be reached. A project has ONE main session: asking for
-  // a new one opens the one it has, and parallel work goes to threads its agent opens.
+  // when the gateway refused or could not be reached. A project holds as many sessions as the
+  // person opens: the first is its main one, in the project's folder, and every later one is
+  // a thread of it, in a worktree of its own so two sessions never edit the same files.
+  // `reuse` is for work that belongs in the project's folder: it opens the main session the
+  // project has instead of making another.
   const createSession = useCallback(
-    async (projectId?: string): Promise<string | undefined> => {
+    async (projectId?: string, reuse = false): Promise<string | undefined> => {
       const main = mainSessionOf(sessions, projectId ?? "");
-      if (main) {
+      if (main && reuse) {
         await switchSession(main.id);
         return main.id;
       }
@@ -76,7 +79,7 @@ export function useSessionActions({
       try {
         const body = choose(
           projectId,
-          JSON.stringify({ project_id: projectId }),
+          JSON.stringify({ project_id: projectId, parent_id: main?.id }),
           "{}",
         );
         const res = await api(SESSIONS_URL, {

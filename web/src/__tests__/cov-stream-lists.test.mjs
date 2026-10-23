@@ -346,14 +346,21 @@ test("a new session is created, listed and opened; a refusal says why", async ()
   assert.deepEqual(conv.switched, ["new1", "p1-s"]);
   assert.equal(gw.calls.at(-2).body, '{"project_id":"p1"}');
 
-  // A project that already has its main session opens that one instead of making another.
-  cur().lists.setSessions([
+  // A project that already has its main session gets another session: a thread of the main one,
+  // so the gateway gives it a worktree of its own. Asked to reuse, the main one is opened instead.
+  const p9 = [
     { id: "main", project_id: "p9", created: "2024-01" },
     { id: "th", project_id: "p9", parent_id: "main", created: "2024-02" },
-  ]);
+  ];
+  cur().lists.setSessions(p9);
   await h.act(() => {});
-  const calls = gw.calls.length;
+  gw.routes["POST /v1/sessions"] = () => res(200, { id: "th2" });
+  gw.routes["GET /v1/sessions"] = () => res(200, { sessions: p9 });
   await h.act(() => cur().actions.createSession("p9"));
+  assert.equal(gw.calls.at(-2).body, '{"project_id":"p9","parent_id":"main"}');
+  assert.equal(conv.switched.at(-1), "th2");
+  const calls = gw.calls.length;
+  await h.act(() => cur().actions.createSession("p9", true));
   assert.equal(gw.calls.length, calls, "nothing is created");
   assert.equal(conv.switched.at(-1), "main");
 
