@@ -49,7 +49,11 @@ func makeAgent(t *testing.T, readOnly bool) (*agent.Agent, *fakeExecutor) {
 	t.Helper()
 	cfg := config.Default()
 	cfg.Agent.ReadOnly = readOnly
-	cfg.Agent.WorkspaceDir = t.TempDir()
+	// The workspace is the test's whole temporary root, not one directory inside it: t.TempDir
+	// hands out siblings, and a confined command may only read what the sandbox was given by
+	// name. With the workspace one level down, a test that searches a tree it just made fails
+	// for a reason that is not the code, wherever TMPDIR points.
+	cfg.Agent.WorkspaceDir = filepath.Dir(t.TempDir())
 	log, err := logx.New(logx.Options{Level: logx.Error, Console: false})
 	if err != nil {
 		t.Fatal(err)

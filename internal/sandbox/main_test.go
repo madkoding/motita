@@ -25,7 +25,41 @@ func TestMain(m *testing.M) {
 		return
 	}
 
+	restore := tempOutsidePrivateTrees()
 	l, _ := logx.New(logx.Options{Level: logx.Error, Console: false})
 	logx.Install(l)
-	os.Exit(m.Run())
+	code := m.Run()
+	restore()
+	os.Exit(code)
+}
+
+// tempOutsidePrivateTrees points TMPDIR at a fresh directory outside the trees the sandbox
+// keeps private, and returns the function that puts the environment back and removes it.
+//
+// t.TempDir follows TMPDIR, and a TMPDIR inside a tree the sandbox keeps private (the user's
+// home, the tools directory) makes every temporary tree unreadable to a confined command: the
+// tests that read what they just wrote fail for a reason that is not the code. The base is
+// named here, not taken from the environment, so the suite gives the same answer wherever it
+// runs. /tmp is named directly because os.TempDir follows the very TMPDIR this replaces.
+func tempOutsidePrivateTrees() func() {
+	previous, had := os.LookupEnv("TMPDIR")
+	base := ""
+	for _, dir := range []string{"/tmp", "/var/tmp", "/dev/shm"} {
+		if made, err := os.MkdirTemp(dir, "motita-sandbox-test-"); err == nil {
+			base = made
+			break
+		}
+	}
+	if base == "" {
+		return func() {}
+	}
+	os.Setenv("TMPDIR", base)
+	return func() {
+		if had {
+			os.Setenv("TMPDIR", previous)
+		} else {
+			os.Unsetenv("TMPDIR")
+		}
+		os.RemoveAll(base)
+	}
 }
