@@ -111,6 +111,52 @@ var actionVerbs = set(
 	"convierte", "convertir", "limpia", "limpiar", "genera", "generar", "edita", "editar",
 	"modifica", "modificar", "traduce", "traducir", "pon", "quita", "quitar", "integra",
 	"integrar", "despliega", "desplegar", "configura", "configurar", "mejora", "mejorar",
+	"resolve", "solve", "repair", "adjust", "optimize", "document", "enable", "disable", "include",
+	"split", "combine", "reduce", "increase", "sync", "use", "revert", "undo", "finish", "complete",
+	"resuelve", "resolver", "soluciona", "solucionar", "repara", "reparar", "ajusta", "ajustar",
+	"optimiza", "optimizar", "documenta", "documentar", "activa", "activar", "desactiva", "desactivar",
+	"habilita", "habilitar", "deshabilita", "deshabilitar", "incluye", "incluir", "separa", "separar",
+	"divide", "dividir", "combina", "combinar", "reduce", "reducir", "aumenta", "aumentar",
+	"sincroniza", "sincronizar", "usa", "usar", "revierte", "revertir", "deshaz", "deshacer", // spanish-fixture: input
+	"termina", "terminar", "completa", "completar",
+)
+
+// subjunctives are the Spanish verbs of a wish ("quiero que lo arregles") mapped to the
+// imperative of actionVerbs: built from the regular endings, plus the irregular ones listed.
+var subjunctives = subjunctiveForms(map[string]string{ // spanish-fixture: the Spanish the classifier reads
+	"corrijas": "corrige", "traduzcas": "traduce", "reduzcas": "reduce", "incluyas": "incluye",
+	"hagas": "haz", "pongas": "pon", "deshagas": "deshaz",
+})
+
+// desires open a wish that is an order: "quiero agregar", "I need you to fix", "vamos a mover".
+var desires = set(
+	"want", "need", "like", "let's", "lets", "gotta",
+	"quiero", "queremos", "necesito", "necesitamos", "gustaria", "encantaria", "vamos",
+	"hay", "tienes", "tenemos", "debes", "debemos",
+)
+
+// leads are the words that may stand before the verb of an order without changing it: fillers,
+// polite openers, the person, a wish. "ok, ahora agrega", "can you please", "I'd like you to".
+var leads = set(
+	"ok", "okay", "hey", "hi", "hello", "so", "now", "also", "and", "then", "please", "pls", "you",
+	"i", "i'd", "id", "we", "just",
+	"oye", "hola", "bueno", "pues", "ahora", "tambien", "ademas", "y", "luego", "despues", // spanish-fixture: input
+	"entonces", // spanish-fixture: input
+	"porfa", "porfavor", "me", "nos", "yo", "solo",
+)
+
+// wishJoiners follow a wish before its verb: "quiero QUE LO", "need you TO", "vamos A".
+var wishJoiners = set("que", "to", "a", "de", "lo", "la", "los", "las", "le", "les", "te", "se")
+
+// planNouns are what a person asks for when they want a plan made, not the work: "haz un plan",
+// "make a proposal". The verbs that MAKE one are in planMakers; executing a plan is a task.
+var planNouns = set("plan", "planes", "plans", "propuesta", "propuestas", "proposal", "proposals",
+	"roadmap", "estrategia", "strategy", "outline", "esquema")
+
+var planMakers = set(
+	"make", "create", "write", "draft", "give", "prepare", "build", "propose", "want", "need",
+	"haz", "crea", "escribe", "redacta", "dame", "prepara", "arma", "armame", "elabora", "genera",
+	"propon", "proponme", "quiero", "necesito", "hazme", "creame", "escribeme", "preparame",
 )
 
 // planVerbs open a sentence that asks for a plan or an explanation rather than for the work.
@@ -161,22 +207,49 @@ func Classify(text string) Decision {
 			return Decision{KindPlan, trimmed, SourceHeuristic, "asked not to change anything"}
 		}
 	}
-	sentences := splitSentences(plain)
-	// An order anywhere is a task: "why does it fail? fix it" wants the fix.
+	if kind, reason, ok := byWording(splitSentences(plain)); ok {
+		return Decision{kind, trimmed, SourceHeuristic, reason}
+	}
+	return Decision{KindTask, trimmed, SourceDefault, "default"}
+}
+
+// byWording reads the sentences of a message for its mode, and the reason to give.
+func byWording(sentences []sentence) (kind, reason string, ok bool) {
+	// Asked to make a plan is a plan, though "haz" and "make" are orders: "hazme un plan".
 	for _, s := range sentences {
-		if verb, ok := orders(s.words); ok {
-			return Decision{KindTask, trimmed, SourceHeuristic, `action "` + verb + `"`}
+		if noun, ok := asksForPlan(s.words); ok {
+			return KindPlan, `asks for a "` + noun + `"`, true
+		}
+	}
+	// An order anywhere is a task: "why does it fail? fix it" wants the fix, and so does
+	// "revisa por qué falla y arréglalo". (spanish-fixture: the Spanish the classifier reads)
+	for _, s := range sentences {
+		if verb, ok := sentenceOrder(s); ok {
+			return KindTask, `action "` + verb + `"`, true
 		}
 	}
 	for _, s := range sentences {
 		if planVerbs[s.words[0]] {
-			return Decision{KindPlan, trimmed, SourceHeuristic, `asks to "` + s.words[0] + `"`}
+			return KindPlan, `asks to "` + s.words[0] + `"`, true
 		}
 		if s.question || questionWords[s.words[0]] || isPorQue(s.words) {
-			return Decision{KindPlan, trimmed, SourceHeuristic, "question"}
+			return KindPlan, "question", true
 		}
 	}
-	return Decision{KindTask, trimmed, SourceDefault, "default"}
+	return "", "", false
+}
+
+// sentenceOrder is the order a sentence gives: at its head, or joined to it by "and". A question
+// that joins two verbs ("how do I add and remove items?") asks about both instead.
+func sentenceOrder(s sentence) (string, bool) {
+	if verb, ok := orders(s.words); ok {
+		return verb, true
+	}
+	asking := (s.question || questionWords[s.words[0]]) && !politeOpeners[s.words[0]]
+	if asking {
+		return "", false
+	}
+	return chainedOrder(s.words)
 }
 
 // InitPrompt is the task behind /init: write the AGENTS.md that later sessions in this project
@@ -207,26 +280,78 @@ func explicitMode(text string) (Decision, bool) {
 	return Decision{mode.kind, prompt, SourceExplicit, strings.ToLower(head)}, true
 }
 
-// orders reports whether a sentence is an order, and the verb that makes it one. A polite
-// opener ("can you", "puedes") is skipped, along with a "you" or "please" after it.
+// orders reports whether a sentence is an order, and the verb that makes it one. What may stand
+// before the verb is skipped: a polite opener ("can you", "puedes", "por favor"), fillers ("ok",
+// "ahora", "also") and a wish ("quiero que lo", "I need you to", "vamos a").
 func orders(words []string) (string, bool) {
-	i := 0
-	switch {
-	case len(words) > 1 && words[0] == "por" && words[1] == "favor":
-		i = 2
-	case politeOpeners[words[0]]:
-		i++
-		for i < len(words) && (words[i] == "you" || words[i] == "please" || words[i] == "me") {
-			i++
-		}
-	default:
-		// No opener: the order, if there is one, starts at the first word.
-	}
+	i, _ := leadLength(words)
 	if i == len(words) {
 		return "", false
 	}
 	verb := imperative(words[i])
 	return verb, actionVerbs[verb]
+}
+
+// leadLength is how many words open the sentence before the verb of a possible order, and
+// whether they made a wish.
+func leadLength(words []string) (int, bool) {
+	i, wished, inWish := 0, false, false
+	for i < len(words) && i < 8 {
+		w := words[i]
+		switch {
+		case w == "por" && i+1 < len(words) && words[i+1] == "favor":
+			i += 2
+			continue
+		case politeOpeners[w] || leads[w]:
+			// "I'd like YOU to": a filler does not end a wish.
+		case desires[w]:
+			wished, inWish = true, true
+		case inWish && wishJoiners[w]:
+			// Still in the wish: "quiero que lo ...".
+		default:
+			return i, wished
+		}
+		i++
+	}
+	return i, wished
+}
+
+// chainedOrder finds an order joined to the sentence by "and"/"y"/"then": "look at the logs and
+// fix it". Only the word right after the joiner (fillers aside) is read, so "what is X and why"
+// is not an order.
+func chainedOrder(words []string) (string, bool) {
+	for i := 1; i < len(words)-1; i++ {
+		if !chainWords[words[i]] {
+			continue
+		}
+		if verb, ok := orders(words[i+1:]); ok {
+			return verb, true
+		}
+	}
+	return "", false
+}
+
+// chainWords join a second clause to a sentence.
+var chainWords = set("and", "then", "y", "luego", "despues", "e")
+
+// asksForPlan reports whether the sentence asks for a plan to be made, and the noun that says so:
+// a verb that makes one, or a wish ("quiero un plan"), with a plan noun among the next words. A
+// verb that carries a plan out ("implementa el plan") is an order, not this.
+func asksForPlan(words []string) (string, bool) {
+	i, wished := leadLength(words)
+	if i == len(words) {
+		return "", false
+	}
+	maker := planMakers[words[i]]
+	if !maker && (!wished || actionVerbs[imperative(words[i])]) {
+		return "", false
+	}
+	for _, w := range words[i:min(len(words), i+5)] {
+		if planNouns[w] {
+			return w, true
+		}
+	}
+	return "", false
 }
 
 // imperative is a Spanish imperative without the pronouns fused onto it: "arreglalo" is
@@ -235,12 +360,56 @@ func imperative(word string) string {
 	if actionVerbs[word] {
 		return word
 	}
+	if verb, ok := subjunctives[word]; ok {
+		return verb
+	}
 	for _, c := range clitics {
 		if stem, ok := strings.CutSuffix(word, c); ok && actionVerbs[stem] {
 			return stem
 		}
 	}
 	return word
+}
+
+// subjunctiveForms is the second-person subjunctive of every imperative in actionVerbs that has
+// a regular one ("agrega" → "agregues", "sube" → "subas"), plus the irregular ones given.
+// (spanish-fixture: the Spanish the classifier reads)
+func subjunctiveForms(irregular map[string]string) map[string]string {
+	out := make(map[string]string, len(actionVerbs))
+	for verb := range actionVerbs {
+		if form, ok := regularSubjunctive(verb); ok {
+			out[form] = verb
+		}
+	}
+	for form, verb := range irregular {
+		out[form] = verb
+	}
+	return out
+}
+
+// spelledStems keeps the sound of an -ar stem before the subjunctive's "e": "publica" is
+// "publiques", "agrega" "agregues", "actualiza" "actualices". (spanish-fixture: classifier input)
+var spelledStems = map[string]string{"c": "qu", "g": "gu", "z": "c"}
+
+// regularSubjunctive is the second-person subjunctive of an imperative with a regular one: an -a
+// imperative takes -es and an -e one -as. Infinitives, English verbs and the short irregular
+// imperatives have none.
+func regularSubjunctive(verb string) (string, bool) {
+	if len(verb) < 3 || strings.HasSuffix(verb, "r") {
+		return "", false
+	}
+	stem := verb[:len(verb)-1]
+	if strings.HasSuffix(verb, "e") {
+		return stem + "as", true
+	}
+	if !strings.HasSuffix(verb, "a") {
+		return "", false
+	}
+	last := stem[len(stem)-1:]
+	if spelled, ok := spelledStems[last]; ok {
+		stem = stem[:len(stem)-1] + spelled
+	}
+	return stem + "es", true
 }
 
 // isPorQue reports whether a sentence opens with "por que" (why),
