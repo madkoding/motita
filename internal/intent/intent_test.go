@@ -56,6 +56,7 @@ func TestClassify(t *testing.T) {
 		// Nothing matched: the mode every message had before auto mode.
 		{"hola!", KindTask, SourceDefault, ""},
 		{"can", KindTask, SourceDefault, ""},
+		{"ok then", KindTask, SourceDefault, ""},
 		{"thanks, looks good", KindTask, SourceDefault, ""},
 		{"", KindTask, SourceDefault, ""},
 	} {
