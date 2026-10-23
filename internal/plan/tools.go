@@ -7,6 +7,8 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"reflect"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -223,7 +225,11 @@ func (p *Planner) toolSearchInFiles(ctx context.Context, raw []byte) string {
 	return sb.String()
 }
 
-// decodeArgs normalizes provider differences (object, stringified object, empty).
+// decodeArgs normalizes provider differences (object, stringified object, empty) and
+// tolerates the type drift models show in practice: a number sent as text ("50" instead
+// of 50) or a boolean sent as text ("true"). Only lossless conversions are accepted, and
+// only where the destination field asks for that type; anything else is left as it came,
+// so json.Unmarshal still reports a real type error instead of a value being guessed at.
 func decodeArgs(raw []byte, dst any) error {
 	trimmed := bytes.TrimSpace(raw)
 	if len(trimmed) == 0 || string(trimmed) == "null" {
@@ -239,7 +245,110 @@ func decodeArgs(raw []byte, dst any) error {
 	if len(trimmed) == 0 {
 		return nil
 	}
-	return json.Unmarshal(trimmed, dst)
+	var generic any
+	if err := json.Unmarshal(trimmed, &generic); err != nil {
+		return err
+	}
+	normalized, err := json.Marshal(coerceValue(generic, reflect.TypeOf(dst)))
+	if err != nil {
+		return err
+	}
+	return json.Unmarshal(normalized, dst)
+}
+
+// coerceValue turns the values a model sent as text into the type the destination field
+// declares, when the conversion loses nothing. It walks the destination type, not the
+// JSON, so a string field keeps a numeric-looking string ("123" stays "123") and only a
+// field that is really a number or a bool is converted.
+func coerceValue(v any, t reflect.Type) any {
+	if t == nil {
+		return v
+	}
+	for t.Kind() == reflect.Pointer {
+		t = t.Elem()
+	}
+	switch t.Kind() {
+	case reflect.Struct:
+		m, ok := v.(map[string]any)
+		if !ok {
+			return v
+		}
+		out := make(map[string]any, len(m))
+		for k, val := range m {
+			out[k] = val
+		}
+		for i := 0; i < t.NumField(); i++ {
+			f := t.Field(i)
+			if f.PkgPath != "" {
+				continue
+			}
+			name := f.Name
+			if tag := f.Tag.Get("json"); tag != "" {
+				if tag == "-" {
+					continue
+				}
+				if n, _, _ := strings.Cut(tag, ","); n != "" {
+					name = n
+				}
+			}
+			if val, ok := out[name]; ok {
+				out[name] = coerceValue(val, f.Type)
+			}
+		}
+		return out
+	case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64:
+		if s, ok := v.(string); ok {
+			if n, err := strconv.ParseInt(strings.TrimSpace(s), 10, 64); err == nil {
+				return n
+			}
+		}
+		return v
+	case reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64:
+		if s, ok := v.(string); ok {
+			if n, err := strconv.ParseUint(strings.TrimSpace(s), 10, 64); err == nil {
+				return n
+			}
+		}
+		return v
+	case reflect.Float32, reflect.Float64:
+		if s, ok := v.(string); ok {
+			if f, err := strconv.ParseFloat(strings.TrimSpace(s), 64); err == nil {
+				return f
+			}
+		}
+		return v
+	case reflect.Bool:
+		if s, ok := v.(string); ok {
+			switch strings.ToLower(strings.TrimSpace(s)) {
+			case "true":
+				return true
+			case "false":
+				return false
+			}
+		}
+		return v
+	case reflect.Slice, reflect.Array:
+		arr, ok := v.([]any)
+		if !ok {
+			return v
+		}
+		out := make([]any, len(arr))
+		for i, e := range arr {
+			out[i] = coerceValue(e, t.Elem())
+		}
+		return out
+	case reflect.Map:
+		m, ok := v.(map[string]any)
+		if !ok {
+			return v
+		}
+		out := make(map[string]any, len(m))
+		for k, e := range m {
+			out[k] = coerceValue(e, t.Elem())
+		}
+		return out
+	}
+	return v
 }
 
 // limitString truncates text to the given byte length and appends a notice.
