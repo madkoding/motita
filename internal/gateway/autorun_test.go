@@ -72,12 +72,35 @@ func TestAutoRunRefusesWhatItCannotServe(t *testing.T) {
 type modelService struct {
 	*fakeService
 	answer string
+	err    error
 	asked  int
 }
 
 func (m *modelService) CompleteIntent(context.Context, string, string) (string, error) {
 	m.asked++
-	return m.answer, nil
+	return m.answer, m.err
+}
+
+// A model that does not answer is said so on the turn, logged, and then left alone for a while:
+// the next message the rules cannot place does not wait on it again.
+func TestAutoRunRestsAModelThatDidNotAnswer(t *testing.T) {
+	var got []string
+	sink := newLogSink(t)
+	svc := &modelService{fakeService: autoService(&got), err: context.DeadlineExceeded}
+	srv := newTestServer(t, svc, func(o *Options) { o.Log = sink.log })
+	path := sessionPath(srv, DefaultSession, "/run")
+	for _, body := range []string{`{"task":"the retry policy"}`, `{"task":"the cache"}`} {
+		events := withoutPreamble(t, collect(t, srv, http.MethodPost, path, body))
+		if len(events) == 0 || !strings.Contains(events[0].Data, "mode: task (default, the model did not answer)") {
+			t.Fatalf("%s: the failed guess was not announced: %+v", body, events)
+		}
+	}
+	if svc.asked != 1 {
+		t.Errorf("the model was asked %d times, want 1: it should rest after failing", svc.asked)
+	}
+	if logged := strings.Join(sink.lines(t), "\n"); !strings.Contains(logged, "the model did not answer") {
+		t.Errorf("the failure was not logged:\n%s", logged)
+	}
 }
 
 // When the rules have nothing, the service's model decides; when they do, it is not asked.

@@ -1,6 +1,9 @@
 package intent
 
-import "testing"
+import (
+	"strings"
+	"testing"
+)
 
 func TestClassify(t *testing.T) {
 	for _, tc := range []struct {
@@ -83,6 +86,27 @@ func TestGoAheadIsATaskThatSaysSo(t *testing.T) {
 		"dale una vuelta al diseño"} { // spanish-fixture: input
 		if Classify(text).Reason == ReasonGoAhead {
 			t.Errorf("%q is not a bare go-ahead", text)
+		}
+	}
+}
+
+func TestEnglishBaseFindsTheVerbOfAGerund(t *testing.T) {
+	for word, want := range map[string]string{
+		"fixing": "fix", "making": "make", "running": "run", "looking": "looking", "fix": "fix",
+	} {
+		if got := englishBase(word); got != want {
+			t.Errorf("englishBase(%q) = %q, want %q", word, got, want)
+		}
+	}
+}
+
+func TestAimsAtPlanLooksOnlyAFewWordsAhead(t *testing.T) {
+	for words, want := range map[string]bool{
+		"a plan": true, "me a quick summary": true, "me a": false, "the button": false,
+		"me a quick short plan": false,
+	} {
+		if got := aimsAtPlan(strings.Fields(words)); got != want {
+			t.Errorf("aimsAtPlan(%q) = %v, want %v", words, got, want)
 		}
 	}
 }

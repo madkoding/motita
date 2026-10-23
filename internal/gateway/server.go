@@ -21,6 +21,7 @@ import (
 	"github.com/madkoding/motita/internal/evals"
 	"github.com/madkoding/motita/internal/friction"
 	"github.com/madkoding/motita/internal/gitforge"
+	"github.com/madkoding/motita/internal/intent"
 	"github.com/madkoding/motita/internal/llm"
 	"github.com/madkoding/motita/internal/logx"
 	"github.com/madkoding/motita/internal/netrules"
@@ -279,6 +280,10 @@ type Server struct {
 
 	// scanJob is the progress of the notes scan running in the background, if any.
 	scanJob scanTracker
+
+	// intentGate rests auto mode's model call after it failed, so a provider that times out costs
+	// one slow turn rather than every turn. See intent.Gate.
+	intentGate intent.Gate
 
 	// evalJob is the model check running in the background, if any; evalStore holds its results.
 	evalJob   evalTracker

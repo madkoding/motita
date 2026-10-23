@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"testing"
+	"time"
 )
 
 func answer(text string, err error) Completer {
@@ -48,7 +49,8 @@ func TestRefineKeepsTheDefaultWhenTheModelFails(t *testing.T) {
 		"reversed":   answer("} {", nil),
 	} {
 		t.Run(name, func(t *testing.T) {
-			if d := Refine(context.Background(), Classify("the cache"), c); d.Source != SourceDefault || d.Kind != KindTask {
+			d := Refine(context.Background(), Classify("the cache"), c)
+			if d.Source != SourceDefault || d.Kind != KindTask || d.Reason != ReasonNoModel {
 				t.Errorf("Refine = %+v", d)
 			}
 		})
@@ -71,6 +73,51 @@ func TestCorrectsCountsTheSameMessageSentToTheOtherMode(t *testing.T) {
 	} {
 		if got := Corrects(tc.prev, Classify(tc.next)); got != tc.want {
 			t.Errorf("Corrects(%+v, %q) = %v, want %v", tc.prev, tc.next, got, tc.want)
+		}
+	}
+}
+
+// TestGateRestsTheModelAfterAFailure: a model that failed is not asked again for ModelRest, so a
+// provider that times out holds one turn, not every turn; after the rest it is asked again.
+func TestGateRestsTheModelAfterAFailure(t *testing.T) {
+	now := time.Unix(1000, 0)
+	g := &Gate{Now: func() time.Time { return now }}
+	if g.Wrap(nil) != nil {
+		t.Fatal("no model must stay no model")
+	}
+	calls, fail := 0, true
+	c := g.Wrap(func(context.Context, string, string) (string, error) {
+		calls++
+		if fail {
+			return "", context.DeadlineExceeded
+		}
+		return `{"kind":"plan"}`, nil
+	})
+	if _, err := c(context.Background(), "", ""); !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("first call: %v", err)
+	}
+	fail = false
+	now = now.Add(ModelRest / 2)
+	if _, err := c(context.Background(), "", ""); !errors.Is(err, ErrResting) || calls != 1 {
+		t.Fatalf("resting call: %v, %d calls", err, calls)
+	}
+	now = now.Add(ModelRest)
+	if out, err := c(context.Background(), "", ""); err != nil || calls != 2 || out == "" {
+		t.Fatalf("after the rest: %q %v, %d calls", out, err, calls)
+	}
+	if _, err := c(context.Background(), "", ""); err != nil || calls != 3 {
+		t.Fatalf("a good answer does not rest the model: %v, %d calls", err, calls)
+	}
+}
+
+// TestGateIsTheZeroValue: the zero Gate uses the wall clock and does not rest a model that
+// answers.
+func TestGateIsTheZeroValue(t *testing.T) {
+	var g Gate
+	c := g.Wrap(answer(`{"kind":"task"}`, nil))
+	for range 2 {
+		if _, err := c(context.Background(), "", ""); err != nil {
+			t.Fatal(err)
 		}
 	}
 }

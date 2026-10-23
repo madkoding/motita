@@ -600,10 +600,19 @@ or to a session with no project at all.
 that could change the system is refused before it runs.
 
 Auto mode (the web's default, and the TUI's **Auto** screen) picks plan or task for each
-message: an explicit `/plan` or `/task` first, then rules over the wording (an order is a
-task, a question or "don't change anything" is a plan). In the gateway, a message the rules
-cannot place costs one short model call; `agent.auto_mode_rules_only: true`
-(`MOTITA_AGENT_AUTO_MODE_RULES_ONLY`) turns that call off and runs such a message as a task.
+message: an explicit `/plan` or `/task` first, then rules over the wording. An order anywhere
+in the message is a task, also when it comes after a filler or a conjunction ("ok, now add the
+tests", "check the logs and fix it") or as a wish ("I want you to…", "let's…", "help me fix…").
+A question, an ask to understand ("show me", "explain"), an ask for a plan ("make a plan for…"),
+"don't change anything", or a report of something broken with no order in it ("the build fails
+in CI") is a plan; the go-ahead after it does the work. The rules are tuned against a corpus of
+real messages in English and Spanish (`internal/intent/testdata/corpus.tsv`). In the gateway, a
+message the rules cannot place costs one short model call (10 s at most); when it fails the
+turn says `mode: task (default, the model did not answer)` and the model is not asked again for
+five minutes. `agent.auto_mode_rules_only: true` (`MOTITA_AGENT_AUTO_MODE_RULES_ONLY`) turns that
+call off and runs such a message as a task. In the web, the turn's **Plan**/**Task** tag says
+why it was picked and, when no run is working, is the switch: one tap sends the message again
+in the other mode; a bare default shows as **Task?**.
 
 A bare go-ahead after a plan ("ok", "do it", "dale", "hazlo") carries that plan out: the plan
 travels inside the task, the agent does not plan it again and never stops to ask, and the turn
