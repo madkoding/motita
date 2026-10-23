@@ -14,9 +14,13 @@ interface Deps {
   setState: SetStatus;
   setToast: SetToast;
   fetchProjects: () => Promise<unknown>;
-  // createSession opens the project's conversation, saying which one it opened (nothing when it
-  // could not), and submit sends the agent a request in the one on screen.
-  createSession: (projectId: string) => Promise<string | undefined>;
+  // createSession opens the project's conversation (its main one when reuse is set), saying which
+  // one it opened (nothing when it could not), and submit sends the agent a request in the one on
+  // screen.
+  createSession: (
+    projectId: string,
+    reuse?: boolean,
+  ) => Promise<string | undefined>;
   submit: (text: string) => unknown;
 }
 
@@ -165,10 +169,11 @@ export function useRepoGit({
     [repoAction, load],
   );
 
-  // askAgent hands the repository's work to the agent, in the conversation of its project.
+  // askAgent hands the repository's work to the agent, in the project's main conversation: the
+  // one that works in the project's folder, where the repository's changes are.
   const askAgent = useCallback(
     async (r: RepoRef, kind: AskKind) => {
-      if (await createSession(r.projectId)) {
+      if (await createSession(r.projectId, true)) {
         void submit(tf(ASK[kind], { repo: r.repo }));
       }
     },

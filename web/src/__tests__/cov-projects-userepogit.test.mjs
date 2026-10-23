@@ -24,7 +24,15 @@ const STATUS = { path: "group/web", branch: "main", changes: [], log: [] };
 
 async function setup(routes = {}) {
   const api = fakeApi(routes);
-  const s = { api, toasts: [], states: [], asked: [], opened: [], projects: 0 };
+  const s = {
+    api,
+    toasts: [],
+    states: [],
+    asked: [],
+    opened: [],
+    reused: [],
+    projects: 0,
+  };
   function Harness() {
     s.g = useRepoGit({
       api,
@@ -33,8 +41,9 @@ async function setup(routes = {}) {
       fetchProjects: async () => {
         s.projects++;
       },
-      createSession: async (id) => {
+      createSession: async (id, reuse) => {
         s.opened.push(id);
+        s.reused.push(reuse);
         return s.sessionFails ? undefined : "s1";
       },
       submit: (text) => s.asked.push(text),
@@ -163,12 +172,17 @@ test("a refused or failed action reports it and leaves the panel alone", async (
   await s.m.unmount();
 });
 
-test("what the agent is asked goes to the conversation of the project and names the repository", async () => {
+test("what the agent is asked goes to the main conversation of the project and names the repository", async () => {
   const s = await setup();
   for (const kind of ["commit", "push", "pr", "work"]) {
     await run(() => s.g.askAgent(REF, kind));
   }
   assert.deepEqual(s.opened, ["p1", "p1", "p1", "p1"]);
+  assert.deepEqual(
+    s.reused,
+    [true, true, true, true],
+    "the project's main one",
+  );
   assert.equal(s.asked.length, 4);
   assert.ok(s.asked.every((text) => text.includes("`group/web`")));
   assert.match(s.asked[0], /semantic commit message/);

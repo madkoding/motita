@@ -8,9 +8,10 @@ import (
 
 // A project has ONE main session, and the work done in parallel inside it happens in threads.
 //
-// A thread is a session whose parentID names the project's main session. The person never opens one:
-// the agent of the main session does, when a request is about something new or different (one
-// thread per kind of work, reused when the work comes back). The model is deliberately
+// A thread is a session whose parentID names the project's main session. The person opens one with
+// the project's "+" (a project holds as many sessions as they want), and the agent of the main session
+// opens them too, when a request is about something new or different (one thread per kind of work,
+// reused when the work comes back). The model is deliberately
 // that small: a thread is not a new kind of object, it is a session with a parent, so everything a
 // session already does (run, queue, integrate, open a pull request, be deleted) works on it unchanged.
 //
