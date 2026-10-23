@@ -102,7 +102,7 @@ llm:
   max_tokens: 16384    # output ceiling (you pay only for what is generated). gpt-4o-mini caps at 16384;
                        # for reasoning models (gpt-5, o-series) use 65536: hidden thinking counts against it
   # temperature: 0.2  # optional; unset = provider default (0.2 on OpenAI/Gemini). Anthropic 4+ models refuse it, so leave it unset there
-  timeout: 90s         # a whole plain answer; for a streamed one, the wait for each new piece
+  timeout: 90s         # a whole plain answer; for a streamed one (and every claude-code turn), the wait for each new piece
   max_attempts: 3      # retries with exponential backoff on 429/5xx/network
   backoff_initial: 1s
   backoff_max: 30s
