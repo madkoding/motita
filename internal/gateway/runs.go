@@ -166,6 +166,8 @@ func (c *conversation) refusalOfRun() string {
 		return msgSessionIntegrated
 	case closing:
 		return msgSessionClosing
+	case c.hasTerminal():
+		return msgTerminalOpen
 	default:
 		return msgRunBusy
 	}

@@ -17,6 +17,12 @@ import {
 
 setupDom();
 stub("./appStore", APP_STORE_STUB);
+// The interactive terminal stands in as a line that hands its props out (it has its own tests).
+stub(
+  "./TermPty",
+  `import { h } from "preact";
+export function TermPty(props) { globalThis.__ptyProps = props; return h("div", { class: "pty-stand-in" }); }`,
+);
 
 const { AppCtx } = await stubModule("./appStore");
 const { ChatHeader } = await load("ChatHeader.tsx");
@@ -256,7 +262,10 @@ test("an approval without a question uses its reason, and without either the def
 function drawerStore({ rs = {}, drawers = {} } = {}) {
   const { calls, fn } = recorder();
   const store = {
+    machine: "",
+    status: { setToast: fn("setToast") },
     rs: {
+      sessionId: "s1",
       shellLog: [],
       termSeenId: 0,
       running: false,
@@ -386,6 +395,59 @@ test("the terminal draws what was seen whole, types the next and holds the rest"
     await act(() => new Promise((r) => setTimeout(r, 20)));
   }
   assert.equal(text(root.querySelector(".term-status.running")), "running…");
+  await done();
+});
+
+test("the terminal drawer becomes an interactive terminal and back", async () => {
+  const { store, calls } = drawerStore({ drawers: { termOpen: true } });
+  const { root, done, update } = await show(TermDrawer, store);
+  await act(() => flush(5));
+  const openPty = () => act(() => root.querySelector(".term-pty-open").click());
+  const isPty = () => !!root.querySelector(".pty-stand-in");
+
+  await openPty();
+  assert.ok(isPty());
+  assert.equal(
+    text(root.querySelector(".term-titlebar span")),
+    "motita@pty — interactive",
+  );
+  assert.ok(root.querySelector(".term-screen").hidden);
+  assert.ok(root.querySelector(".term-tab").classList.contains("is-live"));
+  assert.equal(root.querySelector(".term-pty-end").tabIndex, 0);
+  assert.equal(globalThis.__ptyProps.sid, "s1");
+  assert.equal(globalThis.__ptyProps.open, true);
+
+  // Its shell ended: back to the history, and a failure is said.
+  await act(() => globalThis.__ptyProps.onEnd());
+  assert.ok(!isPty());
+  await openPty();
+  await act(() => globalThis.__ptyProps.onEnd("no pty here"));
+  assert.ok(!isPty());
+  const toasts = calls.filter((c) => c[0] === "setToast");
+  assert.equal(toasts.length, 1);
+  assert.equal(toasts[0][1].detail, "no pty here");
+
+  // Ended by hand.
+  await openPty();
+  await act(() => root.querySelector(".term-pty-end").click());
+  assert.ok(!isPty());
+
+  // Another session is another shell.
+  await openPty();
+  await update({ ...store, rs: { ...store.rs, sessionId: "s2" } });
+  await act(() => flush(2));
+  assert.ok(!isPty());
+
+  // A closed drawer keeps the terminal, out of Tab's way.
+  await openPty();
+  await update({
+    ...store,
+    rs: { ...store.rs, sessionId: "s2" },
+    drawers: { ...store.drawers, termOpen: false },
+  });
+  assert.ok(isPty());
+  assert.equal(root.querySelector(".term-pty-end").tabIndex, -1);
+  assert.equal(globalThis.__ptyProps.open, false);
   await done();
 });
 

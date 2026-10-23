@@ -28,12 +28,18 @@ type wsTestClient struct {
 // through requireToken, so the token must be present).
 func dialWebSocket(t *testing.T, srv *Server, sessionID, token string) *wsTestClient {
 	t.Helper()
+	return dialWSPath(t, srv, "/v1/sessions/"+sessionID+"/ws", token)
+}
+
+// dialWSPath is dialWebSocket to any WebSocket endpoint of the server, path with its query.
+func dialWSPath(t *testing.T, srv *Server, path, token string) *wsTestClient {
+	t.Helper()
 	conn, err := net.Dial("tcp", srv.Addr())
 	if err != nil {
 		t.Fatalf("dialing the server: %v", err)
 	}
 	key := "dGhlIHNhbXBsZSBub25jZQ==" // RFC 6455 §4.1 sample key.
-	req := "GET /v1/sessions/" + sessionID + "/ws HTTP/1.1\r\n" +
+	req := "GET " + path + " HTTP/1.1\r\n" +
 		"Host: " + srv.Addr() + "\r\n" +
 		"Upgrade: websocket\r\n" +
 		"Connection: Upgrade\r\n" +

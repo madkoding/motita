@@ -47,8 +47,15 @@ function promptStore({ rs = {}, drawers = {}, selectedSession } = {}) {
   return { store, calls, release: () => release() };
 }
 
+let interactive = 0;
 async function show(store) {
-  return mount(h(AppCtx.Provider, { value: store }, h(TermPrompt, {})));
+  return mount(
+    h(
+      AppCtx.Provider,
+      { value: store },
+      h(TermPrompt, { onInteractive: () => interactive++ }),
+    ),
+  );
 }
 
 const type = (input, value) =>
@@ -120,10 +127,17 @@ test("a typed line runs, holds the prompt until it ends, and gives the focus bac
   assert.equal(input.disabled, true);
   assert.equal(input.placeholder, "running…");
 
+  const pty = root.querySelector("button.term-pty-open");
+  assert.equal(pty.disabled, true, "no terminal while a line runs");
+
   release();
   await act(() => flush(3));
   assert.equal(input.disabled, false);
   assert.equal(document.activeElement, input);
+  assert.equal(pty.tabIndex, 0);
+  assert.equal(text(pty), "interactive");
+  await act(() => pty.click());
+  assert.equal(interactive, 1, "the button opens the interactive terminal");
   await done();
 });
 

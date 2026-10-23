@@ -8,6 +8,7 @@ import more from "./i18n.es.part2.ts";
 import evals from "./i18n.es.evals.ts";
 import commands from "./i18n.es.commands.ts";
 import automode from "./i18n.es.automode.ts";
+import terminal from "./i18n.es.terminal.ts";
 
 // The dictionary is in two files so neither grows too long: this one and i18n.es.part2.ts.
 const first: Record<string, string> = {
@@ -818,6 +819,7 @@ const es: Record<string, string> = {
   ...evals,
   ...commands,
   ...automode,
+  ...terminal,
 };
 
 export default es;

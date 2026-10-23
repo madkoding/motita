@@ -842,7 +842,7 @@ function MachineApp({
   machine: string;
   setMachine: (id: string) => void;
 }) {
-  const store = useAppStore(request);
+  const store = useAppStore(request, machine);
   const pr = usePullRequest(store, request);
   const loadEvidenceImage = useEvidenceLoader(store);
   // The computers are always this gateway's: api, never the computer's own request.
