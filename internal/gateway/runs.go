@@ -107,6 +107,9 @@ func (s *Server) handleRun(w http.ResponseWriter, r *http.Request) {
 	s.attach(w, r, c, rn, 0)
 }
 
+// modelGate is the server's intent.Gate for auto mode's model call.
+type modelGate = intent.Gate
+
 // intentModel is a Service that can answer auto mode's question when the rules cannot. It is a
 // separate interface so a service without a model (a test's fake) simply keeps the rules' answer.
 type intentModel interface {
