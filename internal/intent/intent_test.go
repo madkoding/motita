@@ -39,6 +39,7 @@ func TestClassify(t *testing.T) {
 		{"ok, ahora agrega el botón", KindTask, SourceHeuristic, ""},                 // spanish-fixture: input
 		{"revisa por qué falla el build y arréglalo", KindTask, SourceHeuristic, ""}, // spanish-fixture: input
 		{"look at the logs and fix it", KindTask, SourceHeuristic, ""},
+		{"write the tests for the parser", KindTask, SourceHeuristic, ""},
 		{"implementa el plan", KindTask, SourceHeuristic, ""},             // spanish-fixture: input
 		{"quiero que implementes el plan", KindTask, SourceHeuristic, ""}, // spanish-fixture: input
 		// Asked to make a plan, with a verb that is otherwise an order.
