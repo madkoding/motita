@@ -18,9 +18,9 @@ import (
 // Bounds of the integer types, as float64, so a decimal that is really an integer can be
 // checked against them before it is converted.
 const (
-	minInt64AsFloat  = -9223372036854775808.0  // -2^63
-	maxInt64AsFloat  = 9223372036854775808.0   // 2^63
-	maxUint64AsFloat = 18446744073709551616.0  // 2^64
+	minInt64AsFloat  = -9223372036854775808.0 // -2^63
+	maxInt64AsFloat  = 9223372036854775808.0  // 2^63
+	maxUint64AsFloat = 18446744073709551616.0 // 2^64
 )
 
 // CoerceValue turns the values a model sent as text into the type the destination

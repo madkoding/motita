@@ -6,7 +6,7 @@ import (
 	"reflect"
 	"strings"
 
-	"github.com/madkoding/motita/internal/coerce"
+	"github.com/madkoding/motita/pkg/coerce"
 )
 
 // Tool calling: the model asks for a function to be run instead of writing JSON in
@@ -92,7 +92,7 @@ func (fc FunctionCall) DecodeArguments(dest any) error {
 
 // CoerceValue turns the values a model sent as text into the type the destination
 // field declares, when the conversion loses nothing. The rules live in
-// internal/coerce, shared with the planner so there is one copy of them; this stays as
+// pkg/coerce, shared with the planner so there is one copy of them; this stays as
 // the exported name the rest of the package already calls.
 func CoerceValue(v any, t reflect.Type) any {
 	return coerce.CoerceValue(v, t)

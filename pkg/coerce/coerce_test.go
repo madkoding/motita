@@ -1,6 +1,7 @@
 package coerce
 
 import (
+	"math"
 	"reflect"
 	"testing"
 )
@@ -86,4 +87,73 @@ func TestCoerceValueStructAndBool(t *testing.T) {
 	if m["force"] != true {
 		t.Errorf("force = %#v, want true", m["force"])
 	}
+}
+
+// TestCoerceValueFloatFormats covers the decimal formats a model writes for a float
+// field, including the signed forms: "+1.0" keeps its value and "-0.0" is the negative
+// zero, which compares equal to 0 but keeps its sign.
+func TestCoerceValueFloatFormats(t *testing.T) {
+	floatType := reflect.TypeOf(float64(0))
+	cases := []struct {
+		in   string
+		want float64
+	}{
+		{"1.5", 1.5},
+		{"2", 2},
+		{"+1.0", 1.0},
+		{"-1.5", -1.5},
+		{" 3.25 ", 3.25},
+	}
+	for _, c := range cases {
+		got := CoerceValue(c.in, floatType)
+		if got != c.want {
+			t.Errorf("CoerceValue(%q, float64) = %#v, want %#v", c.in, got, c.want)
+		}
+	}
+
+	// "-0.0" is a valid float and keeps its sign, even though it compares equal to 0.
+	got := CoerceValue("-0.0", floatType)
+	f, ok := got.(float64)
+	if !ok {
+		t.Fatalf("CoerceValue(%q, float64) = %#v, want float64", "-0.0", got)
+	}
+	if f != 0 || !math.Signbit(f) {
+		t.Errorf("CoerceValue(%q, float64) = %#v, want negative zero", "-0.0", got)
+	}
+}
+
+// BenchmarkCoerceValue measures the shared coercion on the shapes a model sends most:
+// an integer, a float and a struct with mixed fields. The duplicated copy this package
+// replaced was removed in an earlier change, so there is no second implementation left
+// to compare against.
+func BenchmarkCoerceValue(b *testing.B) {
+	intType := reflect.TypeOf(0)
+	floatType := reflect.TypeOf(float64(0))
+	type args struct {
+		Count int     `json:"count"`
+		Ratio float64 `json:"ratio"`
+		Name  string  `json:"name"`
+	}
+	structType := reflect.TypeOf(args{})
+	payload := map[string]any{
+		"count": "42",
+		"ratio": "1.5",
+		"name":  "123",
+	}
+
+	b.Run("int", func(b *testing.B) {
+		for i := 0; i < b.N; i++ {
+			CoerceValue("42", intType)
+		}
+	})
+	b.Run("float", func(b *testing.B) {
+		for i := 0; i < b.N; i++ {
+			CoerceValue("1.5", floatType)
+		}
+	})
+	b.Run("struct", func(b *testing.B) {
+		for i := 0; i < b.N; i++ {
+			CoerceValue(payload, structType)
+		}
+	})
 }

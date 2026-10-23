@@ -11,7 +11,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/madkoding/motita/internal/coerce"
+	"github.com/madkoding/motita/pkg/coerce"
 )
 
 // readFileArgs are the arguments for read_file.
@@ -259,7 +259,7 @@ func decodeArgs(raw []byte, dst any) error {
 
 // coerceValue turns the values a model sent as text into the type the destination field
 // declares, when the conversion loses nothing. The implementation lives in
-// internal/coerce, shared with the LLM client so there is one copy of the rules.
+// pkg/coerce, shared with the LLM client so there is one copy of the rules.
 func coerceValue(v any, t reflect.Type) any {
 	return coerce.CoerceValue(v, t)
 }
