@@ -697,6 +697,15 @@ test("whenever the modal closes during the last answer, that answer connects not
     for (let i = 0; i < hops; i++) {
       await Promise.resolve();
     }
+    if (m.connected.length > 0) {
+      // The answer landed before the close, so this hop is past the boundary the test is
+      // about: the modal was still open when the connection arrived, and connecting there is
+      // the right thing. How many microtasks that takes depends on the engine, so stop at the
+      // boundary instead of asserting on a count that only holds on some Node versions.
+      assert.ok(hops > 0, "the answer landed before the first microtask");
+      m.root.remove();
+      break;
+    }
     // act flushes the unmount's effect cleanups at once instead of after a paint.
     const closing = act(() => render(null, m.root));
     await closing;
