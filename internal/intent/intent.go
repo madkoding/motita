@@ -207,34 +207,49 @@ func Classify(text string) Decision {
 			return Decision{KindPlan, trimmed, SourceHeuristic, "asked not to change anything"}
 		}
 	}
-	sentences := splitSentences(plain)
+	if kind, reason, ok := byWording(splitSentences(plain)); ok {
+		return Decision{kind, trimmed, SourceHeuristic, reason}
+	}
+	return Decision{KindTask, trimmed, SourceDefault, "default"}
+}
+
+// byWording reads the sentences of a message for its mode, and the reason to give.
+func byWording(sentences []sentence) (kind, reason string, ok bool) {
 	// Asked to make a plan is a plan, though "haz" and "make" are orders: "hazme un plan".
 	for _, s := range sentences {
 		if noun, ok := asksForPlan(s.words); ok {
-			return Decision{KindPlan, trimmed, SourceHeuristic, `asks for a "` + noun + `"`}
+			return KindPlan, `asks for a "` + noun + `"`, true
 		}
 	}
 	// An order anywhere is a task: "why does it fail? fix it" wants the fix, and so does
 	// "revisa por qué falla y arréglalo". (spanish-fixture: the Spanish the classifier reads)
 	for _, s := range sentences {
-		if verb, ok := orders(s.words); ok {
-			return Decision{KindTask, trimmed, SourceHeuristic, `action "` + verb + `"`}
-		}
-		// A question that joins two verbs ("how do I add and remove items?") asks about both.
-		asking := (s.question || questionWords[s.words[0]]) && !politeOpeners[s.words[0]]
-		if verb, ok := chainedOrder(s.words); ok && !asking {
-			return Decision{KindTask, trimmed, SourceHeuristic, `action "` + verb + `"`}
+		if verb, ok := sentenceOrder(s); ok {
+			return KindTask, `action "` + verb + `"`, true
 		}
 	}
 	for _, s := range sentences {
 		if planVerbs[s.words[0]] {
-			return Decision{KindPlan, trimmed, SourceHeuristic, `asks to "` + s.words[0] + `"`}
+			return KindPlan, `asks to "` + s.words[0] + `"`, true
 		}
 		if s.question || questionWords[s.words[0]] || isPorQue(s.words) {
-			return Decision{KindPlan, trimmed, SourceHeuristic, "question"}
+			return KindPlan, "question", true
 		}
 	}
-	return Decision{KindTask, trimmed, SourceDefault, "default"}
+	return "", "", false
+}
+
+// sentenceOrder is the order a sentence gives: at its head, or joined to it by "and". A question
+// that joins two verbs ("how do I add and remove items?") asks about both instead.
+func sentenceOrder(s sentence) (string, bool) {
+	if verb, ok := orders(s.words); ok {
+		return verb, true
+	}
+	asking := (s.question || questionWords[s.words[0]]) && !politeOpeners[s.words[0]]
+	if asking {
+		return "", false
+	}
+	return chainedOrder(s.words)
 }
 
 // InitPrompt is the task behind /init: write the AGENTS.md that later sessions in this project
@@ -362,33 +377,39 @@ func imperative(word string) string {
 func subjunctiveForms(irregular map[string]string) map[string]string {
 	out := make(map[string]string, len(actionVerbs))
 	for verb := range actionVerbs {
-		if len(verb) < 3 || strings.HasSuffix(verb, "r") {
-			continue
-		}
-		stem, last := verb[:len(verb)-1], verb[len(verb)-1]
-		switch last {
-		case 'a':
-			switch {
-			case strings.HasSuffix(stem, "c"):
-				stem = strings.TrimSuffix(stem, "c") + "qu"
-			case strings.HasSuffix(stem, "g"):
-				stem += "u"
-			case strings.HasSuffix(stem, "z"):
-				stem = strings.TrimSuffix(stem, "z") + "c"
-			default:
-				// A regular stem takes the ending as it is.
-			}
-			out[stem+"es"] = verb
-		case 'e':
-			out[stem+"as"] = verb
-		default:
-			// English verbs and the short irregular imperatives have no such form.
+		if form, ok := regularSubjunctive(verb); ok {
+			out[form] = verb
 		}
 	}
 	for form, verb := range irregular {
 		out[form] = verb
 	}
 	return out
+}
+
+// spelledStems keeps the sound of an -ar stem before the subjunctive's "e": "publica" is
+// "publiques", "agrega" "agregues", "actualiza" "actualices". (spanish-fixture: classifier input)
+var spelledStems = map[string]string{"c": "qu", "g": "gu", "z": "c"}
+
+// regularSubjunctive is the second-person subjunctive of an imperative with a regular one: an -a
+// imperative takes -es and an -e one -as. Infinitives, English verbs and the short irregular
+// imperatives have none.
+func regularSubjunctive(verb string) (string, bool) {
+	if len(verb) < 3 || strings.HasSuffix(verb, "r") {
+		return "", false
+	}
+	stem := verb[:len(verb)-1]
+	if strings.HasSuffix(verb, "e") {
+		return stem + "as", true
+	}
+	if !strings.HasSuffix(verb, "a") {
+		return "", false
+	}
+	last := stem[len(stem)-1:]
+	if spelled, ok := spelledStems[last]; ok {
+		stem = stem[:len(stem)-1] + spelled
+	}
+	return stem + "es", true
 }
 
 // isPorQue reports whether a sentence opens with "por que" (why),

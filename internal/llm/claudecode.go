@@ -398,21 +398,27 @@ func (p *claudeProcess) event() (claudeEvent, error) {
 		if json.Unmarshal(p.out.Bytes(), &ev) != nil {
 			continue
 		}
-		if p.mcp && ev.Type == "system" && ev.Subtype == "init" {
-			if status := motitaMCPStatus(ev); status != "connected" {
-				// Without it claude answers with no tools at all, which reads as a model that
-				// will not look at anything. A managed MCP policy is one way to get here.
-				return ev, fatalError{fmt.Errorf("claude could not use motita's tool server (MCP status %q)", status)}
-			}
-		}
-		if ev.Type == "rate_limit_event" {
-			for _, q := range ev.RateLimitInfo.quotas() {
-				totals.quota(usageSource{provider: "claude-code"}, q)
-			}
-		}
-		return ev, nil
+		return ev, p.note(ev)
 	}
 	return claudeEvent{}, p.exited()
+}
+
+// note acts on what an event says beyond the answer: a tool server claude could not reach is an
+// error, and the subscription's limits are recorded.
+func (p *claudeProcess) note(ev claudeEvent) error {
+	if p.mcp && ev.Type == "system" && ev.Subtype == "init" {
+		if status := motitaMCPStatus(ev); status != "connected" {
+			// Without it claude answers with no tools at all, which reads as a model that
+			// will not look at anything. A managed MCP policy is one way to get here.
+			return fatalError{fmt.Errorf("claude could not use motita's tool server (MCP status %q)", status)}
+		}
+	}
+	if ev.Type == "rate_limit_event" {
+		for _, q := range ev.RateLimitInfo.quotas() {
+			totals.quota(usageSource{provider: "claude-code"}, q)
+		}
+	}
+	return nil
 }
 
 // claudeRateLimit is one limit of a Claude subscription as claude reports it: which window, how much

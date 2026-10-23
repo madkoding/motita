@@ -110,22 +110,27 @@ func fakeClaude(script string) {
 	_ = os.WriteFile(record, data, 0o600)
 
 	for _, line := range strings.Split(script, "\n") {
-		switch {
-		case line == "sleep":
-			time.Sleep(time.Minute)
-		case strings.HasPrefix(line, "stderr:"):
-			fmt.Fprint(os.Stderr, strings.TrimPrefix(line, "stderr:"))
-		case strings.HasPrefix(line, "tick:"):
-			count, every, _ := strings.Cut(strings.TrimPrefix(line, "tick:"), ":")
-			n, _ := strconv.Atoi(count)
-			gap, _ := time.ParseDuration(every)
-			for range n {
-				time.Sleep(gap)
-				fmt.Println(`{"type":"system","subtype":"status"}`)
-			}
-		default:
-			fmt.Println(line)
+		playLine(line)
+	}
+}
+
+// playLine is one line of a fake claude's script: see fakeClaude.
+func playLine(line string) {
+	switch {
+	case line == "sleep":
+		time.Sleep(time.Minute)
+	case strings.HasPrefix(line, "stderr:"):
+		fmt.Fprint(os.Stderr, strings.TrimPrefix(line, "stderr:"))
+	case strings.HasPrefix(line, "tick:"):
+		count, every, _ := strings.Cut(strings.TrimPrefix(line, "tick:"), ":")
+		n, _ := strconv.Atoi(count)
+		gap, _ := time.ParseDuration(every)
+		for range n {
+			time.Sleep(gap)
+			fmt.Println(`{"type":"system","subtype":"status"}`)
 		}
+	default:
+		fmt.Println(line)
 	}
 }
 
