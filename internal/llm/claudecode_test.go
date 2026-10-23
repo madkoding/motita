@@ -14,6 +14,7 @@ import (
 	"path/filepath"
 	"runtime"
 	"slices"
+	"strconv"
 	"strings"
 	"syscall"
 	"testing"
@@ -46,7 +47,8 @@ type claudeRecord struct {
 
 // fakeClaude acknowledges every replayed frame (or does what
 // MOTITA_FAKE_CLAUDE_ACK says), records everything once its input ends, then
-// prints the script line by line. "sleep" hangs, "stderr:<text>" writes to stderr.
+// prints the script line by line. "sleep" hangs, "stderr:<text>" writes to stderr, and
+// "tick:<n>:<gap>" prints n status lines gap apart, as claude does while it thinks.
 // A SIGTERM leaves <record>.term behind, so a test can tell it from a kill.
 func fakeClaude(script string) {
 	record := os.Getenv("MOTITA_FAKE_CLAUDE_RECORD")
@@ -108,14 +110,27 @@ func fakeClaude(script string) {
 	_ = os.WriteFile(record, data, 0o600)
 
 	for _, line := range strings.Split(script, "\n") {
-		switch {
-		case line == "sleep":
-			time.Sleep(time.Minute)
-		case strings.HasPrefix(line, "stderr:"):
-			fmt.Fprint(os.Stderr, strings.TrimPrefix(line, "stderr:"))
-		default:
-			fmt.Println(line)
+		playLine(line)
+	}
+}
+
+// playLine is one line of a fake claude's script: see fakeClaude.
+func playLine(line string) {
+	switch {
+	case line == "sleep":
+		time.Sleep(time.Minute)
+	case strings.HasPrefix(line, "stderr:"):
+		fmt.Fprint(os.Stderr, strings.TrimPrefix(line, "stderr:"))
+	case strings.HasPrefix(line, "tick:"):
+		count, every, _ := strings.Cut(strings.TrimPrefix(line, "tick:"), ":")
+		n, _ := strconv.Atoi(count)
+		gap, _ := time.ParseDuration(every)
+		for range n {
+			time.Sleep(gap)
+			fmt.Println(`{"type":"system","subtype":"status"}`)
 		}
+	default:
+		fmt.Println(line)
 	}
 }
 
@@ -640,6 +655,37 @@ type claudeFailureCase struct {
 	retry    bool
 }
 
+// TestClaudeCodeSlowButStreamingTurnIsNotCut: llm.timeout bounds a silence, not the turn. A claude
+// that keeps printing for three times the timeout before it answers still answers.
+func TestClaudeCodeSlowButStreamingTurnIsNotCut(t *testing.T) {
+	c, _ := claudeTestClient(t, lines("tick:9:100ms", textScript), func(c *config.LLM) {
+		c.Timeout = 300 * time.Millisecond
+	})
+	reply, err := c.callClaudeCode(context.Background(), hi, nil, nil)
+	if err != nil {
+		t.Fatalf("a claude still printing was stopped: %v", err)
+	}
+	if reply.Content != "Reading go.mod." {
+		t.Errorf("content = %q", reply.Content)
+	}
+}
+
+// TestClaudeCodeCeilingStopsAnEndlessStream: a claude that never stops printing is stopped at the
+// ceiling, with an error that says so and is retried like a timeout.
+func TestClaudeCodeCeilingStopsAnEndlessStream(t *testing.T) {
+	old := claudeCeiling
+	claudeCeiling = 400 * time.Millisecond
+	t.Cleanup(func() { claudeCeiling = old })
+	c, _ := claudeTestClient(t, "tick:1000:50ms", func(c *config.LLM) { c.Timeout = 300 * time.Millisecond })
+	_, err := c.callClaudeCode(context.Background(), hi, nil, nil)
+	if err == nil || !strings.Contains(err.Error(), "still going after 400ms") {
+		t.Fatalf("err = %v, want the ceiling named", err)
+	}
+	if !errors.Is(err, context.DeadlineExceeded) || !retryable(err) {
+		t.Errorf("err = %v: want a retryable deadline", err)
+	}
+}
+
 func TestClaudeCodeFailures(t *testing.T) {
 	history := []Message{
 		{Role: "user", Content: "hi"},
@@ -663,7 +709,8 @@ func TestClaudeCodeFailures(t *testing.T) {
 		{name: "exits early", script: "stderr:" + long,
 			want: "exited before answering: ..." + strings.Repeat("x", 993) + "the end", retry: true},
 		{name: "does not answer in time", script: "sleep", tweak: func(c *config.LLM) { c.Timeout = 300 * time.Millisecond },
-			want: "did not answer: context deadline exceeded", is: context.DeadlineExceeded, retry: true},
+			want: "did not answer: nothing came from it for 300ms (llm.timeout): context deadline exceeded",
+			is:   context.DeadlineExceeded, retry: true},
 		{name: "cancelled", ctx: cancelled, want: "context canceled", is: context.Canceled, retry: true},
 		{name: "replay refused", messages: history,
 			setup: func(t *testing.T) {

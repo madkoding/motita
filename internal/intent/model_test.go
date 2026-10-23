@@ -50,7 +50,7 @@ func TestRefineKeepsTheDefaultWhenTheModelFails(t *testing.T) {
 	} {
 		t.Run(name, func(t *testing.T) {
 			d := Refine(context.Background(), Classify("the cache"), c)
-			if d.Source != SourceDefault || d.Kind != KindTask || d.Reason != ReasonNoModel {
+			if d.Source != SourceDefault || d.Kind != KindTask || d.Reason != ReasonModelFailed {
 				t.Errorf("Refine = %+v", d)
 			}
 		})

@@ -121,7 +121,16 @@ var actionVerbs = set(
 	"desactivar", "divide", "dividir", "extrae", "extraer", "simplifica", "simplificar",
 	"prueba", "probar", "conecta", "conectar", "formatea", "formatear", "depura", "depurar",
 	"repara", "reparar", "programa", "programar", "codifica", "codificar", "cambie", "agregue",
+	"repair", "include", "combine", "reduce", "increase", "sync", "incluye", "incluir", "separa",
+	"separar", "combina", "combinar", "reducir", "aumenta", "aumentar", "sincroniza", "sincronizar",
 )
+
+// subjunctives are the Spanish verbs of a wish ("quiero que lo arregles") mapped to the
+// imperative of actionVerbs: built from the regular endings, plus the irregular ones listed.
+var subjunctives = subjunctiveForms(map[string]string{ // spanish-fixture: the Spanish the classifier reads
+	"corrijas": "corrige", "traduzcas": "traduce", "reduzcas": "reduce", "incluyas": "incluye",
+	"hagas": "haz", "pongas": "pon", "deshagas": "deshaz",
+})
 
 // makingVerbs are the actions that, aimed at a plan noun, ask for a plan rather than for the
 // work: "make a plan", "haz un plan" (spanish-fixture: classifier input), "write a proposal".
@@ -595,12 +604,56 @@ func imperative(word string) string {
 	if actionVerbs[word] {
 		return word
 	}
+	if verb, ok := subjunctives[word]; ok {
+		return verb
+	}
 	for _, c := range clitics {
 		if stem, ok := strings.CutSuffix(word, c); ok && actionVerbs[stem] {
 			return stem
 		}
 	}
 	return word
+}
+
+// subjunctiveForms is the second-person subjunctive of every imperative in actionVerbs that has
+// a regular one ("agrega" → "agregues", "sube" → "subas"), plus the irregular ones given.
+// (spanish-fixture: the Spanish the classifier reads)
+func subjunctiveForms(irregular map[string]string) map[string]string {
+	out := make(map[string]string, len(actionVerbs))
+	for verb := range actionVerbs {
+		if form, ok := regularSubjunctive(verb); ok {
+			out[form] = verb
+		}
+	}
+	for form, verb := range irregular {
+		out[form] = verb
+	}
+	return out
+}
+
+// spelledStems keeps the sound of an -ar stem before the subjunctive's "e": "publica" is
+// "publiques", "agrega" "agregues", "actualiza" "actualices". (spanish-fixture: classifier input)
+var spelledStems = map[string]string{"c": "qu", "g": "gu", "z": "c"}
+
+// regularSubjunctive is the second-person subjunctive of an imperative with a regular one: an -a
+// imperative takes -es and an -e one -as. Infinitives, English verbs and the short irregular
+// imperatives have none.
+func regularSubjunctive(verb string) (string, bool) {
+	if len(verb) < 3 || strings.HasSuffix(verb, "r") {
+		return "", false
+	}
+	stem := verb[:len(verb)-1]
+	if strings.HasSuffix(verb, "e") {
+		return stem + "as", true
+	}
+	if !strings.HasSuffix(verb, "a") {
+		return "", false
+	}
+	last := stem[len(stem)-1:]
+	if spelled, ok := spelledStems[last]; ok {
+		stem = stem[:len(stem)-1] + spelled
+	}
+	return stem + "es", true
 }
 
 // isPorQue reports whether a sentence opens with "por que" (why),

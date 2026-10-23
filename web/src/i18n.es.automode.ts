@@ -11,7 +11,7 @@ const automode: Record<string, string> = {
   "go-ahead": "visto bueno",
   model: "modelo",
   default: "por defecto",
-  "default, the model did not answer": "por defecto, el modelo no respondió",
+  "default, the model did not decide": "por defecto, el modelo no decidió",
 };
 
 export default automode;

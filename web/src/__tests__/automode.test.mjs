@@ -30,7 +30,7 @@ test("the reason of the mode line is read, and a bare default is unsure", () => 
   assert.equal(modeWhyOf("mode: plan (question)"), "question");
   assert.equal(modeWhyOf('mode: task (action "fix")'), 'action "fix"');
   assert.equal(modeWhyOf("analysing the task..."), "");
-  assert.equal(unsureWhy("default, the model did not answer"), true);
+  assert.equal(unsureWhy("default, the model did not decide"), true);
   assert.equal(unsureWhy("default"), true);
   assert.equal(unsureWhy("question"), false);
   assert.equal(unsureWhy(""), false);

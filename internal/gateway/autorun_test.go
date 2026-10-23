@@ -91,7 +91,7 @@ func TestAutoRunRestsAModelThatDidNotAnswer(t *testing.T) {
 	path := sessionPath(srv, DefaultSession, "/run")
 	for _, body := range []string{`{"task":"the retry policy"}`, `{"task":"the cache"}`} {
 		events := withoutPreamble(t, collect(t, srv, http.MethodPost, path, body))
-		if len(events) == 0 || !strings.Contains(events[0].Data, "mode: task (default, the model did not answer)") {
+		if len(events) == 0 || !strings.Contains(events[0].Data, "mode: task (default, the model did not decide)") {
 			t.Fatalf("%s: the failed guess was not announced: %+v", body, events)
 		}
 	}

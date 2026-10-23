@@ -13,13 +13,17 @@ import (
 const SourceModel = "model"
 
 // ModelTimeout bounds the model call. It runs before the turn starts, so the person is waiting
-// on it; a slow answer falls back to the rules' default instead of holding the turn.
-const ModelTimeout = 10 * time.Second
+// on it; a slow answer falls back to the rules' default instead of holding the turn. 15 seconds
+// was too short for the claude-code provider, which starts the claude CLI for every call: the
+// call timed out and every message the rules could not read became a task (reported from real
+// use as "it cannot tell whether I ask for a plan or a task"). Gate keeps that wait to one turn
+// when the provider keeps failing.
+const ModelTimeout = 30 * time.Second
 
-// ReasonNoModel is the Reason of a message the rules could not place and the model did not
-// answer for (an error, a timeout, an answer that is not a kind): the person reads that the
-// guess is the bare default, and that switching the mode is likely worth it.
-const ReasonNoModel = "default, the model did not answer"
+// ReasonModelFailed is the Reason of a message the rules could not place and the model did not
+// decide (an error, a timeout, an answer that is not a kind): the person reads that the guess is
+// the bare default, and that switching the mode is likely worth it.
+const ReasonModelFailed = "default, the model did not decide"
 
 // ModelRest is how long the model is not asked again after a call failed. A provider that times
 // out once ("context deadline exceeded") usually does it again, and every ask holds the turn for
@@ -76,6 +80,8 @@ const ModelSystem = "You route a user's message to a coding agent. " +
 	"and nothing in the project should change yet.\n" +
 	`"task": the user wants something done or changed in the project; ` +
 	"also greetings, thanks and small talk.\n" +
+	`A wish is an order ("I need it to...", "quiero que..."): "task". ` +
+	`Asking to make a plan, a proposal or a design is "plan", even with "make" or "haz".` + "\n" +
 	`When unsure, answer "plan": planning when work was wanted costs one message, ` +
 	"working when a plan was wanted changes files."
 
@@ -86,7 +92,7 @@ type Completer func(ctx context.Context, system, user string) (string, error)
 // explicit one, is returned as it is: the model is the fallback, never an override, so the
 // cheap and explainable path stays the one that runs whenever it can. Any failure of the call
 // (an error, a timeout, an answer that is not one of the two kinds) keeps the rules' default,
-// with ReasonNoModel so the person can tell that guess from one the model made.
+// with ReasonModelFailed so the person can tell that guess from one the model made.
 func Refine(ctx context.Context, d Decision, complete Completer) Decision {
 	if d.Source != SourceDefault || complete == nil {
 		return d
@@ -96,7 +102,7 @@ func Refine(ctx context.Context, d Decision, complete Completer) Decision {
 	text, err := complete(ctx, ModelSystem, d.Prompt)
 	kind, ok := modelKind(text)
 	if err != nil || !ok {
-		d.Reason = ReasonNoModel
+		d.Reason = ReasonModelFailed
 		return d
 	}
 	return Decision{kind, d.Prompt, SourceModel, "model"}
