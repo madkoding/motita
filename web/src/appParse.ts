@@ -101,6 +101,22 @@ export function modeOf(text: string): TurnMode | null {
   return m[1] as TurnMode;
 }
 
+// modeWhyOf is why auto mode picked a turn's mode, read from the same line: "question" for
+// "mode: plan (question)". Empty for any other line.
+export function modeWhyOf(text: string): string {
+  const m = /^mode: (?:plan|task) \((.*)\)$/.exec(text);
+  if (!m) {
+    return "";
+  }
+  return m[1];
+}
+
+// unsureWhy says the mode was a bare default: no rule placed the message, and the model did not
+// either. That guess is the one most worth checking.
+export function unsureWhy(why: string): boolean {
+  return why.startsWith("default");
+}
+
 // switchedText is a message sent again in the other mode: a leading /plan or /task (or its
 // alias) is replaced, so the gateway runs it in the mode named and records the correction.
 export function switchedText(text: string, from: TurnMode): string {

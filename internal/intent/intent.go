@@ -100,7 +100,10 @@ var actionVerbs = set(
 	"add", "fix", "implement", "create", "remove", "delete", "update", "refactor", "rename",
 	"write", "run", "install", "migrate", "bump", "change", "move", "make", "build", "deploy",
 	"commit", "push", "merge", "open", "replace", "rewrite", "upgrade", "apply", "set", "convert",
-	"clean", "generate", "edit", "modify", "translate", "test",
+	"clean", "generate", "edit", "modify", "translate", "test", "resolve", "optimize", "optimise",
+	"document", "finish", "complete", "retry", "revert", "undo", "restore", "adjust", "enable",
+	"disable", "split", "extract", "simplify", "rebase", "release", "format", "lint", "connect",
+	"wire", "configure", "integrate", "improve", "checkout", "debug", "solve", "patch", "port",
 	"agrega", "agregar", "anade", "anadir", "arregla", "arreglar", "corrige", "corregir",
 	"implementa", "implementar", "crea", "crear", "elimina", "eliminar", "borra", "borrar",
 	"actualiza", "actualizar", "refactoriza", "refactorizar", "renombra", "renombrar",
@@ -109,16 +112,17 @@ var actionVerbs = set(
 	"haz", "hacer", // spanish-fixture: the Spanish the classifier reads
 	"publica", "publicar", "abre", "abrir", "reemplaza", "reemplazar", "aplica", "aplicar",
 	"convierte", "convertir", "limpia", "limpiar", "genera", "generar", "edita", "editar",
-	"modifica", "modificar", "traduce", "traducir", "pon", "quita", "quitar", "integra",
+	"modifica", "modificar", "traduce", "traducir", "pon", "poner", "quita", "quitar", "integra",
 	"integrar", "despliega", "desplegar", "configura", "configurar", "mejora", "mejorar",
-	"resolve", "solve", "repair", "adjust", "optimize", "document", "enable", "disable", "include",
-	"split", "combine", "reduce", "increase", "sync", "use", "revert", "undo", "finish", "complete",
-	"resuelve", "resolver", "soluciona", "solucionar", "repara", "reparar", "ajusta", "ajustar",
-	"optimiza", "optimizar", "documenta", "documentar", "activa", "activar", "desactiva", "desactivar",
-	"habilita", "habilitar", "deshabilita", "deshabilitar", "incluye", "incluir", "separa", "separar",
-	"divide", "dividir", "combina", "combinar", "reduce", "reducir", "aumenta", "aumentar",
-	"sincroniza", "sincronizar", "usa", "usar", "revierte", "revertir", "deshaz", "deshacer", // spanish-fixture: input
-	"termina", "terminar", "completa", "completar",
+	"resuelve", "resolver", "soluciona", "solucionar", "optimiza", "optimizar", "documenta",
+	"documentar", "termina", "terminar", "completa", "completar", "reintenta", "reintentar",
+	"revierte", "revertir", "deshaz", "deshacer", "restaura", "restaurar", "ajusta", "ajustar",
+	"habilita", "habilitar", "deshabilita", "deshabilitar", "activa", "activar", "desactiva",
+	"desactivar", "divide", "dividir", "extrae", "extraer", "simplifica", "simplificar",
+	"prueba", "probar", "conecta", "conectar", "formatea", "formatear", "depura", "depurar",
+	"repara", "reparar", "programa", "programar", "codifica", "codificar", "cambie", "agregue",
+	"repair", "include", "combine", "reduce", "increase", "sync", "incluye", "incluir", "separa",
+	"separar", "combina", "combinar", "reducir", "aumenta", "aumentar", "sincroniza", "sincronizar",
 )
 
 // subjunctives are the Spanish verbs of a wish ("quiero que lo arregles") mapped to the
@@ -128,65 +132,164 @@ var subjunctives = subjunctiveForms(map[string]string{ // spanish-fixture: the S
 	"hagas": "haz", "pongas": "pon", "deshagas": "deshaz",
 })
 
-// desires open a wish that is an order: "quiero agregar", "I need you to fix", "vamos a mover".
-var desires = set(
-	"want", "need", "like", "let's", "lets", "gotta",
-	"quiero", "queremos", "necesito", "necesitamos", "gustaria", "encantaria", "vamos",
-	"hay", "tienes", "tenemos", "debes", "debemos",
+// makingVerbs are the actions that, aimed at a plan noun, ask for a plan rather than for the
+// work: "make a plan", "haz un plan" (spanish-fixture: classifier input), "write a proposal".
+var makingVerbs = set(
+	"make", "create", "write", "draft", "prepare", "generate", "build", "give",
+	"haz", "hacer", "crea", "crear", "escribe", "escribir", "genera", "generar", // spanish-fixture: input
+	"arma", "armar", "prepara", "preparar", "redacta", "redactar", "dame", "da",
 )
 
-// leads are the words that may stand before the verb of an order without changing it: fillers,
-// polite openers, the person, a wish. "ok, ahora agrega", "can you please", "I'd like you to".
-var leads = set(
-	"ok", "okay", "hey", "hi", "hello", "so", "now", "also", "and", "then", "please", "pls", "you",
-	"i", "i'd", "id", "we", "just",
-	"oye", "hola", "bueno", "pues", "ahora", "tambien", "ademas", "y", "luego", "despues", // spanish-fixture: input
-	"entonces", // spanish-fixture: input
-	"porfa", "porfavor", "me", "nos", "yo", "solo",
+// planNouns are what a plan is called: asking for one of them is asking for a plan.
+var planNouns = set(
+	"plan", "plans", "proposal", "roadmap", "outline", "strategy", "design", "analysis", "summary",
+	"overview", "review", "comparison", "estimate", "explanation", "diagnosis", "ideas", "options",
+	"planes", "propuesta", "estrategia", "diseno", "analisis", "resumen", "revision", "comparacion",
+	"estimacion", "explicacion", "diagnostico", "ideas", "opciones", "esquema", "borrador", // spanish-fixture: input
 )
 
-// wishJoiners follow a wish before its verb: "quiero QUE LO", "need you TO", "vamos A".
-var wishJoiners = set("que", "to", "a", "de", "lo", "la", "los", "las", "le", "les", "te", "se")
-
-// planNouns are what a person asks for when they want a plan made, not the work: "haz un plan",
-// "make a proposal". The verbs that MAKE one are in planMakers; executing a plan is a task.
-var planNouns = set("plan", "planes", "plans", "propuesta", "propuestas", "proposal", "proposals",
-	"roadmap", "estrategia", "strategy", "outline", "esquema")
-
-var planMakers = set(
-	"make", "create", "write", "draft", "give", "prepare", "build", "propose", "want", "need",
-	"haz", "crea", "escribe", "redacta", "dame", "prepara", "arma", "armame", "elabora", "genera",
-	"propon", "proponme", "quiero", "necesito", "hazme", "creame", "escribeme", "preparame",
-)
-
-// planVerbs open a sentence that asks for a plan or an explanation rather than for the work.
-var planVerbs = set(
+// planWords open a sentence that asks for a plan or an explanation rather than for the work.
+var planWords = set(
 	"plan", "design", "propose", "explain", "describe", "review", "analyze", "analyse",
-	"investigate", "compare", "evaluate", "audit", "summarize", "summarise",
-	"planea", "planifica", "disena", "propon", "explica", "explicame", "describe", "describeme",
-	"revisa", "analiza", "investiga", "compara", "evalua", "audita", "resume", "resumeme",
+	"investigate", "compare", "evaluate", "audit", "summarize", "summarise", "understand", "show",
+	"list", "find", "search", "check", "tell", "look", "think", "suggest", "recommend", "estimate",
+	"brainstorm", "diagnose", "trace", "inspect", "read", "learn", "verify", "assess", "see",
+	"know", "outline", "ver",
 )
+
+// planStems open a Spanish word that asks to understand rather than to change: "explicame",
+// "entender", "muestrame" (spanish-fixture: classifier input). They are prefixes because Spanish
+// fuses pronouns onto its verbs and conjugates them in more ways than a list keeps up with.
+var planStems = []string{
+	"plane", "planif", "disen", "propon", "explic", "expliq", "verifiq", "diagnostiq", "describ",
+	"revis", "analiz", "analic",
+	"investig", "compar", "evalu", "audit", "resum", "entend", "muestr", "mostr", "ensen",
+	"lista", "busca", "busqu", "encuentr", "chequea", "verific", "comprueb", "cuentame", "dime",
+	"digas", "mira", "lee", "piens", "pens", "opin", "sugier", "suger", "recomiend", "recomend",
+	"estim", "diagnostic", "rastre", "aprend", "conoc", "saber", "inspeccion", "valida", "dame",
+}
+
+// planWord reports whether a word opens a sentence that asks to understand.
+func planWord(word string) bool {
+	if planWords[word] {
+		return true
+	}
+	for _, stem := range planStems {
+		if strings.HasPrefix(word, stem) {
+			return true
+		}
+	}
+	return false
+}
 
 // questionWords open a question.
 var questionWords = set(
 	"how", "what", "why", "where", "which", "who", "when", "is", "are", "does", "should",
 	"como", "que", "cual", "cuales", "donde", "quien", "quienes", "cuanto",
 	"porque", "cuando", // spanish-fixture: the Spanish the classifier reads
-	"cuantos", "deberia", "conviene", "existe", "hay",
+	"cuantos", "deberia", "conviene", "existe", "hay", "do", "can't", "isn't", "any",
 )
 
 // politeOpeners turn the question that follows into a request: "can you add X?" is an order.
 var politeOpeners = set(
-	"can", "could", "would", "please", "puedes", "podrias", "podria", "porfa", "porfavor",
+	"can", "could", "would", "will", "please", "puedes", "podrias", "podria", "porfa", "porfavor",
 )
+
+// fillers are the words a message opens with before what it asks: "ok, now add the tests",
+// "y también actualiza el README" (spanish-fixture: classifier input). They are skipped.
+var fillers = set(
+	"ok", "okay", "now", "also", "then", "and", "so", "but", "please", "just", "hey", "yes",
+	"sure", "great", "cool", "thanks", "alright", "next", "finally", "first", "lastly",
+	"bueno", "bien", "ahora", "tambien", "luego", "despues", "y", "e", "pues", "si", "pero", // spanish-fixture: input
+	"porfa", "porfavor", "oye", "ya", "vale", "genial", "perfecto", "gracias", "listo", "dale",
+	"entonces", "primero", "finalmente", "igual", "mejor", // spanish-fixture: input
+)
+
+// conjunctions start a new clause inside a sentence: "revisa si pasan y arreglalos"
+// (spanish-fixture: classifier input) holds an order after the "y".
+var conjunctions = set(",", ";", "and", "then", "but", "y", "e", "luego", "despues", "pero") // spanish-fixture: input
+
+// request is a way of asking for something without opening with the verb: "quiero que",
+// "let's", "help me" (spanish-fixture: classifier input). always says that what follows is
+// asked for even when it is not a verb the lists know ("i want you to make the button blue"); a
+// request that is not always only counts when the word after it is a verb or a plan noun.
+type request struct {
+	words  []string
+	always bool
+	// asked says the request is one even as a question: "me ayudas a arreglarlo?"
+	// (spanish-fixture: classifier input), where "hay que reiniciar?" only asks.
+	asked bool
+}
+
+// requests are tried longest first, so "i want you to" wins over "i want".
+var requests = []request{
+	{[]string{"i", "would", "like", "you", "to"}, true, false},
+	{[]string{"i", "want", "you", "to"}, true, false},
+	{[]string{"i", "need", "you", "to"}, true, false},
+	{[]string{"i'd", "like", "you", "to"}, true, false},
+	{[]string{"me", "gustaria", "que"}, true, false},
+	{[]string{"me", "ayudarias", "a"}, true, true},
+	{[]string{"me", "ayudas", "a"}, true, true},
+	{[]string{"would", "you", "mind"}, true, true},
+	{[]string{"do", "you", "mind"}, true, true},
+	{[]string{"we", "need", "to"}, true, false},
+	{[]string{"we", "have", "to"}, true, false},
+	{[]string{"you", "need", "to"}, true, false},
+	{[]string{"i", "want", "to"}, false, false},
+	{[]string{"i", "need", "to"}, false, false},
+	{[]string{"i'd", "like", "to"}, false, false},
+	{[]string{"quiero", "que"}, true, false},
+	{[]string{"necesito", "que"}, true, false},
+	{[]string{"quisiera", "que"}, true, false},
+	{[]string{"ayudame", "a"}, true, false},
+	{[]string{"vamos", "a"}, true, false},
+	{[]string{"hay", "que"}, true, false},
+	{[]string{"tenemos", "que"}, true, false},
+	{[]string{"tienes", "que"}, true, false},
+	{[]string{"help", "me"}, true, false},
+	{[]string{"let", "us"}, true, false},
+	{[]string{"we", "should"}, true, false},
+	{[]string{"you", "should"}, true, false},
+	{[]string{"let's"}, true, false},
+	{[]string{"lets"}, true, false},
+	{[]string{"i", "want"}, false, false},
+	{[]string{"i", "need"}, false, false},
+	{[]string{"quiero"}, false, false},
+	{[]string{"necesito"}, false, false},
+	{[]string{"quisiera"}, false, false},
+	{[]string{"me", "gustaria"}, false, false},
+}
+
+// pronouns sit between a request and its verb: "quiero que me expliques", "help me to fix".
+var pronouns = set(
+	"me", "te", "lo", "la", "le", "les", "nos", "se", "to", "you", "us", "un", "una", "a", "an", "the", "el",
+)
+
+// problemWords say that something is broken: a report of a problem with no order in it is
+// planned (diagnosed) first, and the go-ahead after the plan fixes it.
+var problemWords = set(
+	"error", "errors", "errores", "fails", "failing", "failed", "failure", "broken", "bug", "bugs",
+	"crash", "crashes", "crashing", "panic", "exception", "timeout", "exceeded", "problem",
+	"problems", "issue", "issues", "wrong", "falla", "fallan", "fallando", "fallo", "roto",
+	"rota", "rompe", "problema", "problemas", "excepcion", "crashea", "cuelga", "lento", "slow",
+)
+
+// problemPhrases say the same in more than one word.
+var problemPhrases = []string{
+	"doesn't work", "does not work", "not working", "isn't working", "won't start", "no funciona",
+	"no anda", "no carga", "no compila", "no arranca", "no sirve", "se cae", "me sale",
+	"me aparece", "i'm getting", "im getting", "i get a",
+}
 
 // holdPhrases say not to do the work yet. Any of them makes the message a plan, whatever else
 // it says: that is the bias the package documents.
 var holdPhrases = []string{
 	"don't change", "do not change", "don't implement", "do not implement", "without changing",
 	"just a plan", "only a plan", "only plan", "just plan", "no changes", "read-only",
+	"don't touch", "do not touch", "don't modify", "before changing", "before you change",
 	"no cambies", "no lo implementes", "no implementes", "sin cambiar", "sin tocar", "solo el plan",
-	"solo un plan", "solo planea", "no hagas cambios", "sin cambios", "no modifiques",
+	"solo un plan", "solo planea", "no hagas cambios", "sin cambios", "no modifiques", "no toques",
+	"antes de cambiar", "no lo hagas", "no hagas nada", "todavia no", "aun no", // spanish-fixture: input
 }
 
 // clitics are the pronouns Spanish fuses onto an imperative: "arreglalo", "hazme".
@@ -207,49 +310,239 @@ func Classify(text string) Decision {
 			return Decision{KindPlan, trimmed, SourceHeuristic, "asked not to change anything"}
 		}
 	}
-	if kind, reason, ok := byWording(splitSentences(plain)); ok {
-		return Decision{kind, trimmed, SourceHeuristic, reason}
+	// An order anywhere is a task: "why does it fail? fix it" wants the fix. The first sign of a
+	// plan is kept and used only when no order turns up.
+	plan := ""
+	for _, s := range splitSentences(plain) {
+		kind, reason := s.read()
+		if kind == KindTask {
+			return Decision{KindTask, trimmed, SourceHeuristic, reason}
+		}
+		if kind == KindPlan && plan == "" {
+			plan = reason
+		}
+	}
+	if plan != "" {
+		return Decision{KindPlan, trimmed, SourceHeuristic, plan}
+	}
+	if reportsProblem(plain) {
+		return Decision{KindPlan, trimmed, SourceHeuristic, ReasonProblem}
 	}
 	return Decision{KindTask, trimmed, SourceDefault, "default"}
 }
 
-// byWording reads the sentences of a message for its mode, and the reason to give.
-func byWording(sentences []sentence) (kind, reason string, ok bool) {
-	// Asked to make a plan is a plan, though "haz" and "make" are orders: "hazme un plan".
-	for _, s := range sentences {
-		if noun, ok := asksForPlan(s.words); ok {
-			return KindPlan, `asks for a "` + noun + `"`, true
+// ReasonProblem is the Reason of a message that reports something broken without saying what
+// to do: it is planned (looked into) first, and a go-ahead fixes it.
+const ReasonProblem = "reports a problem"
+
+// read decides what one sentence asks: KindTask, KindPlan or "" with the reason. Every clause of
+// a statement can hold an order ("revisa si pasan y arreglalos", spanish-fixture: input); in a
+// question only the first one does, unless the question is a polite request ("can you check it
+// and fix it?"), because "what is the difference between add and remove?" orders nothing.
+func (s sentence) read() (string, string) {
+	clauses := splitClauses(s.words)
+	first := skipFillers(clauses[0])
+	if s.question && !politeOpening(first) {
+		if r, ok := requestOf(first); !ok || !r.asked {
+			return s.readQuestion(first)
 		}
 	}
-	// An order anywhere is a task: "why does it fail? fix it" wants the fix, and so does
-	// "revisa por qué falla y arréglalo". (spanish-fixture: the Spanish the classifier reads)
-	for _, s := range sentences {
-		if verb, ok := sentenceOrder(s); ok {
-			return KindTask, `action "` + verb + `"`, true
+	if kind, reason := readClauses(clauses); kind != "" {
+		return kind, reason
+	}
+	if len(first) > 0 && (s.question || questionWords[first[0]] || isPorQue(first)) {
+		return KindPlan, "question"
+	}
+	return "", ""
+}
+
+// politeOpening says whether a clause opens with a polite opener: "can you", "me puedes"
+// (spanish-fixture: classifier input).
+func politeOpening(words []string) bool {
+	return len(words) > 0 && politeOpeners[words[skipMe(words)]]
+}
+
+// skipMe is where a clause starts once a "me" before a polite opener is skipped: 1 for
+// "me puedes", 0 otherwise. (spanish-fixture: classifier input)
+func skipMe(words []string) int {
+	if len(words) > 1 && words[0] == "me" && politeOpeners[words[1]] {
+		return 1
+	}
+	return 0
+}
+
+// readClauses reads every clause: the first order wins, else the first sign of a plan.
+func readClauses(clauses [][]string) (string, string) {
+	plan := ""
+	for _, c := range clauses {
+		kind, reason := readClause(skipFillers(c))
+		if kind == KindTask {
+			return kind, reason
+		}
+		if kind == KindPlan && plan == "" {
+			plan = reason
 		}
 	}
-	for _, s := range sentences {
-		if planVerbs[s.words[0]] {
-			return KindPlan, `asks to "` + s.words[0] + `"`, true
+	if plan != "" {
+		return KindPlan, plan
+	}
+	return "", ""
+}
+
+// readQuestion decides a question that is not a polite request: only an explicit ask for a plan
+// changes that it is a question, and a question is a plan.
+func (s sentence) readQuestion(first []string) (string, string) {
+	if kind, reason := readClause(first); kind == KindPlan {
+		return kind, reason
+	}
+	return KindPlan, "question"
+}
+
+// requestOf is the request a clause opens with, if any.
+func requestOf(words []string) (request, bool) {
+	for _, r := range requests {
+		if hasPrefix(words, r.words) {
+			return r, true
 		}
-		if s.question || questionWords[s.words[0]] || isPorQue(s.words) {
-			return KindPlan, "question", true
+	}
+	return request{}, false
+}
+
+// readClause decides what one clause asks, from its first words.
+func readClause(words []string) (string, string) {
+	if len(words) == 0 {
+		return "", ""
+	}
+	if kind, reason, ok := asks(words); ok {
+		return kind, reason
+	}
+	verb, at, ok := orders(words)
+	if at < len(words) && makingVerbs[verb] && aimsAtPlan(words[at+1:]) {
+		return KindPlan, "asks for a plan"
+	}
+	if ok {
+		return KindTask, `action "` + verb + `"`
+	}
+	if i := skipPolite(words); i < len(words) && planWord(words[i]) && !questionWords[words[i]] {
+		return KindPlan, `asks to "` + words[i] + `"`
+	}
+	return "", ""
+}
+
+// asks reads a clause that opens with a request ("quiero que", "let's", spanish-fixture: input)
+// and decides it from the word that follows.
+func asks(words []string) (string, string, bool) {
+	if r, ok := requestOf(words); ok {
+		rest := words[len(r.words):]
+		for len(rest) > 0 && pronouns[rest[0]] {
+			rest = rest[1:]
+		}
+		phrase := strings.Join(r.words, " ")
+		switch {
+		case aimsAtPlan(words[len(r.words):]):
+			return KindPlan, "asks for a plan", true
+		case len(rest) > 0 && (planWord(rest[0]) || planWord(strings.TrimSuffix(rest[0], "ing"))):
+			return KindPlan, `asks to "` + rest[0] + `"`, true
+		case len(rest) > 0 && actionVerbs[englishBase(rest[0])]:
+			return KindTask, `action "` + englishBase(rest[0]) + `"`, true
+		case len(rest) > 0 && r.always:
+			return KindTask, `asks "` + phrase + `"`, true
+		default:
+			// A request with nothing it recognises after it decides nothing.
 		}
 	}
 	return "", "", false
 }
 
-// sentenceOrder is the order a sentence gives: at its head, or joined to it by "and". A question
-// that joins two verbs ("how do I add and remove items?") asks about both instead.
-func sentenceOrder(s sentence) (string, bool) {
-	if verb, ok := orders(s.words); ok {
-		return verb, true
+// aimsAtPlan reports whether the words after a verb name a plan: "a plan", "un plan para"
+// (spanish-fixture: classifier input), "me a proposal".
+func aimsAtPlan(words []string) bool {
+	for i := 0; i < len(words) && i < 4; i++ {
+		if planNouns[words[i]] {
+			return true
+		}
+		if !pronouns[words[i]] && words[i] != "quick" && words[i] != "short" && words[i] != "breve" {
+			return false
+		}
 	}
-	asking := (s.question || questionWords[s.words[0]]) && !politeOpeners[s.words[0]]
-	if asking {
-		return "", false
+	return false
+}
+
+// reportsProblem says whether a message describes something broken.
+func reportsProblem(plain string) bool {
+	for _, phrase := range problemPhrases {
+		if strings.Contains(plain, phrase) {
+			return true
+		}
 	}
-	return chainedOrder(s.words)
+	for _, w := range strings.FieldsFunc(plain, notWordRune) {
+		if problemWords[w] {
+			return true
+		}
+	}
+	return false
+}
+
+// englishBase is the verb behind an English gerund: "fixing" is "fix", "making" is "make",
+// "running" is "run". Any other word is returned as it is.
+func englishBase(word string) string {
+	stem, ok := strings.CutSuffix(word, "ing")
+	if !ok {
+		return word
+	}
+	switch {
+	case actionVerbs[stem]:
+		return stem
+	case actionVerbs[stem+"e"]:
+		return stem + "e"
+	case len(stem) > 1 && stem[len(stem)-1] == stem[len(stem)-2] && actionVerbs[stem[:len(stem)-1]]:
+		return stem[:len(stem)-1]
+	default:
+		return word
+	}
+}
+
+// skipFillers drops the words a clause opens with before what it asks.
+func skipFillers(words []string) []string {
+	for len(words) > 0 {
+		switch {
+		case fillers[words[0]]:
+			words = words[1:]
+		case len(words) > 1 && words[0] == "por" && words[1] == "favor":
+			words = words[2:]
+		default:
+			return words
+		}
+	}
+	return words
+}
+
+// splitClauses cuts a sentence's words at commas and conjunctions. It always returns at least one
+// clause, possibly empty.
+func splitClauses(words []string) [][]string {
+	out := [][]string{nil}
+	for _, w := range words {
+		if conjunctions[w] {
+			if len(out[len(out)-1]) > 0 {
+				out = append(out, nil)
+			}
+			continue
+		}
+		out[len(out)-1] = append(out[len(out)-1], w)
+	}
+	return out
+}
+
+func hasPrefix(words, prefix []string) bool {
+	if len(words) < len(prefix) {
+		return false
+	}
+	for i, w := range prefix {
+		if words[i] != w {
+			return false
+		}
+	}
+	return true
 }
 
 // InitPrompt is the task behind /init: write the AGENTS.md that later sessions in this project
@@ -280,78 +573,29 @@ func explicitMode(text string) (Decision, bool) {
 	return Decision{mode.kind, prompt, SourceExplicit, strings.ToLower(head)}, true
 }
 
-// orders reports whether a sentence is an order, and the verb that makes it one. What may stand
-// before the verb is skipped: a polite opener ("can you", "puedes", "por favor"), fillers ("ok",
-// "ahora", "also") and a wish ("quiero que lo", "I need you to", "vamos a").
-func orders(words []string) (string, bool) {
-	i, _ := leadLength(words)
+// orders reports whether a clause is an order, the verb that makes it one and where it is. A
+// polite opener ("can you", "puedes") is skipped, along with a "you" or "please" after it.
+func orders(words []string) (string, int, bool) {
+	i := skipPolite(words)
 	if i == len(words) {
-		return "", false
+		return "", i, false
 	}
 	verb := imperative(words[i])
-	return verb, actionVerbs[verb]
+	return verb, i, actionVerbs[verb]
 }
 
-// leadLength is how many words open the sentence before the verb of a possible order, and
-// whether they made a wish.
-func leadLength(words []string) (int, bool) {
-	i, wished, inWish := 0, false, false
-	for i < len(words) && i < 8 {
-		w := words[i]
-		switch {
-		case w == "por" && i+1 < len(words) && words[i+1] == "favor":
-			i += 2
-			continue
-		case politeOpeners[w] || leads[w]:
-			// "I'd like YOU to": a filler does not end a wish.
-		case desires[w]:
-			wished, inWish = true, true
-		case inWish && wishJoiners[w]:
-			// Still in the wish: "quiero que lo ...".
-		default:
-			return i, wished
-		}
+// skipPolite is where a clause's verb is once a polite opener ("can you please", "me puedes",
+// spanish-fixture: classifier input) is skipped: 0 when there is none.
+func skipPolite(words []string) int {
+	i := skipMe(words)
+	if !politeOpeners[words[i]] {
+		return 0
+	}
+	i++
+	for i < len(words) && (words[i] == "you" || words[i] == "please" || words[i] == "me") {
 		i++
 	}
-	return i, wished
-}
-
-// chainedOrder finds an order joined to the sentence by "and"/"y"/"then": "look at the logs and
-// fix it". Only the word right after the joiner (fillers aside) is read, so "what is X and why"
-// is not an order.
-func chainedOrder(words []string) (string, bool) {
-	for i := 1; i < len(words)-1; i++ {
-		if !chainWords[words[i]] {
-			continue
-		}
-		if verb, ok := orders(words[i+1:]); ok {
-			return verb, true
-		}
-	}
-	return "", false
-}
-
-// chainWords join a second clause to a sentence.
-var chainWords = set("and", "then", "y", "luego", "despues", "e")
-
-// asksForPlan reports whether the sentence asks for a plan to be made, and the noun that says so:
-// a verb that makes one, or a wish ("quiero un plan"), with a plan noun among the next words. A
-// verb that carries a plan out ("implementa el plan") is an order, not this.
-func asksForPlan(words []string) (string, bool) {
-	i, wished := leadLength(words)
-	if i == len(words) {
-		return "", false
-	}
-	maker := planMakers[words[i]]
-	if !maker && (!wished || actionVerbs[imperative(words[i])]) {
-		return "", false
-	}
-	for _, w := range words[i:min(len(words), i+5)] {
-		if planNouns[w] {
-			return w, true
-		}
-	}
-	return "", false
+	return i
 }
 
 // imperative is a Spanish imperative without the pronouns fused onto it: "arreglalo" is
@@ -432,7 +676,7 @@ func splitSentences(plain string) []sentence {
 	question := false
 	flush := func(endsInQuestion bool) {
 		words := strings.FieldsFunc(cur.String(), func(r rune) bool {
-			return !unicode.IsLetter(r) && !unicode.IsDigit(r) && r != '\'' && r != '-'
+			return notWordRune(r) && r != ',' && r != ';'
 		})
 		if len(words) > 0 {
 			out = append(out, sentence{words, question || endsInQuestion})
@@ -448,12 +692,19 @@ func splitSentences(plain string) []sentence {
 			flush(true)
 		case '.', '!', '\n':
 			flush(false)
+		case ',', ';':
+			cur.WriteString(" " + string(r) + " ")
 		default:
 			cur.WriteRune(r)
 		}
 	}
 	flush(false)
 	return out
+}
+
+// notWordRune is a rune that is not part of a word.
+func notWordRune(r rune) bool {
+	return !unicode.IsLetter(r) && !unicode.IsDigit(r) && r != '\'' && r != '-'
 }
 
 // accents takes the accents off the letters Spanish and English write with them.

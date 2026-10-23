@@ -609,15 +609,60 @@ test("the mode badge says what auto mode picked, and the menu sends the message 
   await both.m.unmount();
   // While a run works the badge stays and the switch is gone.
   const busy = await inTurn(
-    h(P.TurnHead, { head, turn: 2, liveHere: false, mode: "task" }),
+    h(P.TurnHead, {
+      head,
+      turn: 2,
+      liveHere: false,
+      mode: "task",
+      why: "default, the model did not decide",
+    }),
     {
       cpInfo: { 2: { files: true } },
       running: true,
     },
   );
-  assert.ok(busy.q(".mode-badge"));
+  const still = busy.q("span.mode-badge");
+  assert.ok(still);
+  assert.equal(text(still), "Task?", "a bare default is marked unsure");
+  assert.equal(still.dataset.unsure, "");
+  assert.match(
+    still.getAttribute("title"),
+    /default, the model did not decide/,
+  );
   assert.equal(busy.q("button.cp-btn"), null);
   await busy.m.unmount();
+});
+
+test("the mode badge is the switch: it says why and sends the message again in the other mode", async () => {
+  const head = { id: 1, role: "user", text: "el build falla" };
+  const plan = await inTurn(
+    h(P.TurnHead, {
+      head,
+      liveHere: false,
+      mode: "plan",
+      why: "reports a problem",
+    }),
+  );
+  const badge = plan.q("button.mode-badge");
+  assert.equal(text(badge), "Plan");
+  assert.equal(badge.dataset.unsure, undefined);
+  assert.equal(
+    badge.getAttribute("title"),
+    "Auto mode picked it: reports a problem · Run as task",
+  );
+  assert.equal(badge.getAttribute("aria-label"), "Plan · Run as task");
+  badge.click();
+  assert.deepEqual(plan.calls, [["submit", "/task el build falla"]]);
+  await plan.m.unmount();
+  const task = await inTurn(
+    h(P.TurnHead, { head, liveHere: false, mode: "task" }),
+  );
+  const tb = task.q("button.mode-badge");
+  assert.equal(
+    tb.getAttribute("title"),
+    "The mode auto mode picked · Run as plan",
+  );
+  await task.m.unmount();
 });
 
 test("the top of a turn counts its actions in the input's bar and opens them under the card", async () => {
