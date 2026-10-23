@@ -69,8 +69,9 @@ func (s *Server) handlePlan(w http.ResponseWriter, r *http.Request) {
 	s.startRun(w, r, c, body.Prompt, schedule.KindPlan)
 }
 
-// handleRun is auto mode: it reads the message, picks plan or task with intent.Classify, and
-// runs it as the matching endpoint would. The first line of the stream says which mode was
+// handleRun is auto mode: it asks the summary model whether the message wants plan or task
+// (intent.Refine, with intent.Classify's rules as the fallback), and runs it as the matching
+// endpoint would. The first line of the stream says which mode was
 // picked and why, so the person can send it again with /plan or /task when the guess is wrong.
 func (s *Server) handleRun(w http.ResponseWriter, r *http.Request) {
 	var body struct {
@@ -89,7 +90,7 @@ func (s *Server) handleRun(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusConflict, msgSessionIntegrated)
 		return
 	}
-	d = intent.Refine(r.Context(), d, completerOf(c.svc))
+	d = intent.Refine(r.Context(), d, s.completerOf(c.svc))
 	d, _ = followPlan(c.svc.Transcript(), d)
 	c.stateMu.Lock()
 	prev := c.lastAuto
@@ -107,22 +108,34 @@ func (s *Server) handleRun(w http.ResponseWriter, r *http.Request) {
 	s.attach(w, r, c, rn, 0)
 }
 
-// intentModel is a Service that can answer auto mode's question when the rules cannot. It is a
+// modelGate is the server's intent.Gate for auto mode's model call.
+type modelGate = intent.Gate
+
+// intentModel is a Service that can answer auto mode's question with a model. It is a
 // separate interface so a service without a model (a test's fake) simply keeps the rules' answer.
 type intentModel interface {
 	CompleteIntent(ctx context.Context, system, user string) (string, error)
 }
 
 // completerOf is the service's model call for auto mode, or nil when it has none or the
-// configuration keeps auto mode to its rules (agent.auto_mode_rules_only).
-func completerOf(svc Service) intent.Completer {
+// configuration keeps auto mode to its rules (agent.auto_mode_rules_only). It goes through the
+// server's gate, and a failure is logged: the turn itself only says the model did not answer.
+func (s *Server) completerOf(svc Service) intent.Completer {
 	if svc.Config().Agent.AutoModeRulesOnly {
 		return nil
 	}
-	if m, ok := svc.(intentModel); ok {
-		return m.CompleteIntent
+	m, ok := svc.(intentModel)
+	if !ok {
+		return nil
 	}
-	return nil
+	return s.intentGate.Wrap(func(ctx context.Context, system, user string) (string, error) {
+		out, err := m.CompleteIntent(ctx, system, user)
+		if err != nil {
+			s.info("auto mode: the model did not answer; rules only for a while",
+				"err", err.Error(), "rest", intent.ModelRest.String())
+		}
+		return out, err
+	})
 }
 
 // startRun begins a turn and streams it to the caller.

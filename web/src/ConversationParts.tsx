@@ -16,6 +16,8 @@ import {
   oneLine,
   progressText,
   switchedText,
+  unsureWhy,
+  whyParts,
   type TurnMode,
 } from "./appParse";
 import { lastExit, statusLabel } from "./appFormat";
@@ -281,12 +283,15 @@ export function TurnTop({
   turn,
   liveHere,
   mode,
+  why = "",
   steps,
 }: {
   head: Message | null;
   turn?: number;
   liveHere: boolean;
   mode: TurnMode | null;
+  // why is the reason auto mode gave for the mode, "" when there is none.
+  why?: string;
   steps: StepView[];
 }) {
   const [open, setOpen] = useState(false);
@@ -309,6 +314,7 @@ export function TurnTop({
         turn={turn}
         liveHere={liveHere}
         mode={mode}
+        why={why}
         actions={actions}
       />
       {open && actions && (
@@ -327,18 +333,22 @@ export function TurnHead({
   turn,
   liveHere,
   mode = null,
+  why = "",
   actions,
 }: {
   head: Message;
   turn?: number;
   liveHere: boolean;
   mode?: TurnMode | null;
+  // why is the reason auto mode gave for the mode, "" when there is none.
+  why?: string;
   // actions is the turn's action counter, drawn in the bar so it costs no row of its own.
   actions?: { count: number; open: boolean; onToggle: () => void };
 }) {
-  const { cpInfo, running } = useTurn();
+  const { cpInfo, running, submit } = useTurn();
   const canGoBack = turn != null && cpInfo[turn] !== undefined && !running;
   const canSwitch = !!mode && !running;
+  const switchMode = () => submit(switchedText(head.text, mode as TurnMode));
   // The live input's menu is RUN_MENU (it has no checkpoint yet); any other is keyed by its
   // turn, or, without one, by a key of its own below RUN_MENU.
   const menuKey = choose(liveHere, RUN_MENU, turn ?? RUN_MENU - 1 - head.id);
@@ -347,7 +357,13 @@ export function TurnHead({
       <div class="msg user turn-card">
         <div class="turn-bar">
           <span class="turn-who">{t("You")}</span>
-          {mode && <ModeBadge mode={mode} />}
+          {mode && (
+            <ModeBadge
+              mode={mode}
+              why={why}
+              onSwitch={choose(canSwitch, switchMode, undefined)}
+            />
+          )}
           {actions && <ActionCount {...actions} />}
           {(liveHere || canGoBack || canSwitch) && (
             <TurnMenu
@@ -367,17 +383,56 @@ export function TurnHead({
   );
 }
 
-// ModeBadge says which mode auto mode picked for a turn. Sending it again in the other mode is
-// in the input's menu.
-export function ModeBadge({ mode }: { mode: TurnMode }) {
+// ModeBadge says which mode auto mode picked for a turn, and why when the turn says. When the
+// message can be sent again (no run is working) the badge is the switch itself: one tap runs it
+// in the other mode, the same as the input's menu. A bare default (no rule and no model placed the
+// message) is marked with a "?", since that guess is the one most worth a look.
+export function ModeBadge({
+  mode,
+  why = "",
+  onSwitch,
+}: {
+  mode: TurnMode;
+  why?: string;
+  onSwitch?: () => void;
+}) {
+  const unsure = unsureWhy(why);
+  const label =
+    choose(mode === "plan", t("Plan"), t("Task")) + choose(unsure, "?", "");
+  const picked = choose(
+    why !== "",
+    tf("Auto mode picked it: {why}", {
+      why: whyParts(why)
+        .map((part) => t(part))
+        .join("; "),
+    }),
+    t("The mode auto mode picked"),
+  );
+  if (!onSwitch) {
+    return (
+      <span
+        class="mode-badge"
+        data-mode={mode}
+        data-unsure={choose(unsure, "", undefined)}
+        title={picked}
+      >
+        {label}
+      </span>
+    );
+  }
+  const other = choose(mode === "plan", t("Run as task"), t("Run as plan"));
   return (
-    <span
+    <button
+      type="button"
       class="mode-badge"
       data-mode={mode}
-      title={t("The mode auto mode picked")}
+      data-unsure={choose(unsure, "", undefined)}
+      title={picked + " · " + other}
+      aria-label={label + " · " + other}
+      onClick={onSwitch}
     >
-      {choose(mode === "plan", t("Plan"), t("Task"))}
-    </span>
+      {label}
+    </button>
   );
 }
 

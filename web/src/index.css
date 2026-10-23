@@ -3901,6 +3901,21 @@ fieldset.approval-panel {
   background: color-mix(in srgb, var(--c-violet) 14%, var(--s1));
   border-color: rgba(176, 124, 255, 0.4);
 }
+/* A bare default, no rule nor model behind it: dashed, the guess most worth a look. */
+.mode-badge[data-unsure] {
+  border-style: dashed;
+}
+/* When the message can be sent again the badge is the switch: a button that looks like the tag. */
+button.mode-badge {
+  font-family: inherit;
+  line-height: inherit;
+  cursor: pointer;
+  transition: filter var(--motion-fast) var(--ease-standard);
+}
+button.mode-badge:hover,
+button.mode-badge:focus-visible {
+  filter: brightness(1.25);
+}
 /* Sending the input again in the other mode, set apart from going back to its checkpoint. */
 .cp-menu button.cp-mode {
   border-bottom: 1px solid rgb(var(--ov-rgb) / 0.08);
