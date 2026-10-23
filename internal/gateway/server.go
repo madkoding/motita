@@ -281,8 +281,7 @@ type Server struct {
 	// scanJob is the progress of the notes scan running in the background, if any.
 	scanJob scanTracker
 
-	// intentGate rests auto mode's model call after it failed, so a provider that times out costs
-	// one slow turn rather than every turn. See intent.Gate.
+	// intentGate rests auto mode's model call after it fails: one slow turn, not all. See intent.Gate.
 	intentGate intent.Gate
 
 	// evalJob is the model check running in the background, if any; evalStore holds its results.

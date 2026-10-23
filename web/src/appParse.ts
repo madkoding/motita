@@ -105,7 +105,10 @@ export function modeOf(text: string): TurnMode | null {
 // "mode: plan (question)". Empty for any other line.
 export function modeWhyOf(text: string): string {
   const m = /^mode: (?:plan|task) \((.*)\)$/.exec(text);
-  return m ? m[1] : "";
+  if (!m) {
+    return "";
+  }
+  return m[1];
 }
 
 // unsureWhy says the mode was a bare default: no rule placed the message, and the model did not

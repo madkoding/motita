@@ -152,7 +152,8 @@ var planWords = set(
 // "entender", "muestrame" (spanish-fixture: classifier input). They are prefixes because Spanish
 // fuses pronouns onto its verbs and conjugates them in more ways than a list keeps up with.
 var planStems = []string{
-	"plane", "planif", "disen", "propon", "explic", "expliq", "verifiq", "diagnostiq", "describ", "revis", "analiz", "analic",
+	"plane", "planif", "disen", "propon", "explic", "expliq", "verifiq", "diagnostiq", "describ",
+	"revis", "analiz", "analic",
 	"investig", "compar", "evalu", "audit", "resum", "entend", "muestr", "mostr", "ensen",
 	"lista", "busca", "busqu", "encuentr", "chequea", "verific", "comprueb", "cuentame", "dime",
 	"digas", "mira", "lee", "piens", "pens", "opin", "sugier", "suger", "recomiend", "recomend",
@@ -251,7 +252,9 @@ var requests = []request{
 }
 
 // pronouns sit between a request and its verb: "quiero que me expliques", "help me to fix".
-var pronouns = set("me", "te", "lo", "la", "le", "les", "nos", "se", "to", "you", "us", "un", "una", "a", "an", "the", "el")
+var pronouns = set(
+	"me", "te", "lo", "la", "le", "les", "nos", "se", "to", "you", "us", "un", "una", "a", "an", "the", "el",
+)
 
 // problemWords say that something is broken: a report of a problem with no order in it is
 // planned (diagnosed) first, and the go-ahead after the plan fixes it.
@@ -330,12 +333,37 @@ const ReasonProblem = "reports a problem"
 func (s sentence) read() (string, string) {
 	clauses := splitClauses(s.words)
 	first := skipFillers(clauses[0])
-	polite := len(first) > 0 && (politeOpeners[first[0]] || first[0] == "me" && len(first) > 1 && politeOpeners[first[1]])
-	if s.question && !polite {
+	if s.question && !politeOpening(first) {
 		if r, ok := requestOf(first); !ok || !r.asked {
 			return s.readQuestion(first)
 		}
 	}
+	if kind, reason := readClauses(clauses); kind != "" {
+		return kind, reason
+	}
+	if len(first) > 0 && (s.question || questionWords[first[0]] || isPorQue(first)) {
+		return KindPlan, "question"
+	}
+	return "", ""
+}
+
+// politeOpening says whether a clause opens with a polite opener: "can you", "me puedes"
+// (spanish-fixture: classifier input).
+func politeOpening(words []string) bool {
+	return len(words) > 0 && politeOpeners[words[skipMe(words)]]
+}
+
+// skipMe is where a clause starts once a "me" before a polite opener is skipped: 1 for
+// "me puedes", 0 otherwise. (spanish-fixture: classifier input)
+func skipMe(words []string) int {
+	if len(words) > 1 && words[0] == "me" && politeOpeners[words[1]] {
+		return 1
+	}
+	return 0
+}
+
+// readClauses reads every clause: the first order wins, else the first sign of a plan.
+func readClauses(clauses [][]string) (string, string) {
 	plan := ""
 	for _, c := range clauses {
 		kind, reason := readClause(skipFillers(c))
@@ -348,9 +376,6 @@ func (s sentence) read() (string, string) {
 	}
 	if plan != "" {
 		return KindPlan, plan
-	}
-	if len(first) > 0 && (s.question || questionWords[first[0]] || isPorQue(first)) {
-		return KindPlan, "question"
 	}
 	return "", ""
 }
@@ -413,6 +438,8 @@ func asks(words []string) (string, string, bool) {
 			return KindTask, `action "` + englishBase(rest[0]) + `"`, true
 		case len(rest) > 0 && r.always:
 			return KindTask, `asks "` + phrase + `"`, true
+		default:
+			// A request with nothing it recognises after it decides nothing.
 		}
 	}
 	return "", "", false
@@ -461,8 +488,9 @@ func englishBase(word string) string {
 		return stem + "e"
 	case len(stem) > 1 && stem[len(stem)-1] == stem[len(stem)-2] && actionVerbs[stem[:len(stem)-1]]:
 		return stem[:len(stem)-1]
+	default:
+		return word
 	}
-	return word
 }
 
 // skipFillers drops the words a clause opens with before what it asks.
@@ -550,10 +578,7 @@ func orders(words []string) (string, int, bool) {
 // skipPolite is where a clause's verb is once a polite opener ("can you please", "me puedes",
 // spanish-fixture: classifier input) is skipped: 0 when there is none.
 func skipPolite(words []string) int {
-	i := 0
-	if len(words) > 1 && words[0] == "me" && politeOpeners[words[1]] {
-		i = 1
-	}
+	i := skipMe(words)
 	if !politeOpeners[words[i]] {
 		return 0
 	}
