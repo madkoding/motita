@@ -354,6 +354,8 @@ func startClaude(ctx context.Context, idle time.Duration, args, env []string) (*
 		cancel(nil)
 		stopCeiling()
 	}
+	// #nosec G204 G702 -- the program is the claude CLI the user installed (or MOTITA_CLAUDE_BIN), and
+	// every argument is built by claudeArgs, never taken from a prompt.
 	p.cmd = exec.CommandContext(p.ctx, path, args...)
 	p.cmd.Env = env
 	p.cmd.Stderr = &p.stderr
