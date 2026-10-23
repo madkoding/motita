@@ -21,7 +21,7 @@ import { FolderBrowser } from "./FolderBrowser";
 import { GitConnectModal } from "./GitConnect";
 import { PRBar, usePullRequest, type PullRequest } from "./PullRequestBar";
 import { choose } from "./choose";
-import { modeOf } from "./appParse";
+import { modeOf, modeWhyOf } from "./appParse";
 import { clearCredential } from "./appAuth";
 import { AppCtx, useApp, useAppStore, type Store } from "./appStore";
 import { sameTurn, TurnCtx, useTurn, useTurnView } from "./turnView";
@@ -426,6 +426,14 @@ function turnMode(shown: StepView[]): "plan" | "task" | null {
   return modeOf(shown[0].text);
 }
 
+// turnWhy is why auto mode picked a turn's mode, read from the same first step, or "".
+function turnWhy(shown: StepView[]): string {
+  if (shown.length === 0) {
+    return "";
+  }
+  return modeWhyOf(shown[0].text);
+}
+
 interface TurnProps {
   g: Group;
   /** The turn's steps as the run state keeps them: the same array until that turn changes. */
@@ -442,6 +450,7 @@ function TurnBody({ g, steps, liveHere, activity }: TurnProps) {
   const shown = stepsOf(steps);
   // The mode auto mode picked, when this turn went through it: its first step says so.
   const mode = turnMode(shown);
+  const why = turnWhy(shown);
   // The step in progress is the activity line below, so it is not drawn twice.
   const trail = choose(liveHere && activity, shown.slice(0, -1), shown);
   return (
@@ -451,6 +460,7 @@ function TurnBody({ g, steps, liveHere, activity }: TurnProps) {
         turn={g.turn}
         liveHere={liveHere}
         mode={mode}
+        why={why}
         steps={trail}
       />
       {rest.map((m) => (
