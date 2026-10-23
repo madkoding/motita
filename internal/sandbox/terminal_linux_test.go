@@ -155,8 +155,8 @@ func TestOpeningAPseudoTerminalReportsTheStepThatFailed(t *testing.T) {
 	}
 
 	ptyHooks.open = orig.open
-	failing := func(req uintptr) func(fd, r, arg uintptr) syscall.Errno {
-		return func(fd, r, arg uintptr) syscall.Errno {
+	failing := func(req uintptr) func(fd, r uintptr, arg []byte) syscall.Errno {
+		return func(fd, r uintptr, arg []byte) syscall.Errno {
 			if r == req {
 				return syscall.ENOTTY
 			}
@@ -174,6 +174,14 @@ func TestOpeningAPseudoTerminalReportsTheStepThatFailed(t *testing.T) {
 		}
 	}
 	ptyHooks.ioctl = orig.ioctl
+
+	realMmap := mmapAnon
+	mmapAnon = func(int, int64, int, int, int) ([]byte, error) { return nil, syscall.ENOMEM }
+	err := open()
+	mmapAnon = realMmap
+	if err == nil || !strings.Contains(err.Error(), "could not unlock") {
+		t.Errorf("mmap: %v", err)
+	}
 
 	ptyHooks.open = func(path string, flag int, perm os.FileMode) (*os.File, error) {
 		if strings.HasPrefix(path, "/dev/pts/") {
