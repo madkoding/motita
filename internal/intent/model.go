@@ -11,8 +11,14 @@ import (
 const SourceModel = "model"
 
 // ModelTimeout bounds the model call. It runs before the turn starts, so the person is waiting
-// on it; a slow answer falls back to the rules' default instead of holding the turn.
-const ModelTimeout = 15 * time.Second
+// on it; a slow answer falls back to the rules' default instead of holding the turn. 15 seconds
+// was too short for the claude-code provider, which starts the claude CLI for every call: the
+// call timed out and every message the rules could not read became a task (reported from real
+// use as "it cannot tell whether I ask for a plan or a task").
+const ModelTimeout = 30 * time.Second
+
+// ReasonModelFailed is the Reason of a default the model was asked about and did not decide.
+const ReasonModelFailed = "default, the model did not decide"
 
 // ModelSystem is the instruction of the model call. It is short on purpose: the call decides
 // one word, and every token of it is spent before every ambiguous turn.
@@ -22,6 +28,8 @@ const ModelSystem = "You route a user's message to a coding agent. " +
 	"and nothing in the project should change.\n" +
 	`"task": the user wants something done or changed in the project; ` +
 	"also greetings, thanks and small talk.\n" +
+	`A wish is an order ("I need it to...", "quiero que..."): "task". ` +
+	`Asking to make a plan, a proposal or a design is "plan", even with "make" or "haz".` + "\n" +
 	`When unsure, answer "plan": planning when work was wanted costs one message, ` +
 	"working when a plan was wanted changes files."
 
@@ -38,13 +46,16 @@ func Refine(ctx context.Context, d Decision, complete Completer) Decision {
 	}
 	ctx, cancel := context.WithTimeout(ctx, ModelTimeout)
 	defer cancel()
+	// The note says the model was asked and gave nothing, so a wrong default is not mistaken
+	// for a guess of the rules.
+	failed := Decision{d.Kind, d.Prompt, d.Source, ReasonModelFailed}
 	text, err := complete(ctx, ModelSystem, d.Prompt)
 	if err != nil {
-		return d
+		return failed
 	}
 	kind, ok := modelKind(text)
 	if !ok {
-		return d
+		return failed
 	}
 	return Decision{kind, d.Prompt, SourceModel, "model"}
 }

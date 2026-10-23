@@ -48,7 +48,8 @@ func TestRefineKeepsTheDefaultWhenTheModelFails(t *testing.T) {
 		"reversed":   answer("} {", nil),
 	} {
 		t.Run(name, func(t *testing.T) {
-			if d := Refine(context.Background(), Classify("the cache"), c); d.Source != SourceDefault || d.Kind != KindTask {
+			d := Refine(context.Background(), Classify("the cache"), c)
+			if d.Source != SourceDefault || d.Kind != KindTask || d.Reason != ReasonModelFailed {
 				t.Errorf("Refine = %+v", d)
 			}
 		})

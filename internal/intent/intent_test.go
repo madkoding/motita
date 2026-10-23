@@ -28,6 +28,28 @@ func TestClassify(t *testing.T) {
 		{"the build is red, any idea?", KindPlan, SourceHeuristic, ""},
 		{"Diseña una migración a SQLite", KindPlan, SourceHeuristic, ""}, // spanish-fixture: input
 		{"explain the retry policy", KindPlan, SourceHeuristic, ""},
+		// A wish is an order, and so are fillers before one and an order joined by "and".
+		{"quiero que lo arregles", KindTask, SourceHeuristic, ""},                     // spanish-fixture: input
+		{"necesito que agregues un botón de exportar", KindTask, SourceHeuristic, ""}, // spanish-fixture: input
+		{"me gustaría que corrijas el login", KindTask, SourceHeuristic, ""},          // spanish-fixture: input
+		{"vamos a mover el cache a SQLite", KindTask, SourceHeuristic, ""},            // spanish-fixture: input
+		{"hay que actualizar las dependencias", KindTask, SourceHeuristic, ""},        // spanish-fixture: input
+		{"I'd like you to add a dark theme", KindTask, SourceHeuristic, ""},
+		{"I need to fix the flaky test", KindTask, SourceHeuristic, ""},
+		{"ok, ahora agrega el botón", KindTask, SourceHeuristic, ""},                 // spanish-fixture: input
+		{"revisa por qué falla el build y arréglalo", KindTask, SourceHeuristic, ""}, // spanish-fixture: input
+		{"look at the logs and fix it", KindTask, SourceHeuristic, ""},
+		{"implementa el plan", KindTask, SourceHeuristic, ""},             // spanish-fixture: input
+		{"quiero que implementes el plan", KindTask, SourceHeuristic, ""}, // spanish-fixture: input
+		// Asked to make a plan, with a verb that is otherwise an order.
+		{"hazme un plan para migrar a SQLite", KindPlan, SourceHeuristic, ""}, // spanish-fixture: input
+		{"crea una propuesta de diseño", KindPlan, SourceHeuristic, ""},       // spanish-fixture: input
+		{"quiero un plan para el cache", KindPlan, SourceHeuristic, ""},       // spanish-fixture: input
+		{"make a plan to split the gateway", KindPlan, SourceHeuristic, ""},
+		{"I need a roadmap for v2", KindPlan, SourceHeuristic, ""},
+		// A question that names two verbs asks about them.
+		{"how do I add and remove items?", KindPlan, SourceHeuristic, ""},
+		{"¿qué agrega este cambio?", KindPlan, SourceHeuristic, ""}, // spanish-fixture: input
 		// Holding off beats an order: the safe mistake.
 		{"Add OAuth, but don't change anything yet", KindPlan, SourceHeuristic, ""},
 		{"implementa el cache, solo el plan", KindPlan, SourceHeuristic, ""},
@@ -60,6 +82,19 @@ func TestNoteNamesTheModeAndWhy(t *testing.T) {
 	got := Classify("fix it").Note()
 	if got != `mode: task (action "fix")` {
 		t.Errorf("Note() = %q", got)
+	}
+}
+
+// TestSubjunctivesNameTheirImperative: the wish forms are derived from the imperatives, with the
+// spelling Spanish asks for. (spanish-fixture: the Spanish the classifier reads)
+func TestSubjunctivesNameTheirImperative(t *testing.T) {
+	for form, verb := range map[string]string{
+		"agregues": "agrega", "publiques": "publica", "actualices": "actualiza", "subas": "sube", // spanish-fixture: input
+		"corrijas": "corrige", "hagas": "haz", "arregles": "arregla", "despliegues": "despliega", // spanish-fixture: input
+	} {
+		if got := imperative(form); got != verb {
+			t.Errorf("imperative(%q) = %q, want %q", form, got, verb)
+		}
 	}
 }
 
