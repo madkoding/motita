@@ -994,6 +994,13 @@ const more: Record<string, string> = {
   "type a command": "escribe un comando",
   "Command to run in the session's folder":
     "Comando para ejecutar en la carpeta de la sesión",
+  interactive: "interactiva",
+  "Open an interactive terminal, for commands that ask for input":
+    "Abrir una terminal interactiva, para comandos que piden datos",
+  "End the interactive terminal": "Cerrar la terminal interactiva",
+  end: "cerrar",
+  "The terminal could not be opened": "No se pudo abrir la terminal",
+  "The terminal could not be loaded": "No se pudo cargar la terminal",
 };
 
 export default more;

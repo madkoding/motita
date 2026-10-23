@@ -2824,6 +2824,7 @@ html[data-density="compact"] .provider-choice .git-account-icon {
   flex: 1 1 auto;
   min-height: 0;
   overflow: hidden;
+  overflow: clip;
 }
 .term-screen {
   position: absolute;
@@ -3036,6 +3037,45 @@ html[data-density="compact"] .provider-choice .git-account-icon {
 }
 .term-input-line:focus-within .term-prompt {
   text-shadow: 0 0 8px rgba(var(--tx-rgb), 0.6);
+}
+/* The way from the line prompt to a real terminal, and back: small words on the screen's edge. */
+.term-pty-open,
+.term-pty-end {
+  flex: none;
+  padding: 0 6px;
+  font: inherit;
+  font-size: 10px;
+  color: var(--tx-dim);
+  background: transparent;
+  border: 1px dashed rgba(var(--tx-rgb), 0.35);
+  cursor: pointer;
+}
+.term-pty-open:hover,
+.term-pty-end:hover {
+  color: var(--tx-main);
+}
+.term-pty-open:disabled {
+  cursor: progress;
+  opacity: 0.5;
+}
+.term-pty-end {
+  margin-left: auto;
+  margin-right: 8px;
+}
+/* The interactive terminal fills the screen the history leaves; xterm draws inside it. */
+.term-pty {
+  position: absolute;
+  inset: 0;
+  padding: 8px 4px 8px 10px;
+}
+.term-pty .xterm {
+  height: 100%;
+}
+.term-pty .xterm-viewport {
+  background: transparent !important;
+}
+.term-screen[hidden] {
+  display: none;
 }
 .term-locked {
   margin-top: 6px;
@@ -3970,6 +4010,10 @@ button.mode-badge:focus-visible {
  * home indicator, so the shell pads itself by the safe area; while the keyboard is up the
  * bottom inset is the keyboard's, not the home indicator's, and is dropped. */
 .app-shell {
+  /* Clipped, not only hidden: a hidden box can still be scrolled by the browser, and bringing a
+     focused field into view did - the interactive terminal's input slid the whole app sideways on
+     a phone. Where clip is unknown, the overflow-hidden utility still applies. */
+  overflow: clip;
   height: 100dvh;
   height: var(--app-h, 100dvh);
   padding: env(safe-area-inset-top) env(safe-area-inset-right)

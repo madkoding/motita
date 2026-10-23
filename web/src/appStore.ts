@@ -36,7 +36,9 @@ import { useVoice } from "./useVoice";
 import { useSpeech } from "./useSpeech";
 import { useVoiceConversation } from "./useVoiceConversation";
 
-export function useAppStore(api: Api) {
+// machine is the computer the page is pointed at ("" for this one), for what cannot go through api:
+// the terminal's WebSocket.
+export function useAppStore(api: Api, machine = "") {
   const rs = useRunState();
   const status = useToastStatus();
   const { setState, setToast } = status;
@@ -197,6 +199,7 @@ export function useAppStore(api: Api) {
   );
   return {
     api,
+    machine,
     rs,
     status,
     lists,
