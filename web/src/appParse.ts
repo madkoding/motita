@@ -111,10 +111,20 @@ export function modeWhyOf(text: string): string {
   return m[1];
 }
 
-// unsureWhy says the mode was a bare default: no rule placed the message, and the model did not
-// either. That guess is the one most worth checking.
+// noModel ends the reason of a guess the rules made because the model, which decides, did not:
+// "question; the model did not decide".
+const noModel = "the model did not decide";
+
+// unsureWhy says the model did not decide the mode: it did not answer, or there was none and no
+// rule placed the message either. That guess is the one most worth checking.
 export function unsureWhy(why: string): boolean {
-  return why.startsWith("default");
+  return why.startsWith("default") || why.endsWith(noModel);
+}
+
+// whyParts splits a reason into the pieces translated one by one: "question; the model did not
+// decide" is a rule's reason and the note that the model did not decide.
+export function whyParts(why: string): string[] {
+  return why.split("; ");
 }
 
 // switchedText is a message sent again in the other mode: a leading /plan or /task (or its

@@ -4,8 +4,14 @@ import assert from "node:assert/strict";
 import { load } from "./tsx-hooks.mjs";
 
 // appParse.ts imports its siblings without extensions, which tsx-hooks.mjs resolves.
-const { modeOf, modeWhyOf, unsureWhy, switchedText, classifyProgress } =
-  await load("appParse.ts");
+const {
+  modeOf,
+  modeWhyOf,
+  unsureWhy,
+  whyParts,
+  switchedText,
+  classifyProgress,
+} = await load("appParse.ts");
 
 test("the mode line of a turn is read, and only that line", () => {
   assert.equal(modeOf("mode: plan (question)"), "plan");
@@ -30,8 +36,14 @@ test("the reason of the mode line is read, and a bare default is unsure", () => 
   assert.equal(modeWhyOf("mode: plan (question)"), "question");
   assert.equal(modeWhyOf('mode: task (action "fix")'), 'action "fix"');
   assert.equal(modeWhyOf("analysing the task..."), "");
-  assert.equal(unsureWhy("default, the model did not decide"), true);
+  assert.equal(unsureWhy("default; the model did not decide"), true);
+  assert.equal(unsureWhy("question; the model did not decide"), true);
+  assert.equal(unsureWhy("model"), false);
   assert.equal(unsureWhy("default"), true);
   assert.equal(unsureWhy("question"), false);
   assert.equal(unsureWhy(""), false);
+  assert.deepEqual(whyParts("question; the model did not decide"), [
+    "question",
+    "the model did not decide",
+  ]);
 });

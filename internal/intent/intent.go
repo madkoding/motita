@@ -2,11 +2,13 @@
 // mode (read-only: explore and explain) or task mode (make changes and prove them).
 //
 // It is the "auto mode" of the front ends: the person writes, and motita picks the mode instead
-// of making them pick it first. The decision is deliberately cheap and deterministic - a few
-// rules over the first words of each sentence, no model call - because it runs before every
-// turn and its answer has to be explainable in one line ("mode: plan (question)").
+// of making them pick it first. Where a model is at hand it decides (Refine): the cheap model the
+// models block gives small calls (summary) is asked about every message that does not name its
+// mode. Classify is the rules that stand in for it - a few rules over the first words of each
+// sentence - where there is no model (the terminal's input loop, agent.auto_mode_rules_only) or
+// the call fails. Either way the answer is explained in one line ("mode: plan (question)").
 //
-// The rules are biased toward plan. Running a task when the person wanted a plan changes their
+// Both are biased toward plan. Running a task when the person wanted a plan changes their
 // files; planning when they wanted a task costs one more message. So a message that both asks
 // and orders is a task only when nothing in it says to hold off ("don't change anything",
 // "solo el plan"), and an explicit /plan or /task always wins over every rule.
@@ -78,7 +80,11 @@ type Decision struct {
 
 // Note is the progress line that tells the person which mode was picked and how to change it.
 func (d Decision) Note() string {
-	return "mode: " + d.Kind + " (" + d.Reason + ")"
+	reason := d.Reason
+	if d.Source == SourceFallback {
+		reason += "; " + NoteNoModel
+	}
+	return "mode: " + d.Kind + " (" + reason + ")"
 }
 
 // explicit maps the commands that name a mode to the kind they pick. keep is whether the

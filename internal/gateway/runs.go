@@ -69,8 +69,9 @@ func (s *Server) handlePlan(w http.ResponseWriter, r *http.Request) {
 	s.startRun(w, r, c, body.Prompt, schedule.KindPlan)
 }
 
-// handleRun is auto mode: it reads the message, picks plan or task with intent.Classify, and
-// runs it as the matching endpoint would. The first line of the stream says which mode was
+// handleRun is auto mode: it asks the summary model whether the message wants plan or task
+// (intent.Refine, with intent.Classify's rules as the fallback), and runs it as the matching
+// endpoint would. The first line of the stream says which mode was
 // picked and why, so the person can send it again with /plan or /task when the guess is wrong.
 func (s *Server) handleRun(w http.ResponseWriter, r *http.Request) {
 	var body struct {
@@ -110,7 +111,7 @@ func (s *Server) handleRun(w http.ResponseWriter, r *http.Request) {
 // modelGate is the server's intent.Gate for auto mode's model call.
 type modelGate = intent.Gate
 
-// intentModel is a Service that can answer auto mode's question when the rules cannot. It is a
+// intentModel is a Service that can answer auto mode's question with a model. It is a
 // separate interface so a service without a model (a test's fake) simply keeps the rules' answer.
 type intentModel interface {
 	CompleteIntent(ctx context.Context, system, user string) (string, error)

@@ -17,6 +17,7 @@ import {
   progressText,
   switchedText,
   unsureWhy,
+  whyParts,
   type TurnMode,
 } from "./appParse";
 import { lastExit, statusLabel } from "./appFormat";
@@ -400,7 +401,11 @@ export function ModeBadge({
     choose(mode === "plan", t("Plan"), t("Task")) + choose(unsure, "?", "");
   const picked = choose(
     why !== "",
-    tf("Auto mode picked it: {why}", { why: t(why) }),
+    tf("Auto mode picked it: {why}", {
+      why: whyParts(why)
+        .map((part) => t(part))
+        .join("; "),
+    }),
     t("The mode auto mode picked"),
   );
   if (!onSwitch) {
