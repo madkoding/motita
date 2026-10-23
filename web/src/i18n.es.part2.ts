@@ -989,6 +989,11 @@ const more: Record<string, string> = {
   "1 note deleted": "1 nota eliminada",
   "{n} notes deleted": "{n} notas eliminadas",
   "could not update the notes": "no se pudieron actualizar las notas",
+  "the agent is working: the terminal is yours again when it finishes":
+    "el agente está trabajando: la terminal vuelve a ser tuya cuando termine",
+  "type a command": "escribe un comando",
+  "Command to run in the session's folder":
+    "Comando para ejecutar en la carpeta de la sesión",
 };
 
 export default more;

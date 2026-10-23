@@ -470,7 +470,10 @@ command ran on that standing answer). Around the conversation:
 - **Answers rendered as Markdown**, and a conversation that does not move under you
   while you read.
 - **A thinking drawer** with the model's reasoning as it streams, and **a terminal
-  drawer** with every command and its output.
+  drawer** with every command and its output. While nothing runs in the session, the
+  terminal drawer ends in a prompt: a line typed there runs like `!cmd` from the composer
+  (the session's folder, the Security policy and sandbox, a lone `cd` kept, ↑/↓ for the
+  lines typed before). While the agent works it says so instead.
 - **An agents drawer** with the run's background agents: purpose, state, elapsed time,
   tokens (input, output, cache) and, once one finishes, its summary and the command that
   merges its branch.

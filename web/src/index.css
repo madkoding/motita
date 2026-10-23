@@ -3008,6 +3008,39 @@ html[data-density="compact"] .provider-choice .git-account-icon {
 .term-empty {
   color: var(--tx-dim);
 }
+/* The prompt at the end of the terminal: the line a person types the next command in. It reads as
+   one more line of the screen, so it carries no box of its own. */
+.term-input-line {
+  display: flex;
+  align-items: baseline;
+  gap: 0.5em;
+  margin-top: 6px;
+}
+.term-input {
+  flex: 1 1 auto;
+  min-width: 0;
+  padding: 0;
+  font: inherit;
+  color: var(--tx-main);
+  text-shadow: inherit;
+  caret-color: var(--tx-main);
+  background: transparent;
+  border: 0;
+  outline: none;
+}
+.term-input::placeholder {
+  color: var(--tx-dim);
+}
+.term-input:disabled {
+  cursor: progress;
+}
+.term-input-line:focus-within .term-prompt {
+  text-shadow: 0 0 8px rgba(var(--tx-rgb), 0.6);
+}
+.term-locked {
+  margin-top: 6px;
+  color: var(--tx-dim);
+}
 /* The button above a drawer's window: the older entries are not mounted until asked for. */
 .term-earlier {
   display: block;
