@@ -42,10 +42,10 @@ const maxTerminalSize = 1000
 
 // clampSize is n as a terminal dimension: at least 1, at most maxTerminalSize.
 func clampSize(n int) uint16 {
-	switch {
-	case n < 1:
+	if n < 1 {
 		return 1
-	case n > maxTerminalSize:
+	}
+	if n > maxTerminalSize {
 		return maxTerminalSize
 	}
 	return uint16(n)

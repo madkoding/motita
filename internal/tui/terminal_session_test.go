@@ -21,7 +21,9 @@ func TestTheTerminalOpensWhereTheTypedCommandsAre(t *testing.T) {
 	t.Cleanup(func() { openBoxTerminal = orig })
 	var got execx.Request
 	var size [2]int
-	openBoxTerminal = func(_ *sandbox.Sandbox, _ context.Context, p execx.Request, cols, rows int) (sandbox.TerminalSession, error) {
+	openBoxTerminal = func(
+		_ *sandbox.Sandbox, _ context.Context, p execx.Request, cols, rows int,
+	) (sandbox.TerminalSession, error) {
 		got, size = p, [2]int{cols, rows}
 		return nil, errors.New("no shell in this test")
 	}

@@ -19,7 +19,8 @@ export function terminalUrl(
   cols: number,
   rows: number,
 ): string {
-  const scheme = location.protocol === "https:" ? "wss://" : "ws://";
+  // http: becomes ws: and https: becomes wss:.
+  const scheme = location.protocol.replace(/^http/, "ws") + "//";
   const path = proxyPath(
     machine,
     SESSIONS_PATH +

@@ -188,7 +188,10 @@ func TestATerminalIsRefusedWithItsReason(t *testing.T) {
 	}{
 		{"integrated", &termService{}, func(c *conversation) { c.merged = true }, msgSessionIntegrated},
 		{"busy", &termService{}, func(c *conversation) { c.takeRunSlot() }, "the agent is working"},
-		{"closing", &termService{}, func(c *conversation) { c.takeRunSlot(); c.beginClosing() }, msgSessionClosing},
+		{"closing", &termService{}, func(c *conversation) {
+			c.takeRunSlot()
+			c.beginClosing()
+		}, msgSessionClosing},
 		{"cannot open", &termService{err: errors.New("no pty here")}, func(*conversation) {}, "no pty here"},
 	}
 	for _, tc := range cases {

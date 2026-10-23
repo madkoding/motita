@@ -131,7 +131,8 @@ test("keys and resizes go out, output comes in, and the shell's exit ends it onc
   socket.onclose();
   assert.deepEqual(ends, [undefined]);
   await done();
-  assert.ok(socket.closed && view.disposed);
+  assert.ok(socket.closed);
+  assert.ok(view.disposed);
 });
 
 test("a refusal ends it with the gateway's reason, or a plain one", async () => {

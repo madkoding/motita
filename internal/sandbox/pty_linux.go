@@ -52,7 +52,8 @@ func openPTY() (*os.File, *os.File, error) {
 		master.Close()
 		return nil, nil, fmt.Errorf("could not name the pseudo-terminal: %w", errno)
 	}
-	slave, err := ptyHooks.open("/dev/pts/"+strconv.FormatUint(uint64(binary.NativeEndian.Uint32(n)), 10), os.O_RDWR|syscall.O_NOCTTY, 0)
+	name := "/dev/pts/" + strconv.FormatUint(uint64(binary.NativeEndian.Uint32(n)), 10)
+	slave, err := ptyHooks.open(name, os.O_RDWR|syscall.O_NOCTTY, 0)
 	if err != nil {
 		master.Close()
 		return nil, nil, fmt.Errorf("could not open the pseudo-terminal's other end: %w", err)

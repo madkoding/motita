@@ -223,6 +223,13 @@ func (tc *termConn) pumpOutput(term sandbox.TerminalSession) {
 	}
 }
 
+// shellRoutes are the two ways a person types into a session's folder: one command at a time, and
+// the interactive terminal.
+func (s *Server) shellRoutes(mux *http.ServeMux, scoped func(http.HandlerFunc) http.Handler) {
+	mux.Handle("POST /v1/sessions/{id}/shell", scoped(s.handleShell))
+	mux.Handle("GET /v1/sessions/{id}/terminal", scoped(s.handleTerminal))
+}
+
 // terminalControl is a text frame from the client.
 type terminalControl struct {
 	Type string `json:"type"`
@@ -246,29 +253,42 @@ func (tc *termConn) pumpInput(term sandbox.TerminalSession) {
 			tc.closeWith(CloseProtocol, "client frames must be masked")
 			return
 		}
-		switch opcode {
-		case opBinary, opContinuation:
-			if opcode == opBinary {
-				binaryMessage = true
-			}
-			if binaryMessage {
-				if _, err := term.Write(payload); err != nil {
-					return
-				}
-			}
-		case opText:
-			binaryMessage = false
-			var ctl terminalControl
-			if json.Unmarshal(payload, &ctl) == nil && ctl.Type == "resize" {
-				_ = term.Resize(ctl.Cols, ctl.Rows)
-			}
-		case opPing:
-			tc.write(opPong, payload)
-		case opClose:
+		if !tc.handleFrame(term, opcode, payload, &binaryMessage) {
 			return
-		default:
-			// A pong, or an opcode nobody sends: any frame renews the deadline, nothing more.
 		}
+	}
+}
+
+// handleFrame acts on one frame from the client; it says false when the connection is over.
+func (tc *termConn) handleFrame(term sandbox.TerminalSession, opcode byte, payload []byte, binaryMessage *bool) bool {
+	switch opcode {
+	case opBinary, opContinuation:
+		*binaryMessage = opcode == opBinary || *binaryMessage
+		return !*binaryMessage || writeInput(term, payload)
+	case opText:
+		*binaryMessage = false
+		resizeFrom(term, payload)
+	case opPing:
+		tc.write(opPong, payload)
+	case opClose:
+		return false
+	default:
+		// A pong, or an opcode nobody sends: any frame renews the deadline, nothing more.
+	}
+	return true
+}
+
+// writeInput types payload into the terminal, and says whether it could.
+func writeInput(term sandbox.TerminalSession, payload []byte) bool {
+	_, err := term.Write(payload)
+	return err == nil
+}
+
+// resizeFrom applies a resize control message; any other text is ignored.
+func resizeFrom(term sandbox.TerminalSession, payload []byte) {
+	var ctl terminalControl
+	if json.Unmarshal(payload, &ctl) == nil && ctl.Type == "resize" {
+		_ = term.Resize(ctl.Cols, ctl.Rows)
 	}
 }
 
