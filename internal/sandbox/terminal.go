@@ -42,7 +42,13 @@ const maxTerminalSize = 1000
 
 // clampSize is n as a terminal dimension: at least 1, at most maxTerminalSize.
 func clampSize(n int) uint16 {
-	return uint16(min(max(n, 1), maxTerminalSize))
+	switch {
+	case n < 1:
+		return 1
+	case n > maxTerminalSize:
+		return maxTerminalSize
+	}
+	return uint16(n)
 }
 
 // OpenTerminal starts p as an interactive command on a pseudo-terminal of cols × rows cells, under
