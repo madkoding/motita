@@ -473,9 +473,11 @@ command ran on that standing answer). Around the conversation:
   drawer** with every command and its output. While nothing runs in the session, the
   terminal drawer ends in a prompt: a line typed there runs like `!cmd` from the composer
   (the session's folder, the Security policy and sandbox, a lone `cd` kept, ↑/↓ for the
-  lines typed before). Its **interactive** button turns the drawer into a real terminal on
-  the session's shell, for commands that ask for input; the agent waits while it is open.
-  While the agent works it says so instead.
+  lines typed before); while the agent works it says so instead.
+- **A PTY drawer**, under the TTY tab: a real terminal on the session's shell (Linux), for
+  commands that ask for input. Opening it starts the shell; it stays alive while the drawer
+  is closed and ends with `exit`, its **end** button or a change of session. It waits while
+  the agent works, and the agent waits while it is open.
 - **An agents drawer** with the run's background agents: purpose, state, elapsed time,
   tokens (input, output, cache) and, once one finishes, its summary and the command that
   merges its branch.

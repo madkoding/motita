@@ -8,6 +8,11 @@ const terminal: Record<string, string> = {
   "Command to run in the session's folder":
     "Comando para ejecutar en la carpeta de la sesión",
   interactive: "interactiva",
+  "interactive terminal": "terminal interactiva",
+  "Close the interactive terminal": "Cerrar la terminal interactiva",
+  "open a session to use the interactive terminal":
+    "abre una sesión para usar la terminal interactiva",
+  "start the interactive terminal": "iniciar la terminal interactiva",
   "Open an interactive terminal, for commands that ask for input":
     "Abrir una terminal interactiva, para comandos que piden datos",
   "End the interactive terminal": "Cerrar la terminal interactiva",
