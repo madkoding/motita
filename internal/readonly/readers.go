@@ -93,6 +93,10 @@ var argumentRules = map[string]func([]string) (string, bool){
 		return "", false
 	},
 	"git": gitRule,
+	// `gh` talks to GitHub, and some of its subcommands write there (`gh pr create`,
+	// `gh api -X POST`). The name alone cannot answer, so the rule is an allowlist of
+	// the reading subcommand and verb pairs.
+	"gh": ghRule,
 	"systemctl": func(args []string) (string, bool) {
 		sub := firstNonFlag(args)
 		switch sub {
@@ -341,6 +345,9 @@ var readers = map[string]bool{
 	"systemctl": true,
 	// version control, read-only subcommands enforced above
 	"git": true,
+	// `gh` talks to GitHub and has writing subcommands (`gh pr create`, `gh api -X POST`),
+	// so its reading subcommand+verb pairs are enforced by ghRule above.
+	"gh": true,
 	// toolchain, read-only subcommands enforced above
 	"go": true,
 	// networking inspection (no writes, no connections opened)

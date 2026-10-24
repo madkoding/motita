@@ -1,0 +1,55 @@
+name: commit-generated-assets
+
+# The embedded web UI is built from `web/` and written into
+# `internal/webui/assets`, where `go:embed` reads it. Only `index.html` is
+# tracked, and it names the hashed bundles: a stale copy points a release at
+# files that no longer exist. This rebuilds it on main after a merge and commits
+# the result, so the tree never carries a document from an older build.
+#
+# It runs on main only, and skips its own commits: a push made with the bot's
+# token would otherwise trigger the workflow again, forever.
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: commit-generated-assets
+  cancel-in-progress: true
+
+jobs:
+  commit:
+    name: rebuild · commit internal/webui/assets/index.html
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    # A commit this workflow made carries [skip ci]; the actor check is the
+    # second guard, for a push that lands without it.
+    if: ${{ github.actor != 'github-actions[bot]' }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+
+      - name: Build the web UI
+        run: cd web && npm ci && npm run build
+
+      - name: Commit the regenerated asset
+        run: |
+          asset=internal/webui/assets/index.html
+          if git diff --quiet -- "$asset"; then
+            echo "$asset is unchanged; nothing to commit"
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -- "$asset"
+          git commit -m "build(webui): regenerate the embedded index.html [skip ci]"
+          git push origin HEAD:main
