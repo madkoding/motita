@@ -1,4 +1,6 @@
 # Weekly dependency updates, one grouped pull request per ecosystem.
+# Security updates are grouped too (applies-to: security-updates), so several
+# advisories on the same day give one pull request per ecosystem, not one each.
 #
 # The Go module has no external dependencies today, so the gomod entry mostly
 # watches the toolchain directive; it is here so a dependency added later is not
@@ -16,6 +18,9 @@ updates:
       default-days: 7
     groups:
       go:
+        patterns: ["*"]
+      go-security:
+        applies-to: security-updates
         patterns: ["*"]
 
   # Release tooling only (semantic-release).
@@ -36,6 +41,9 @@ updates:
     groups:
       release-tooling:
         patterns: ["*"]
+      release-tooling-security:
+        applies-to: security-updates
+        patterns: ["*"]
 
   # The web UI, embedded in the binary.
   - package-ecosystem: npm
@@ -50,6 +58,9 @@ updates:
       web:
         patterns: ["*"]
         update-types: [minor, patch]
+      web-security:
+        applies-to: security-updates
+        patterns: ["*"]
 
   - package-ecosystem: github-actions
     directory: /
@@ -61,4 +72,7 @@ updates:
       default-days: 7
     groups:
       actions:
+        patterns: ["*"]
+      actions-security:
+        applies-to: security-updates
         patterns: ["*"]
