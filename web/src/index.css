@@ -2621,7 +2621,27 @@ html[data-density="compact"] .provider-choice .git-account-icon {
   --tx-tab-hover: #08182a;
 }
 .term-drawer.is-agents .term-tab {
-  top: calc(40% + 118px);
+  top: calc(40% + 172px);
+}
+/* The interactive terminal: the same screen in violet, its tab right below the TTY's. */
+.term-drawer.is-pty {
+  --tx-rgb: 210, 150, 255;
+  --tx-hi-rgb: 230, 195, 255;
+  --tx-main: #d296ff;
+  --tx-dim: #9a6cc4;
+  --tx-bg: #0a050e;
+  --tx-bar: #130a1a;
+  --tx-tab-bg: #0e0714;
+  --tx-tab-hover: #1a0d24;
+}
+.term-drawer.is-pty .term-tab {
+  top: calc(40% + 82px);
+}
+.term-drawer.is-pty .term-tab.is-live .term-tab-label {
+  animation: thinkPulse 1.6s ease-in-out infinite;
+}
+.term-screen .term-pty-open {
+  margin: 12px 0 0;
 }
 .term-drawer.is-agents .term-tab.is-live .term-tab-count {
   animation: thinkPulse 1.6s ease-in-out infinite;
@@ -3038,7 +3058,7 @@ html[data-density="compact"] .provider-choice .git-account-icon {
 .term-input-line:focus-within .term-prompt {
   text-shadow: 0 0 8px rgba(var(--tx-rgb), 0.6);
 }
-/* The way to a real terminal, and back: a button at the right of the drawer's title bar. */
+/* The way to a real terminal, and back: plain buttons on the violet screen. */
 .term-pty-open,
 .term-pty-end {
   flex: none;
@@ -3154,6 +3174,7 @@ html[data-density="compact"] .provider-choice .git-account-icon {
     animation: none;
   }
   .agent-spin,
+  .term-drawer.is-pty .term-tab.is-live .term-tab-label,
   .term-drawer.is-agents .term-tab.is-live .term-tab-count {
     animation: none;
   }

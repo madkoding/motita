@@ -176,35 +176,42 @@ async function drawerHarness({ shellLog = [], agents = [] } = {}) {
   return { ctl, done: m.done };
 }
 
-const open = (d) => [d.termOpen, d.thinkOpen, d.agentsOpen];
+const open = (d) => [d.termOpen, d.thinkOpen, d.agentsOpen, d.ptyOpen];
 
 test("the drawers share the edge: opening one closes the others", async () => {
   const { ctl, done } = await drawerHarness();
-  assert.deepEqual(open(ctl.d), [false, false, false]);
+  assert.deepEqual(open(ctl.d), [false, false, false, false]);
   await act(() => ctl.d.toggleTerm());
-  assert.deepEqual(open(ctl.d), [true, false, false]);
+  assert.deepEqual(open(ctl.d), [true, false, false, false]);
   await act(() => ctl.d.toggleThink());
-  assert.deepEqual(open(ctl.d), [false, true, false]);
+  assert.deepEqual(open(ctl.d), [false, true, false, false]);
   await act(() => ctl.d.toggleAgents());
-  assert.deepEqual(open(ctl.d), [false, false, true]);
+  assert.deepEqual(open(ctl.d), [false, false, true, false]);
   await act(() => ctl.d.showTerm());
-  assert.deepEqual(open(ctl.d), [true, false, false]);
+  assert.deepEqual(open(ctl.d), [true, false, false, false]);
   await act(() => ctl.d.showAgents());
-  assert.deepEqual(open(ctl.d), [false, false, true]);
+  assert.deepEqual(open(ctl.d), [false, false, true, false]);
   await act(() => ctl.d.toggleAgents());
   assert.deepEqual(
     open(ctl.d),
-    [false, false, false],
+    [false, false, false, false],
     "a toggle closes its own drawer",
   );
   await act(() => ctl.d.toggleThink());
   await act(() => ctl.d.closeThink());
-  assert.deepEqual(open(ctl.d), [false, false, false]);
+  assert.deepEqual(open(ctl.d), [false, false, false, false]);
   await act(() => ctl.d.showTerm());
   await act(() => ctl.d.closeTerm());
   await act(() => ctl.d.showAgents());
   await act(() => ctl.d.closeAgents());
-  assert.deepEqual(open(ctl.d), [false, false, false]);
+  assert.deepEqual(open(ctl.d), [false, false, false, false]);
+  await act(() => ctl.d.togglePty());
+  assert.deepEqual(open(ctl.d), [false, false, false, true]);
+  await act(() => ctl.d.toggleTerm());
+  assert.deepEqual(open(ctl.d), [true, false, false, false]);
+  await act(() => ctl.d.togglePty());
+  await act(() => ctl.d.closePty());
+  assert.deepEqual(open(ctl.d), [false, false, false, false]);
   await done();
 });
 

@@ -652,7 +652,7 @@ it is open (a run is refused, a queued message waits; the session lists `"termin
 person approved: network, git's logins and writes outside the workspace, still inside the sandbox
 that hides motita's own keys (unconfined with the policy off). It is bash where there is one,
 unless `agent.shell` names another, and Linux only for now (`501` where the session cannot open one).
-The web UI opens it from the **▸ interactive terminal** button in the TTY drawer's title bar; it stays open while the drawer is
+The web UI opens it from its own **PTY** tab, under the TTY one; it stays open while the drawer is
 closed and ends with `exit`, the drawer's **end** button or a change of session.
 
 A message typed while a task runs goes to the task (`POST /v1/sessions/{id}/steer`): the agent

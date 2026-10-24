@@ -17,12 +17,6 @@ import {
 
 setupDom();
 stub("./appStore", APP_STORE_STUB);
-// The interactive terminal stands in as a line that hands its props out (it has its own tests).
-stub(
-  "./TermPty",
-  `import { h } from "preact";
-export function TermPty(props) { globalThis.__ptyProps = props; return h("div", { class: "pty-stand-in" }); }`,
-);
 
 const { AppCtx } = await stubModule("./appStore");
 const { ChatHeader } = await load("ChatHeader.tsx");
@@ -259,11 +253,10 @@ test("an approval without a question uses its reason, and without either the def
 
 // ── Drawers ──────────────────────────────────────────────────────────────────
 
-function drawerStore({ rs = {}, drawers = {}, selectedSession } = {}) {
+function drawerStore({ rs = {}, drawers = {} } = {}) {
   const { calls, fn } = recorder();
   const store = {
     machine: "",
-    selectedSession,
     status: { setToast: fn("setToast") },
     rs: {
       sessionId: "s1",
@@ -397,92 +390,6 @@ test("the terminal draws what was seen whole, types the next and holds the rest"
   }
   assert.equal(text(root.querySelector(".term-status.running")), "running…");
   await done();
-});
-
-test("the terminal drawer becomes an interactive terminal and back", async () => {
-  const { store, calls } = drawerStore({ drawers: { termOpen: true } });
-  const { root, done, update } = await show(TermDrawer, store);
-  await act(() => flush(5));
-  const openPty = () => act(() => root.querySelector(".term-pty-open").click());
-  const isPty = () => !!root.querySelector(".pty-stand-in");
-
-  // The way in is in the title bar, whatever the history holds.
-  const open = root.querySelector(".term-titlebar .term-pty-open");
-  assert.equal(text(open), "▸ interactive terminal");
-  assert.equal(open.tabIndex, 0);
-  assert.equal(open.disabled, false);
-
-  await openPty();
-  assert.equal(
-    root.querySelector(".term-pty-open"),
-    null,
-    "no way in while it is open",
-  );
-  assert.ok(isPty());
-  assert.equal(
-    text(root.querySelector(".term-titlebar span")),
-    "motita@pty — interactive",
-  );
-  assert.ok(root.querySelector(".term-screen").hidden);
-  assert.ok(root.querySelector(".term-tab").classList.contains("is-live"));
-  assert.equal(root.querySelector(".term-pty-end").tabIndex, 0);
-  assert.equal(globalThis.__ptyProps.sid, "s1");
-  assert.equal(globalThis.__ptyProps.open, true);
-
-  // Its shell ended: back to the history, and a failure is said.
-  await act(() => globalThis.__ptyProps.onEnd());
-  assert.ok(!isPty());
-  await openPty();
-  await act(() => globalThis.__ptyProps.onEnd("no pty here"));
-  assert.ok(!isPty());
-  const toasts = calls.filter((c) => c[0] === "setToast");
-  assert.equal(toasts.length, 1);
-  assert.equal(toasts[0][1].detail, "no pty here");
-
-  // Ended by hand.
-  await openPty();
-  await act(() => root.querySelector(".term-pty-end").click());
-  assert.ok(!isPty());
-
-  // Another session is another shell.
-  await openPty();
-  await update({ ...store, rs: { ...store.rs, sessionId: "s2" } });
-  await act(() => flush(2));
-  assert.ok(!isPty());
-
-  // A closed drawer keeps the terminal, out of Tab's way.
-  await openPty();
-  await update({
-    ...store,
-    rs: { ...store.rs, sessionId: "s2" },
-    drawers: { ...store.drawers, termOpen: false },
-  });
-  assert.ok(isPty());
-  assert.equal(root.querySelector(".term-pty-end").tabIndex, -1);
-  assert.equal(globalThis.__ptyProps.open, false);
-  await done();
-});
-
-test("the interactive terminal waits for the agent, and needs a session that can be worked in", async () => {
-  const busy = await show(
-    TermDrawer,
-    drawerStore({ rs: { running: true }, selectedSession: { id: "s1" } }).store,
-  );
-  assert.equal(busy.root.querySelector(".term-pty-open").disabled, true);
-  assert.equal(busy.root.querySelector(".term-pty-open").tabIndex, -1);
-  await busy.done();
-  const none = await show(
-    TermDrawer,
-    drawerStore({ rs: { noSession: true } }).store,
-  );
-  assert.equal(none.root.querySelector(".term-pty-open"), null);
-  await none.done();
-  const merged = await show(
-    TermDrawer,
-    drawerStore({ selectedSession: { id: "s1", merged: true } }).store,
-  );
-  assert.equal(merged.root.querySelector(".term-pty-open"), null);
-  await merged.done();
 });
 
 test("a long history shows its newest window, and the earlier ones on demand", async () => {
