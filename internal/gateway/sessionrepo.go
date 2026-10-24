@@ -2,7 +2,6 @@ package gateway
 
 import (
 	"context"
-	"os"
 	"path/filepath"
 	"sort"
 	"strings"
@@ -11,25 +10,17 @@ import (
 )
 
 // repoDirsIn lists the git repositories a session's folder holds: the folder itself when it is the
-// top of one, then each of its direct subfolders that is. A project is a plain folder and the
-// repositories in it are whatever was cloned or copied there, so this is how the gateway finds them
-// instead of keeping a list.
+// top of one, then each repository inside it, one or two folders down (see reposUnder). A project is
+// a plain folder and the repositories in it are whatever was cloned or copied there, so this is how
+// the gateway finds them instead of keeping a list.
 func repoDirsIn(ctx context.Context, dir string) []string {
 	var out []string
 	if gitx.IsRepoRoot(ctx, dir) {
 		out = append(out, dir)
 	}
-	entries, err := os.ReadDir(dir)
-	if err != nil {
-		return out
-	}
 	var subs []string
-	for _, e := range entries {
-		if !e.IsDir() || strings.HasPrefix(e.Name(), ".") {
-			continue
-		}
-		sub := filepath.Join(dir, e.Name())
-		if gitx.IsRepoRoot(ctx, sub) {
+	for _, rel := range reposUnder(dir, "", nestedRepoDepth) {
+		if sub := filepath.Join(dir, filepath.FromSlash(rel)); gitx.IsRepoRoot(ctx, sub) {
 			subs = append(subs, sub)
 		}
 	}
