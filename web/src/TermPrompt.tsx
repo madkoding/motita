@@ -6,8 +6,8 @@
 // a lone `cd` kept for the next line. It is a line prompt and not a full PTY on purpose: the policy
 // judges whole command lines, and keystrokes sent to a live shell would go past it.
 //
-// A command that asks for input needs a real terminal: the button at the end of the line opens one
-// (TermPty, through onInteractive), and the drawer becomes that terminal until it ends.
+// A command that asks for input needs a real terminal: the drawer's title bar opens one (TermPty),
+// and the drawer becomes that terminal until it ends.
 //
 // While the agent works the prompt gives way: the gateway refuses a typed line during a run (both
 // would write in the same workspace), so the line says so instead of offering what would fail.
@@ -19,7 +19,7 @@ import { useApp } from "./appStore";
 // How the arrow keys walk the lines typed here: up to an older one, down to a newer one.
 const HISTORY_STEP: Record<string, number> = { ArrowUp: -1, ArrowDown: 1 };
 
-export function TermPrompt({ onInteractive }: { onInteractive: () => void }) {
+export function TermPrompt() {
   const { rs, drawers, shell, selectedSession } = useApp();
   const [line, setLine] = useState("");
   const [busy, setBusy] = useState(false);
@@ -104,18 +104,6 @@ export function TermPrompt({ onInteractive }: { onInteractive: () => void }) {
         enterKeyHint="send"
         tabIndex={choose(drawers.termOpen, 0, -1)}
       />
-      <button
-        type="button"
-        class="term-pty-open"
-        onClick={onInteractive}
-        disabled={busy}
-        title={t(
-          "Open an interactive terminal, for commands that ask for input",
-        )}
-        tabIndex={choose(drawers.termOpen, 0, -1)}
-      >
-        {t("interactive")}
-      </button>
     </form>
   );
 }
