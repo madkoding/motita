@@ -154,10 +154,38 @@ func TestASessionOfAPlainFolderLinksLooseFilesAndIntegratesEachRepository(t *tes
 
 func TestMovedRev(t *testing.T) {
 	for _, c := range []struct{ start, now, want string }{
-		{"a", "a", ""}, {"a", "b", "b"}, {"a", "", ""}, {"a,b", "a,c", "c"}, {"a", "a,b", "b"},
+		{"a", "a", ""}, {"a", "b", "b"}, {"a", "", ""}, {"a,b", "a,c", "c"}, {"a", "a,b", "b"}, {"a,b", "a", "a"},
 	} {
 		if got := movedRev(c.start, c.now); got != c.want {
 			t.Errorf("movedRev(%q, %q) = %q, want %q", c.start, c.now, got, c.want)
 		}
+	}
+}
+
+// Filling a session's folder again leaves a repository already checked out there as it is, and a
+// repository that cannot be branched (no commits yet) is skipped while the others still get theirs.
+func TestNestedSessionWorktreeReusesCheckoutsAndSkipsAnEmptyRepository(t *testing.T) {
+	ctx := context.Background()
+	projectDir := filepath.Join(t.TempDir(), "proj")
+	api, empty := filepath.Join(projectDir, "api"), filepath.Join(projectDir, "empty")
+	for _, d := range []string{api, empty} {
+		if err := os.MkdirAll(d, 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	gitRepo(t, api)
+	mustRun(t, "git", "init", "-q", "-b", "main", empty)
+	path := filepath.Join(t.TempDir(), "session")
+	for range 2 {
+		got, err := nestedSessionWorktree(ctx, projectDir, path, "motita/s1")
+		if err != nil || got != path {
+			t.Fatalf("nestedSessionWorktree = %q, %v; want %q", got, err, path)
+		}
+	}
+	if !worktreeRegistered(t, api, filepath.Join(path, "api")) {
+		t.Error("api must have a worktree in the session's folder")
+	}
+	if _, err := os.Stat(filepath.Join(path, "empty")); !os.IsNotExist(err) {
+		t.Errorf("the empty repository must be skipped: %v", err)
 	}
 }
