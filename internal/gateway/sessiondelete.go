@@ -260,12 +260,7 @@ var worktreePrune = gitx.PruneWorktrees
 // delete. os.RemoveAll removes the dependency links sessionWorktree made, never what they
 // point at.
 func (s *Server) forceRemoveCheckout(projectDir, workspace string) error {
-	root := filepath.Join(s.opts.WorkspaceDir, "worktrees")
-	rel, err := filepath.Rel(root, workspace)
-	if strings.TrimSpace(s.opts.WorkspaceDir) == "" || err != nil || relLeavesRoot(rel) {
-		return fmt.Errorf("%s is not inside this gateway's worktrees directory", workspace)
-	}
-	if err := os.RemoveAll(workspace); err != nil {
+	if err := s.removeSessionCheckout(workspace); err != nil {
 		return err
 	}
 	// The directory is gone; a registration left pointing at it is harmless (the next
@@ -274,6 +269,17 @@ func (s *Server) forceRemoveCheckout(projectDir, workspace string) error {
 		s.opts.Log.Warn("the worktree registration could not be pruned", "project", projectDir, "error", perr.Error())
 	}
 	return nil
+}
+
+// removeSessionCheckout deletes a session's checkout as a directory, only when it is INSIDE this
+// gateway's own worktrees directory.
+func (s *Server) removeSessionCheckout(workspace string) error {
+	root := filepath.Join(s.opts.WorkspaceDir, "worktrees")
+	rel, err := filepath.Rel(root, workspace)
+	if strings.TrimSpace(s.opts.WorkspaceDir) == "" || err != nil || relLeavesRoot(rel) {
+		return fmt.Errorf("%s is not inside this gateway's worktrees directory", workspace)
+	}
+	return os.RemoveAll(workspace)
 }
 
 // worktreeRelease is what a session's checkout is worth giving back, and it is the answer
@@ -292,6 +298,9 @@ type worktreeRelease struct {
 	// Repos are the worktrees of the project's other repositories inside the checkout: each
 	// repository's clone and the worktree's path.
 	Repos [][2]string
+	// Nested marks a session of a plain project folder: Workspace is a folder, not a worktree,
+	// and Repos are the worktrees in it.
+	Nested bool
 	// Changes names what the checkout holds and has not committed.
 	Changes []gitx.Change
 	// Inspected is false when the count could not be read, which is NOT the same as a
@@ -321,16 +330,24 @@ func (s *Server) inspectWorktree(c *conversation) worktreeRelease {
 	if gitx.SamePath(workspace, projectDir) {
 		return release
 	}
-	if _, ok, err := gitx.LiveWorktreeAt(context.Background(), projectDir, workspace); err != nil || !ok {
+	if nested := nestedSessionRepos(context.Background(), projectDir, workspace); len(nested) > 0 {
+		// A plain project folder: the session's folder holds a worktree of each of its repositories.
+		release.Nested = true
+		release.Repos = nested
+	} else if _, ok, err := gitx.LiveWorktreeAt(context.Background(), projectDir, workspace); err != nil || !ok {
 		return release
+	} else {
+		release.Repos = sessionRepoWorktrees(context.Background(), s.projectOf(c.projectID), workspace)
 	}
 	release.Workspace = workspace
 	release.ProjectDir = projectDir
-	release.Repos = sessionRepoWorktrees(context.Background(), s.projectOf(c.projectID), workspace)
-	changes, err := worktreeInspectList(context.Background(), workspace)
-	if err != nil {
-		release.InspectErr = err
-		return release
+	var changes []gitx.Change
+	if !release.Nested {
+		var err error
+		if changes, err = worktreeInspectList(context.Background(), workspace); err != nil {
+			release.InspectErr = err
+			return release
+		}
 	}
 	// The worktrees of the project's other repositories are part of the session's checkout, and
 	// their work is lost with it just the same: their changes are listed, under their folder.
@@ -401,9 +418,15 @@ func (s *Server) releaseWorktree(c *conversation, discard bool) error {
 	}()
 	// `force` is passed when the discard was confirmed: git refuses a dirty checkout, and
 	// the refusal would otherwise arrive after the user had already said yes.
-	err := worktreeRemove(context.Background(), release.ProjectDir, workspace, discard)
-	if err != nil && discard {
-		err = s.forceRelease(c, release.ProjectDir, workspace, err)
+	var err error
+	if release.Nested {
+		// Only the folder that held the worktrees is left.
+		err = s.removeSessionCheckout(workspace)
+	} else {
+		err = worktreeRemove(context.Background(), release.ProjectDir, workspace, discard)
+		if err != nil && discard {
+			err = s.forceRelease(c, release.ProjectDir, workspace, err)
+		}
 	}
 	if err != nil {
 		// git refused a checkout that was proven clean. That is reported rather than
