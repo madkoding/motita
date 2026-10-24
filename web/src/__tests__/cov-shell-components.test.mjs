@@ -259,10 +259,11 @@ test("an approval without a question uses its reason, and without either the def
 
 // ── Drawers ──────────────────────────────────────────────────────────────────
 
-function drawerStore({ rs = {}, drawers = {} } = {}) {
+function drawerStore({ rs = {}, drawers = {}, selectedSession } = {}) {
   const { calls, fn } = recorder();
   const store = {
     machine: "",
+    selectedSession,
     status: { setToast: fn("setToast") },
     rs: {
       sessionId: "s1",
@@ -405,7 +406,18 @@ test("the terminal drawer becomes an interactive terminal and back", async () =>
   const openPty = () => act(() => root.querySelector(".term-pty-open").click());
   const isPty = () => !!root.querySelector(".pty-stand-in");
 
+  // The way in is in the title bar, whatever the history holds.
+  const open = root.querySelector(".term-titlebar .term-pty-open");
+  assert.equal(text(open), "▸ interactive terminal");
+  assert.equal(open.tabIndex, 0);
+  assert.equal(open.disabled, false);
+
   await openPty();
+  assert.equal(
+    root.querySelector(".term-pty-open"),
+    null,
+    "no way in while it is open",
+  );
   assert.ok(isPty());
   assert.equal(
     text(root.querySelector(".term-titlebar span")),
@@ -449,6 +461,28 @@ test("the terminal drawer becomes an interactive terminal and back", async () =>
   assert.equal(root.querySelector(".term-pty-end").tabIndex, -1);
   assert.equal(globalThis.__ptyProps.open, false);
   await done();
+});
+
+test("the interactive terminal waits for the agent, and needs a session that can be worked in", async () => {
+  const busy = await show(
+    TermDrawer,
+    drawerStore({ rs: { running: true }, selectedSession: { id: "s1" } }).store,
+  );
+  assert.equal(busy.root.querySelector(".term-pty-open").disabled, true);
+  assert.equal(busy.root.querySelector(".term-pty-open").tabIndex, -1);
+  await busy.done();
+  const none = await show(
+    TermDrawer,
+    drawerStore({ rs: { noSession: true } }).store,
+  );
+  assert.equal(none.root.querySelector(".term-pty-open"), null);
+  await none.done();
+  const merged = await show(
+    TermDrawer,
+    drawerStore({ selectedSession: { id: "s1", merged: true } }).store,
+  );
+  assert.equal(merged.root.querySelector(".term-pty-open"), null);
+  await merged.done();
 });
 
 test("a long history shows its newest window, and the earlier ones on demand", async () => {

@@ -150,12 +150,14 @@ function TermHistory({
 // (see TermPty). The terminal stays open while the drawer is closed: closing a window is not
 // hanging up its shell.
 export function TermDrawer() {
-  const { rs, drawers, machine, status } = useApp();
+  const { rs, drawers, machine, status, selectedSession } = useApp();
   const { termOpen, term } = drawers;
   const count = rs.shellLog.length;
   const content = useDrawerContent(termOpen);
   const sid = rs.sessionId;
   const [pty, setPty] = useState(false);
+  // A terminal needs a session that can still be worked in; while the agent works it waits.
+  const canPty = !pty && !rs.noSession && !selectedSession?.merged;
   // Another session is another shell: the open one ends with the session it belonged to.
   useEffect(() => setPty(false), [sid, machine]);
   const openPty = useCallback(() => setPty(true), []);
@@ -205,6 +207,20 @@ export function TermDrawer() {
               "motita@shell — " + plural(count, "1 command", "{n} commands"),
             )}
           </span>
+          {canPty && (
+            <button
+              type="button"
+              class="term-pty-open"
+              onClick={openPty}
+              disabled={rs.running}
+              title={t(
+                "Open an interactive terminal, for commands that ask for input",
+              )}
+              tabIndex={choose(termOpen, 0, -1)}
+            >
+              {"▸ " + t("interactive terminal")}
+            </button>
+          )}
           {pty && (
             <button
               type="button"
@@ -239,7 +255,7 @@ export function TermDrawer() {
                 showEarlier={content.showEarlier}
               />
             )}
-            {content.mounted && <TermPrompt onInteractive={openPty} />}
+            {content.mounted && <TermPrompt />}
           </div>
           {pty && (
             <TermPty

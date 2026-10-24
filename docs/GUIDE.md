@@ -473,8 +473,9 @@ command ran on that standing answer). Around the conversation:
   drawer** with every command and its output. While nothing runs in the session, the
   terminal drawer ends in a prompt: a line typed there runs like `!cmd` from the composer
   (the session's folder, the Security policy and sandbox, a lone `cd` kept, ↑/↓ for the
-  lines typed before). Its **interactive** button turns the drawer into a real terminal on
-  the session's shell, for commands that ask for input; the agent waits while it is open.
+  lines typed before). The **▸ interactive terminal** button in the drawer's title bar turns
+  it into a real terminal on the session's shell (Linux), for commands that ask for input;
+  the agent waits while it is open.
   While the agent works it says so instead.
 - **An agents drawer** with the run's background agents: purpose, state, elapsed time,
   tokens (input, output, cache) and, once one finishes, its summary and the command that

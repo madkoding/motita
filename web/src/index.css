@@ -3038,29 +3038,27 @@ html[data-density="compact"] .provider-choice .git-account-icon {
 .term-input-line:focus-within .term-prompt {
   text-shadow: 0 0 8px rgba(var(--tx-rgb), 0.6);
 }
-/* The way from the line prompt to a real terminal, and back: small words on the screen's edge. */
+/* The way to a real terminal, and back: a button at the right of the drawer's title bar. */
 .term-pty-open,
 .term-pty-end {
   flex: none;
-  padding: 0 6px;
+  margin-left: auto;
+  margin-right: 8px;
+  padding: 2px 8px;
   font: inherit;
-  font-size: 10px;
-  color: var(--tx-dim);
-  background: transparent;
-  border: 1px dashed rgba(var(--tx-rgb), 0.35);
+  font-size: 11px;
+  color: var(--tx-main);
+  background: rgba(var(--tx-rgb), 0.08);
+  border: 1px solid rgba(var(--tx-rgb), 0.45);
   cursor: pointer;
 }
 .term-pty-open:hover,
 .term-pty-end:hover {
-  color: var(--tx-main);
+  background: rgba(var(--tx-rgb), 0.18);
 }
 .term-pty-open:disabled {
-  cursor: progress;
-  opacity: 0.5;
-}
-.term-pty-end {
-  margin-left: auto;
-  margin-right: 8px;
+  cursor: not-allowed;
+  opacity: 0.4;
 }
 /* The interactive terminal fills the screen the history leaves; xterm draws inside it. */
 .term-pty {
