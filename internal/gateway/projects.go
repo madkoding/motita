@@ -736,6 +736,16 @@ func (s *Server) handleMergeSession(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	branch := sessionBranch(c.id)
+	if len(nestedSessionRepos(r.Context(), p.Dir, c.workspace)) > 0 {
+		// A plain folder holding several repositories: each one is integrated on its own.
+		work := nestedWork(r.Context(), p.Dir, c.workspace, branch)
+		if len(work) == 0 {
+			writeError(w, http.StatusConflict, "this session has no work to integrate in any of the project's repositories")
+			return
+		}
+		s.startRunWithIntent(w, r, c, nestedMergeTask(c.id, branch, c.workspace, work), schedule.KindTask, runIntentMerge)
+		return
+	}
 	base := gitx.Display(r.Context(), p.Dir)
 	if base == "" {
 		writeError(w, http.StatusConflict, "the project has no base branch to merge into")
