@@ -2,7 +2,7 @@
 // the model's thinking and the run's agents. Each tab sits on the right edge and its drawer opens to
 // the LEFT from it; opening one closes the others. They are siblings of the scroll container, for
 // the reason the session modal is: they must stay put while the conversation scrolls.
-import { useCallback, useEffect, useRef, useState } from "preact/hooks";
+import { useCallback, useRef } from "preact/hooks";
 import { t, plural } from "./i18n";
 import { choose } from "./choose";
 import { useApp } from "./appStore";
@@ -26,12 +26,11 @@ import {
 import type { AgentInfo, ShellEntry } from "./appTypes";
 import { NO_RESULT, TERM_BOOST_MAX } from "./appConst";
 import { TermPrompt } from "./TermPrompt";
-import { TermPty } from "./TermPty";
 import { useDrawerContent, windowStart } from "./drawerWindow";
 
 // CrtFx are the CRT effects: layers ABOVE the text and never inside it. They carry no pointer
 // events, so selecting and scrolling the history work as usual.
-function CrtFx({ full }: { full: boolean }) {
+export function CrtFx({ full }: { full: boolean }) {
   return (
     <>
       <div class="term-fx term-fx-scan" aria-hidden="true" />
@@ -146,35 +145,18 @@ function TermHistory({
 }
 
 // TermDrawer is everything the agent ran in this conversation, input and output, and, while
-// nothing runs, a prompt to type the next command in (see TermPrompt) or a real terminal to drive
-// (see TermPty). The terminal stays open while the drawer is closed: closing a window is not
-// hanging up its shell.
+// nothing runs, a prompt to type the next command in (see TermPrompt). A command that asks for
+// input has its own drawer: the interactive terminal (see PtyDrawer).
 export function TermDrawer() {
-  const { rs, drawers, machine, status } = useApp();
+  const { rs, drawers } = useApp();
   const { termOpen, term } = drawers;
   const count = rs.shellLog.length;
   const content = useDrawerContent(termOpen);
-  const sid = rs.sessionId;
-  const [pty, setPty] = useState(false);
-  // Another session is another shell: the open one ends with the session it belonged to.
-  useEffect(() => setPty(false), [sid, machine]);
-  const openPty = useCallback(() => setPty(true), []);
-  const closePty = useCallback(() => setPty(false), []);
-  const endPty = useCallback((reason?: string) => {
-    setPty(false);
-    if (reason) {
-      status.setToast({
-        message: t("The terminal could not be opened"),
-        type: "error",
-        detail: reason,
-      });
-    }
-  }, []);
   return (
     <div class={`term-drawer${choose(termOpen, " is-open", "")}`}>
       <button
         type="button"
-        class={`term-tab${choose(pty, " is-live", "")}`}
+        class="term-tab"
         aria-expanded={termOpen}
         aria-controls="term-panel"
         title={choose(
@@ -199,23 +181,8 @@ export function TermDrawer() {
       >
         <div class="term-titlebar">
           <span>
-            {choose(
-              pty,
-              "motita@pty — " + t("interactive"),
-              "motita@shell — " + plural(count, "1 command", "{n} commands"),
-            )}
+            motita@shell — {plural(count, "1 command", "{n} commands")}
           </span>
-          {pty && (
-            <button
-              type="button"
-              class="term-pty-end"
-              onClick={closePty}
-              title={t("End the interactive terminal")}
-              tabIndex={choose(termOpen, 0, -1)}
-            >
-              {t("end")}
-            </button>
-          )}
           <button
             type="button"
             class="term-close"
@@ -227,28 +194,15 @@ export function TermDrawer() {
           </button>
         </div>
         <div class="term-viewport">
-          <div
-            class="term-screen"
-            ref={term.ref}
-            hidden={pty}
-            {...term.handlers}
-          >
+          <div class="term-screen" ref={term.ref} {...term.handlers}>
             {content.mounted && (
               <TermHistory
                 shown={content.shown}
                 showEarlier={content.showEarlier}
               />
             )}
-            {content.mounted && <TermPrompt onInteractive={openPty} />}
+            {content.mounted && <TermPrompt />}
           </div>
-          {pty && (
-            <TermPty
-              machine={machine}
-              sid={sid}
-              open={termOpen}
-              onEnd={endPty}
-            />
-          )}
           <CrtFx full />
         </div>
       </section>

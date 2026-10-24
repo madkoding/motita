@@ -39,6 +39,7 @@ import { ConnectionBanner } from "./ConnectionBanner";
 import { Sidebar } from "./Sidebar";
 import { ChatHeader } from "./ChatHeader";
 import { AgentsDrawer, TermDrawer, ThinkDrawer } from "./Drawers";
+import { PtyDrawer } from "./PtyDrawer";
 import { ApprovalPanel, ChatLoadingModal } from "./ChatPanels";
 import { Composer } from "./Composer";
 import { NewSessionButton } from "./NewSessionButton";
@@ -663,6 +664,7 @@ function MainColumn({ pr }: { pr: PullRequest }) {
       <ChatHeader />
       <Conversation />
       <TermDrawer />
+      <PtyDrawer />
       <ThinkDrawer />
       <AgentsDrawer />
       {scroll.chatLoading && <ChatLoadingModal />}
