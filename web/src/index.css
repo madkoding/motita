@@ -2621,7 +2621,27 @@ html[data-density="compact"] .provider-choice .git-account-icon {
   --tx-tab-hover: #08182a;
 }
 .term-drawer.is-agents .term-tab {
-  top: calc(40% + 118px);
+  top: calc(40% + 172px);
+}
+/* The interactive terminal: the same screen in violet, its tab right below the TTY's. */
+.term-drawer.is-pty {
+  --tx-rgb: 210, 150, 255;
+  --tx-hi-rgb: 230, 195, 255;
+  --tx-main: #d296ff;
+  --tx-dim: #9a6cc4;
+  --tx-bg: #0a050e;
+  --tx-bar: #130a1a;
+  --tx-tab-bg: #0e0714;
+  --tx-tab-hover: #1a0d24;
+}
+.term-drawer.is-pty .term-tab {
+  top: calc(40% + 82px);
+}
+.term-drawer.is-pty .term-tab.is-live .term-tab-label {
+  animation: thinkPulse 1.6s ease-in-out infinite;
+}
+.term-screen .term-pty-open {
+  margin: 12px 0 0;
 }
 .term-drawer.is-agents .term-tab.is-live .term-tab-count {
   animation: thinkPulse 1.6s ease-in-out infinite;
@@ -2824,6 +2844,7 @@ html[data-density="compact"] .provider-choice .git-account-icon {
   flex: 1 1 auto;
   min-height: 0;
   overflow: hidden;
+  overflow: clip;
 }
 .term-screen {
   position: absolute;
@@ -3008,6 +3029,76 @@ html[data-density="compact"] .provider-choice .git-account-icon {
 .term-empty {
   color: var(--tx-dim);
 }
+/* The prompt at the end of the terminal: the line a person types the next command in. It reads as
+   one more line of the screen, so it carries no box of its own. */
+.term-input-line {
+  display: flex;
+  align-items: baseline;
+  gap: 0.5em;
+  margin-top: 6px;
+}
+.term-input {
+  flex: 1 1 auto;
+  min-width: 0;
+  padding: 0;
+  font: inherit;
+  color: var(--tx-main);
+  text-shadow: inherit;
+  caret-color: var(--tx-main);
+  background: transparent;
+  border: 0;
+  outline: none;
+}
+.term-input::placeholder {
+  color: var(--tx-dim);
+}
+.term-input:disabled {
+  cursor: progress;
+}
+.term-input-line:focus-within .term-prompt {
+  text-shadow: 0 0 8px rgba(var(--tx-rgb), 0.6);
+}
+/* The way to a real terminal, and back: plain buttons on the violet screen. */
+.term-pty-open,
+.term-pty-end {
+  flex: none;
+  margin-left: auto;
+  margin-right: 8px;
+  padding: 2px 8px;
+  font: inherit;
+  font-size: 11px;
+  color: var(--tx-main);
+  background: rgba(var(--tx-rgb), 0.08);
+  border: 1px solid rgba(var(--tx-rgb), 0.45);
+  cursor: pointer;
+}
+.term-pty-open:hover,
+.term-pty-end:hover {
+  background: rgba(var(--tx-rgb), 0.18);
+}
+.term-pty-open:disabled {
+  cursor: not-allowed;
+  opacity: 0.4;
+}
+/* The interactive terminal fills the screen the history leaves; xterm draws inside it. */
+.term-pty {
+  position: absolute;
+  inset: 0;
+  padding: 8px 4px 8px 10px;
+}
+.term-pty .xterm {
+  height: 100%;
+}
+.term-pty .xterm-viewport {
+  background: transparent !important;
+}
+.term-screen[hidden] {
+  display: none;
+}
+.term-locked {
+  margin-top: 6px;
+  color: var(--tx-dim);
+}
 /* The button above a drawer's window: the older entries are not mounted until asked for. */
 .term-earlier {
   display: block;
@@ -3083,6 +3174,7 @@ html[data-density="compact"] .provider-choice .git-account-icon {
     animation: none;
   }
   .agent-spin,
+  .term-drawer.is-pty .term-tab.is-live .term-tab-label,
   .term-drawer.is-agents .term-tab.is-live .term-tab-count {
     animation: none;
   }
@@ -3937,6 +4029,10 @@ button.mode-badge:focus-visible {
  * home indicator, so the shell pads itself by the safe area; while the keyboard is up the
  * bottom inset is the keyboard's, not the home indicator's, and is dropped. */
 .app-shell {
+  /* Clipped, not only hidden: a hidden box can still be scrolled by the browser, and bringing a
+     focused field into view did - the interactive terminal's input slid the whole app sideways on
+     a phone. Where clip is unknown, the overflow-hidden utility still applies. */
+  overflow: clip;
   height: 100dvh;
   height: var(--app-h, 100dvh);
   padding: env(safe-area-inset-top) env(safe-area-inset-right)
@@ -4893,35 +4989,6 @@ html[data-density="compact"] .settings-warn {
 }
 .project-index-badge[data-state="stale"] {
   color: var(--color-warn, #d9a441);
-}
-
-/* ─── Text that arrives ─────────────────────────────────────────────
- * The activity line is typed in by the terminal's typewriter (Typed in Term.tsx); its cursor
- * takes the line's own colour instead of the terminal green. */
-.activity-typed.is-typing::after {
-  width: 0.5em;
-  background: currentColor;
-  box-shadow: 0 0 6px currentColor;
-  opacity: 0.85;
-}
-
-/* A streamed answer is revealed letter by letter (streamReveal.ts): the letters not yet shown
- * are painted transparent, and the last few shown fade in, the newest the faintest. A highlight
- * changes only paint, never layout, so the bubble keeps its final height. */
-::highlight(stream-hidden) {
-  color: transparent;
-}
-/* A fixed tone of the body text: inside a highlight `currentColor` does not resolve to the
- * element's colour (measured: it drew the edge near black), so a heading's edge fades in pale
- * for a few letters before taking its own colour. */
-::highlight(stream-fade-1) {
-  color: rgb(232 232 234 / 0.2);
-}
-::highlight(stream-fade-2) {
-  color: rgb(232 232 234 / 0.5);
-}
-::highlight(stream-fade-3) {
-  color: rgb(232 232 234 / 0.8);
 }
 
 /* The input's ⋮ and the actions counter are quiet controls: no box and no cut corners, so they

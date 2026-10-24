@@ -1,5 +1,5 @@
-// The three drawers on the right edge: the terminal history, the model's thinking and the run's
-// agents. Opening one closes the others: they share the edge.
+// The four drawers on the right edge: the terminal history, the interactive terminal, the model's
+// thinking and the run's agents. Opening one closes the others: they share the edge.
 import { useCallback, useEffect, useState } from "preact/hooks";
 import { useFollowEnd } from "./useFollowEnd";
 import { copyText } from "./clipboard";
@@ -14,40 +14,43 @@ export function useDrawers(rs: RunState) {
   // closed by default, and opening one drawer closes the other: they share the edge.
   const [thinkOpen, setThinkOpen] = useState(false);
   const [agentsOpen, setAgentsOpen] = useState(false);
+  const [ptyOpen, setPtyOpen] = useState(false);
   const [agentCopied, setAgentCopied] = useState<string | null>(null);
   const [agentNow, setAgentNow] = useState(() => Date.now());
   const term = useFollowEnd(termOpen);
   const think = useFollowEnd(thinkOpen);
   const stickTerm = term.stick;
 
-  const showTerm = useCallback(() => {
-    setTermOpen(true);
-    setAgentsOpen(false);
-    setThinkOpen(false);
-  }, []);
-  const showAgents = useCallback(() => {
-    setAgentsOpen(true);
-    setTermOpen(false);
-    setThinkOpen(false);
-  }, []);
-  const toggleTerm = useCallback(() => {
-    setTermOpen((o) => !o);
-    setThinkOpen(false);
-    setAgentsOpen(false);
-  }, []);
-  const toggleThink = useCallback(() => {
-    setThinkOpen((o) => !o);
-    setTermOpen(false);
-    setAgentsOpen(false);
-  }, []);
-  const toggleAgents = useCallback(() => {
-    setAgentsOpen((o) => !o);
-    setTermOpen(false);
-    setThinkOpen(false);
-  }, []);
+  // only opens or toggles one drawer and closes the other three.
+  const only = useCallback(
+    (
+      set: (fn: (open: boolean) => boolean) => void,
+      next: (open: boolean) => boolean,
+    ) => {
+      for (const other of [
+        setTermOpen,
+        setThinkOpen,
+        setAgentsOpen,
+        setPtyOpen,
+      ]) {
+        if (other !== set) {
+          other(() => false);
+        }
+      }
+      set(next);
+    },
+    [],
+  );
+  const showTerm = useCallback(() => only(setTermOpen, () => true), []);
+  const showAgents = useCallback(() => only(setAgentsOpen, () => true), []);
+  const toggleTerm = useCallback(() => only(setTermOpen, (o) => !o), []);
+  const toggleThink = useCallback(() => only(setThinkOpen, (o) => !o), []);
+  const toggleAgents = useCallback(() => only(setAgentsOpen, (o) => !o), []);
+  const togglePty = useCallback(() => only(setPtyOpen, (o) => !o), []);
   const closeTerm = useCallback(() => setTermOpen(false), []);
   const closeThink = useCallback(() => setThinkOpen(false), []);
   const closeAgents = useCallback(() => setAgentsOpen(false), []);
+  const closePty = useCallback(() => setPtyOpen(false), []);
 
   // A running agent's clock ticks while the drawer shows it, and only then.
   const agentsTicking = agentsOpen && agents.some((a) => a.state === "running");
@@ -107,6 +110,7 @@ export function useDrawers(rs: RunState) {
     termOpen,
     thinkOpen,
     agentsOpen,
+    ptyOpen,
     agentCopied,
     agentNow,
     term,
@@ -117,9 +121,11 @@ export function useDrawers(rs: RunState) {
     toggleTerm,
     toggleThink,
     toggleAgents,
+    togglePty,
     closeTerm,
     closeThink,
     closeAgents,
+    closePty,
     toggleAgent,
     copyMerge,
     termEntryDone,

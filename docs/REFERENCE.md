@@ -642,6 +642,19 @@ is connected to one through Other computers, says that computer did not keep it 
 the confirmation window's `a` key does the same for the folder the commands run in, kept in
 `~/.motita/approvals.json`; the transcript says when a command ran without asking.
 
+**The interactive terminal.** `GET /v1/sessions/{id}/terminal?cols=N&rows=M` (a WebSocket) is
+the session's shell on a pseudo-terminal, for a command that asks for input, an editor or a REPL:
+binary frames carry the terminal's bytes both ways, the client's text frames are
+`{"type":"resize","cols":N,"rows":M}`, and the server's are `{"type":"exit","code":N}` when the shell
+ends or `{"type":"error","message":…}` when it could not open. It holds the session's run slot while
+it is open (a run is refused, a queued message waits; the session lists `"terminal": true`, not
+`running`), and a deletion ends it. The policy cannot judge keys, so the shell runs as a command the
+person approved: network, git's logins and writes outside the workspace, still inside the sandbox
+that hides motita's own keys (unconfined with the policy off). It is bash where there is one,
+unless `agent.shell` names another, and Linux only for now (`501` where the session cannot open one).
+The web UI opens it from its own **PTY** tab, under the TTY one; it stays open while the drawer is
+closed and ends with `exit`, the drawer's **end** button or a change of session.
+
 A message typed while a task runs goes to the task (`POST /v1/sessions/{id}/steer`): the agent
 reads it at its next step, it wins over the plan where they differ, and the turn's trail shows
 it as `you: …`. When nothing can read it (a plan, a task between steps) it is queued for the end

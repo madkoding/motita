@@ -25,11 +25,12 @@ import {
 } from "./appFormat";
 import type { AgentInfo, ShellEntry } from "./appTypes";
 import { NO_RESULT, TERM_BOOST_MAX } from "./appConst";
+import { TermPrompt } from "./TermPrompt";
 import { useDrawerContent, windowStart } from "./drawerWindow";
 
 // CrtFx are the CRT effects: layers ABOVE the text and never inside it. They carry no pointer
 // events, so selecting and scrolling the history work as usual.
-function CrtFx({ full }: { full: boolean }) {
+export function CrtFx({ full }: { full: boolean }) {
   return (
     <>
       <div class="term-fx term-fx-scan" aria-hidden="true" />
@@ -143,7 +144,9 @@ function TermHistory({
   );
 }
 
-// TermDrawer is everything the agent ran in this conversation, input and output.
+// TermDrawer is everything the agent ran in this conversation, input and output, and, while
+// nothing runs, a prompt to type the next command in (see TermPrompt). A command that asks for
+// input has its own drawer: the interactive terminal (see PtyDrawer).
 export function TermDrawer() {
   const { rs, drawers } = useApp();
   const { termOpen, term } = drawers;
@@ -198,6 +201,7 @@ export function TermDrawer() {
                 showEarlier={content.showEarlier}
               />
             )}
+            {content.mounted && <TermPrompt />}
           </div>
           <CrtFx full />
         </div>

@@ -39,6 +39,7 @@ import { ConnectionBanner } from "./ConnectionBanner";
 import { Sidebar } from "./Sidebar";
 import { ChatHeader } from "./ChatHeader";
 import { AgentsDrawer, TermDrawer, ThinkDrawer } from "./Drawers";
+import { PtyDrawer } from "./PtyDrawer";
 import { ApprovalPanel, ChatLoadingModal } from "./ChatPanels";
 import { Composer } from "./Composer";
 import { NewSessionButton } from "./NewSessionButton";
@@ -663,6 +664,7 @@ function MainColumn({ pr }: { pr: PullRequest }) {
       <ChatHeader />
       <Conversation />
       <TermDrawer />
+      <PtyDrawer />
       <ThinkDrawer />
       <AgentsDrawer />
       {scroll.chatLoading && <ChatLoadingModal />}
@@ -842,7 +844,7 @@ function MachineApp({
   machine: string;
   setMachine: (id: string) => void;
 }) {
-  const store = useAppStore(request);
+  const store = useAppStore(request, machine);
   const pr = usePullRequest(store, request);
   const loadEvidenceImage = useEvidenceLoader(store);
   // The computers are always this gateway's: api, never the computer's own request.

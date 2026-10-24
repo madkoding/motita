@@ -1,6 +1,6 @@
 // A project has one main session, and the work done in parallel inside it happens in threads: sessions
-// that name the main one as their parent. The person never opens a thread; the main session's agent
-// does, and the sidebar only has to show them under it.
+// that name the main one as their parent, each in a worktree of its own. The person opens one with the
+// project's "+" and the main session's agent opens them by topic; the sidebar shows them under it.
 import type { SessionInfo } from "./appTypes";
 
 // mainSessionOf is the project's main session: the oldest one that is not a thread of another.

@@ -71,6 +71,8 @@ type conversation struct {
 	created  time.Time
 	lastUsed time.Time
 	running  bool
+	// terminal is the terminal holding the run slot, nil when none is open (see terminal.go).
+	terminal *terminalHold
 	// titling is set while a title is being generated for this conversation (see autoTitle).
 	titling bool
 	// prWatch is what the gateway is doing about the session's pull request, nil when nothing.
@@ -398,7 +400,7 @@ func (c *conversation) cancelRun() bool {
 func (c *conversation) stopRunForDeletion(timeout time.Duration) (bool, bool) {
 	rn, ok := c.currentRun()
 	if !ok {
-		return false, true
+		return c.stopTerminal(timeout)
 	}
 	rn.cancel()
 	select {
@@ -420,6 +422,9 @@ type SessionStatus struct {
 	Created  time.Time `json:"created"`
 	LastUsed time.Time `json:"last_used"`
 	Running  bool      `json:"running"`
+	// Terminal reports a person's terminal open in the session: it holds the run slot, so the agent
+	// waits for it, but it is not the agent working.
+	Terminal bool `json:"terminal,omitempty"`
 	// PRWatch is the state of the session's pull request while the gateway follows its CI.
 	PRWatch *PRWatchView `json:"pr_watch,omitempty"`
 	// Mergeable reports whether the session has work that can be integrated
@@ -502,8 +507,8 @@ func (c *conversation) status() SessionStatus {
 	c.stateMu.Lock()
 	defer c.stateMu.Unlock()
 	st := SessionStatus{ID: c.id, Title: c.title, ProjectID: c.projectID, ParentID: c.parentID,
-		Created: c.created, LastUsed: c.lastUsed, Running: c.running, AutoApprove: c.autoApprove,
-		AgentsRunning: runningSubagents(c.agents)}
+		Created: c.created, LastUsed: c.lastUsed, Running: c.running && c.terminal == nil,
+		Terminal: c.terminal != nil, AutoApprove: c.autoApprove, AgentsRunning: runningSubagents(c.agents)}
 	st.Workspace = c.workspace
 	if c.svc != nil {
 		cfg := c.svc.Config()
