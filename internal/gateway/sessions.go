@@ -641,6 +641,10 @@ func (s *Server) sessionWorktree(ctx context.Context, repoDir, sessionID string)
 	}
 	path := filepath.Join(s.opts.WorkspaceDir, "worktrees", sessionID)
 	branch := sessionBranch(sessionID)
+	// A plain folder holding repositories: a worktree of each one (see sessionnested.go).
+	if gitx.Repo(ctx, repoDir) != nil {
+		return nestedSessionWorktree(ctx, repoDir, path, branch)
+	}
 	// Already ours: a LIVE worktree of this repository at this path is the
 	// worktree asked for, whatever created it.
 	//
