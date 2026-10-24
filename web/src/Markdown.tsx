@@ -59,13 +59,12 @@
 // Inline HTML in an answer renders (`<kbd>`, `<sup>`, `<details>`), which the old
 // renderer escaped. That widening is only safe because every fragment — the parsed
 // message, a KaTeX render and a mermaid SVG alike — goes through DOMPurify first.
-import { useEffect, useLayoutEffect, useMemo, useRef } from "preact/hooks";
+import { useEffect, useMemo, useRef } from "preact/hooks";
 import type { Config as PurifyConfig } from "dompurify";
 import MarkdownIt from "markdown-it";
 import type { MarkdownItOptions, Token } from "markdown-it";
 import DOMPurify from "dompurify";
 import { watchForHydration } from "./hydration";
-import { streamReveal, type StreamReveal } from "./streamReveal";
 import { t } from "./i18n";
 import footnote from "markdown-it-footnote";
 import deflist from "markdown-it-deflist";
@@ -630,23 +629,6 @@ export function Markdown({ content }: { content: string }) {
   // by DOMPurify each time — a long transcript turned each token into a full re-parse of the whole
   // conversation, and the strings and fragments it left behind are what the collector had to chase.
   const html = useMemo(() => renderMessage(content), [content]);
-
-  // A streamed answer is revealed letter by letter as it grows (streamReveal.ts). Layout
-  // effects, so the new letters are hidden in the same frame the new HTML is mounted.
-  const reveal = useRef<StreamReveal | null>(null);
-  useLayoutEffect(() => {
-    const r = streamReveal(ref.current!, content);
-    reveal.current = r;
-    return () => r.dispose();
-    // Created once, for the element as mounted; later content goes through `update`.
-  }, []);
-  const mountedContent = useRef(content);
-  useLayoutEffect(() => {
-    if (mountedContent.current !== content) {
-      mountedContent.current = content;
-      reveal.current?.update(content);
-    }
-  }, [content]);
 
   useEffect(() => {
     // Effects run after the mount, so the element is there.

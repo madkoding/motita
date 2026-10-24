@@ -741,7 +741,7 @@ test("the trail folds the steps behind a count and draws commands and progress",
   await live.m.unmount();
 });
 
-test("the activity line types what the agent is doing, with a command's status", async () => {
+test("the activity line shows what the agent is doing at once, with a command's status", async () => {
   frames.clear();
   const cmd = await inTurn(
     h(P.ActivityLine, {
@@ -754,7 +754,6 @@ test("the activity line types what the agent is doing, with a command's status",
   assert.equal(line.className, "msg activity command");
   assert.equal(line.getAttribute("title"), "running: npm test");
   assert.ok(cmd.q(".spin-command"));
-  await act(() => frames.flush(performance.now() + 60_000));
   assert.equal(text(cmd.q(".activity-typed.term-cmd-text")), "npm test");
   assert.equal(text(cmd.q(".term-exit")), "failed · exit 1");
   await cmd.m.unmount();
@@ -762,7 +761,6 @@ test("the activity line types what the agent is doing, with a command's status",
     h(P.ActivityLine, { activity: "reading   the\nfiles", shown: [] }),
   );
   assert.ok(idle.q(".spin-default"));
-  await act(() => frames.flush(performance.now() + 60_000));
   const typed = idle.q(".activity-typed");
   assert.equal(typed.className.trim(), "activity-typed");
   assert.equal(text(typed), "reading the files");

@@ -8,7 +8,6 @@ import { useTurn } from "./turnView";
 import { useDialog } from "./useDialog";
 import { useListener } from "./domHooks";
 import { ActionCount, ActionTrail } from "./ActionTrail";
-import { Typed, esc } from "./Term";
 import { BodyPortal } from "./BodyPortal";
 import { FloatingMenu } from "./FloatingMenu";
 import {
@@ -489,15 +488,11 @@ function TrailSteps({
   );
 }
 
-// ActivityTyped is the activity line's text, typed in with the terminal's typewriter and cursor.
-function ActivityTyped({ text, class: cls }: { text: string; class?: string }) {
+// ActivityText is the activity line's text, shown whole as it changes: typing each new step in
+// from the start made the line blank out and flicker while the agent moved quickly.
+function ActivityText({ text, class: cls }: { text: string; class?: string }) {
   return (
-    <Typed
-      key={text}
-      as="span"
-      class={`activity-typed${choose(cls, " " + cls, "")}`}
-      html={esc(text)}
-    />
+    <span class={`activity-typed${choose(cls, " " + cls, "")}`}>{text}</span>
   );
 }
 
@@ -517,17 +512,16 @@ export function ActivityLine({
   return (
     <div class={`msg activity ${activityKind}`} title={activity}>
       <span class={`spin-${activityKind || "default"}`}></span>
-      {/* Typed in like the terminal, each new step from the start (it is keyed by its text). */}
       {command && (
         <>
-          <ActivityTyped
+          <ActivityText
             class="term-cmd-text"
             text={oneLine(activity.replace(/^running:\s*/, ""))}
           />
           <ShellStatus exit={lastExit(shown)} />
         </>
       )}
-      {!command && <ActivityTyped text={oneLine(progressText(activity))} />}
+      {!command && <ActivityText text={oneLine(progressText(activity))} />}
     </div>
   );
 }

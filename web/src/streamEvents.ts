@@ -290,7 +290,7 @@ function draftIdOr(
 }
 
 // onAnswer: a snapshot of the answer being written, everything so far. It is shown where the
-// answer will be, growing (the page reveals the new text letter by letter); an empty one clears it.
+// answer will be, growing as it arrives; an empty one clears it.
 function onAnswer({ rs }: StreamContext, payload: StreamPayload) {
   const text: string = payload.text || "";
   rs.setMessages((prev) => {
