@@ -266,7 +266,7 @@ func (s *Server) launchRun(
 	// branch into the project's base branch. This is recorded AFTER the run finishes.
 	var projectStartRev string
 	if rn.intent == runIntentMerge && c.projectDir != "" {
-		projectStartRev = gitx.HeadRev(runCtx, c.projectDir)
+		projectStartRev = projectRev(runCtx, c.projectDir)
 	}
 	clearPreviews(c.workspace)
 
@@ -378,8 +378,7 @@ func (s *Server) recordIntegration(ctx context.Context, c *conversation, rn *run
 	if rn.intent != runIntentMerge || c.projectDir == "" || projectStartRev == "" {
 		return
 	}
-	projectHead := gitx.HeadRev(ctx, c.projectDir)
-	if projectHead != "" && projectHead != projectStartRev {
+	if projectHead := movedRev(projectStartRev, projectRev(ctx, c.projectDir)); projectHead != "" {
 		c.setMerged(projectHead)
 		if s.baseCtx.Err() == nil {
 			s.saveSession(c)

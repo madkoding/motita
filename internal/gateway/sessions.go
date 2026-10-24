@@ -593,12 +593,20 @@ func (c *conversation) ownWorktreeName(ctx context.Context) string {
 	if _, ok, err := gitx.LiveWorktreeAt(ctx, c.projectDir, c.workspace); err == nil && ok {
 		return filepath.Base(c.workspace)
 	}
+	// A plain project folder: the session's own folder holds a worktree of each repository.
+	if len(nestedSessionRepos(ctx, c.projectDir, c.workspace)) > 0 {
+		return filepath.Base(c.workspace)
+	}
 	return ""
 }
 
 // branchAhead reports whether the session's branch exists and has commits base does not.
 func (c *conversation) branchAhead(ctx context.Context, base string) bool {
 	branch := sessionBranch(c.id)
+	if c.projectDir != "" && gitx.Repo(ctx, c.projectDir) != nil {
+		// A plain project folder: ahead in any of its repositories, against the branch each has out.
+		return len(nestedWork(ctx, c.projectDir, c.workspace, branch)) > 0
+	}
 	if !gitx.BranchExists(ctx, c.workspace, branch) {
 		return false
 	}
@@ -641,6 +649,10 @@ func (s *Server) sessionWorktree(ctx context.Context, repoDir, sessionID string)
 	}
 	path := filepath.Join(s.opts.WorkspaceDir, "worktrees", sessionID)
 	branch := sessionBranch(sessionID)
+	// A plain folder holding repositories: a worktree of each one (see sessionnested.go).
+	if gitx.Repo(ctx, repoDir) != nil {
+		return nestedSessionWorktree(ctx, repoDir, path, branch)
+	}
 	// Already ours: a LIVE worktree of this repository at this path is the
 	// worktree asked for, whatever created it.
 	//
