@@ -436,6 +436,10 @@ type SessionStatus struct {
 	// absent one, so the user knows the action exists even when it has nothing
 	// to do yet.
 	Mergeable bool `json:"mergeable"`
+	// PRReady reports whether a repository of the session's folder has work a pull request could
+	// carry. Unlike Mergeable it does not need a worktree of the session's own, so the project's
+	// main session, which works in the project's folder, is offered the pull request too.
+	PRReady bool `json:"pr_ready,omitempty"`
 	// Merged marks a session whose work has already been integrated back into
 	// the project. A merged session is read-only: it still appears in the list
 	// so the user can see its commit and transcript, but it cannot be written to.
@@ -552,6 +556,9 @@ func (c *conversation) workspaceStatus(st *SessionStatus) {
 	// error: the count decorates a badge, and a badge that cannot be
 	// computed should be absent rather than break the sidebar.
 	st.Changes = c.changesAcrossRepos(ctx)
+	if !c.merged {
+		st.PRReady = c.hasProposableWork(ctx)
+	}
 	// Mergeable compares the session's branch against the PROJECT's branch,
 	// not against whatever the session's own checkout is on. A session with
 	// its own worktree reports its own branch (motita/<id>), so comparing

@@ -56,6 +56,7 @@ export interface SessionInfo {
   parent_id?: string;
   branch?: string;
   mergeable?: boolean;
+  pr_ready?: boolean;
   merged?: boolean;
   merged_sha?: string;
   continuable?: boolean;
