@@ -1,6 +1,6 @@
 # Auditoría completa de motita
 
-**Fecha:** 2026-10-25 · **Commit auditado:** `ef9ddb2` · **Go instalado:** 1.27.1 (el `go.mod` declara `go 1.26` y `toolchain go1.26.10`)
+**Fecha:** 2026-10-25 · **Commit auditado:** `8f45366` · **Go instalado:** 1.27.1 (el `go.mod` declara `go 1.26` y `toolchain go1.26.10`)
 
 ## 1. Alcance y método
 
@@ -19,7 +19,7 @@ El proyecto está en buen estado en lo que respecta a cadena de suministro (Go s
 | Formato | `test -z "$(gofmt -l .)"` | **PASS** — 0 archivos sin formatear |
 | Vet | `go vet ./...` | **PASS** — sin salida |
 | Build | `go build ./...` | **PASS** — sin salida |
-| Tests Go | `GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_NOSYSTEM=1 go test ./...` | **FAIL** — 54 paquetes `ok`, 3 paquetes en fallo (`internal/plan`, `internal/sandbox`, `internal/webui`) |
+| Tests Go | `GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_NOSYSTEM=1 go test ./...` | **FAIL** — 55 paquetes `ok`, 2 paquetes en fallo (`internal/plan`, `internal/sandbox`); `internal/webui` pasa una vez construidos los assets con `npm run build` |
 | staticcheck | `staticcheck ./...` | **PASS** — 0 hallazgos |
 | govulncheck | `govulncheck ./...` | **FAIL** — 12 vulnerabilidades en la stdlib de go1.27.1 (la primera, `GO-2026-6809`) |
 | Typecheck web | `npm run typecheck` | **PASS** — `tsc --noEmit` sin errores |
@@ -117,3 +117,25 @@ El acoplamiento es razonable y en una sola dirección (`gateway` → `plan` → 
 ---
 
 *Auditoría de solo lectura: no se ha modificado código de la aplicación. Los comandos de verificación del proyecto están declarados en `.motita/anchor`.*
+
+## 11. Verificación final
+
+Ejecución definitiva sobre `HEAD` = `8f45366`, con los siete comandos de `.motita/anchor` y sin tuberías (el código de salida que se registra es el del comando, no el de `tail`):
+
+| # | Comando | Exit | Resultado |
+|---|---|---|---|
+| 1 | `test -z "$(gofmt -l .)"` | 0 | **PASS** — ningún archivo sin formatear |
+| 2 | `go vet ./...` | 0 | **PASS** — sin salida |
+| 3 | `go build ./...` | 0 | **PASS** — sin salida |
+| 4 | `GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_NOSYSTEM=1 go test ./...` | 1 | **FAIL** — 55 paquetes `ok`, 2 paquetes en fallo (`internal/plan`, `internal/sandbox`) |
+| 5 | `npm run typecheck` | 0 | **PASS** — `tsc --noEmit` sin errores |
+| 6 | `npm test` | 1 | **FAIL** — `ℹ tests 1417`, `ℹ pass 1416`, `ℹ fail 1` |
+| 7 | `npm run build` | 0 | **PASS** — `precache 126 entries`, `files generated` |
+
+Los dos fallos son ambientales y están demostrados como preexistentes, no introducidos por esta auditoría:
+
+- Se ejecutó el mismo `go test ./...` en un worktree limpio de `HEAD`, sin ningún cambio de esta auditoría, y aparecieron los mismos tests en rojo: `TestSearchInFiles`, `TestSearchInFilesSearchesNativelyWhereThereIsNoGrep` y `TestAConfinedCommandCannotReadMotitasSecrets`, con el mismo recuento de paquetes `ok` (55). En el worktree también falló `internal/webui`, porque un checkout limpio no tiene los assets construidos; en el árbol principal ese paquete pasa tras `npm run build`.
+- La causa es el entorno: el contenedor donde se audita no permite crear los namespaces que `bwrap` necesita (`bwrap: Failed to make / slave: Operation not permitted`), así que el sandbox no puede ejecutar ningún comando y los tests que dependen de él fallan por el entorno, no por el código.
+- El fallo de `npm test` es el test inestable M1 (`web/src/__tests__/cov-git-connect.test.mjs:674`), que cuenta microtareas en vez de esperar una condición observable; falla de forma reproducible en esta máquina.
+
+**NO EJECUTADO:** ninguno. Los siete comandos se ejecutaron de verdad; dos de ellos fallaron por las causas descritas arriba y así se reportan, nunca como aprobados.
