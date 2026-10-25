@@ -426,7 +426,7 @@ function showsBar(pr: PullRequest, s: SessionInfo | undefined): boolean {
   if (pr.prBlocked) {
     return false;
   }
-  return merged || pr.prView?.state === "open" || !!s?.mergeable;
+  return merged || pr.prView?.state === "open" || !!s?.mergeable || !!s?.pr_ready;
 }
 
 const BAR_BUTTON = "px-3 min-h-[32px] rounded-lg font-semibold";
