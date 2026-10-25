@@ -121,6 +121,19 @@ jobs:
         # needing a windows job. scripts/verify.sh runs the identical script locally.
         run: ./scripts/verify-install-ps1.sh
 
+  # Section 9 of docs/auditoria.md carries the findings by severity, and the counts are derived
+  # from the findings themselves. A finding added, removed or re-graded without touching the
+  # table would leave the document lying, so this job recomputes the counts and fails when the
+  # table is stale. scripts/audit-severity-counts.sh --write fixes it.
+  audit-report:
+    name: audit report · severity counts
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: section 9 matches the findings
+        run: ./scripts/audit-severity-counts.sh --check
+
   vet:
     name: go vet · cross-platform build
     needs: web
@@ -357,7 +370,7 @@ jobs:
   verify:
     name: fmt · vet · test
     if: always()
-    needs: [hygiene, vet, staticcheck, govulncheck, test, coverage, windows]
+    needs: [hygiene, audit-report, vet, staticcheck, govulncheck, test, coverage, windows]
     runs-on: ubuntu-latest
     steps:
       - name: every quality job passed

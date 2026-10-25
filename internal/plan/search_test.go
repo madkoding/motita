@@ -14,7 +14,14 @@ import (
 // searchTree writes a small tree to search: two text files, a binary one and a nested one.
 func searchTree(t *testing.T) string {
 	t.Helper()
-	dir := t.TempDir()
+	return searchTreeIn(t, t.TempDir())
+}
+
+// searchTreeIn is searchTree in the directory given: a test that hands the tree to a confined
+// command must put it inside the workspace, since t.TempDir() lands under TMPDIR and a TMPDIR
+// inside the user's home is a tree the sandbox keeps private.
+func searchTreeIn(t *testing.T, dir string) string {
+	t.Helper()
 	write := func(name, body string) {
 		p := filepath.Join(dir, name)
 		if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
@@ -148,9 +155,9 @@ func TestSearchFilesStopsWhenThereIsNoPointGoingOn(t *testing.T) {
 func TestSearchInFilesSearchesNativelyWhereThereIsNoGrep(t *testing.T) {
 	defer func(v bool) { searchNatively = v }(searchNatively)
 	searchNatively = true
-	dir := searchTree(t)
-
-	a, ex := makeAgent(t, true)
+	work := t.TempDir()
+	a, ex := makeAgentIn(t, true, work)
+	dir := searchTreeIn(t, filepath.Join(work, "tree"))
 	ex.defaultOutput = "grep was run"
 	srv := llmServer(t, nil)
 	defer srv.Close()

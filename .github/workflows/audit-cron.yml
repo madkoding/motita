@@ -1,0 +1,28 @@
+name: audit-cron
+
+# ci.yml checks the audit report on every push, but a finding can go unmarked without anyone
+# touching the file again: the report is a living document and the entries that matter are the
+# ones nobody re-reads. This runs the same check on a schedule, so an unmarked entry surfaces as
+# a red workflow instead of waiting for the next unrelated push.
+on:
+  schedule:
+    # Mondays at 06:00 UTC: once a week is enough to catch accumulation, and a red run on a
+    # Monday morning is seen.
+    - cron: "0 6 * * 1"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  unmarked-findings:
+    name: docs/auditoria.md · findings without a severity
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      # --check fails on a finding whose header carries no severity (AUDIT_COUNTS_UNMARKED) and
+      # on a section 9 that no longer matches the findings (AUDIT_COUNTS_STALE). Both are the
+      # report lying about itself, which is what this schedule exists to catch.
+      - name: every finding declares its severity
+        run: ./scripts/audit-severity-counts.sh --check

@@ -16,7 +16,7 @@ import (
 // motitaHome lays out a motita home with logins, a stored key and a file that is not a secret.
 func motitaHome(t *testing.T) (home, auth, keys string) {
 	t.Helper()
-	home = t.TempDir()
+	home = tempDirOutsidePrivateTrees(t)
 	auth = filepath.Join(home, "auth")
 	keys = filepath.Join(home, "motita.env")
 	os.MkdirAll(auth, 0o700)
@@ -24,6 +24,24 @@ func motitaHome(t *testing.T) (home, auth, keys string) {
 	os.WriteFile(keys, []byte("KEY-IN-ENV"), 0o600)
 	os.WriteFile(filepath.Join(home, "notes.txt"), []byte("plain-notes"), 0o644)
 	return home, auth, keys
+}
+
+// tempDirOutsidePrivateTrees returns a temporary directory a confined command may read. t.TempDir()
+// lands under TMPDIR, and a TMPDIR inside the user's home (/home, /root, ...) is one of the trees
+// the sandbox keeps private: the test would then fail for a reason that has nothing to do with
+// what it checks.
+func tempDirOutsidePrivateTrees(t *testing.T) string {
+	t.Helper()
+	for _, base := range []string{"/var/tmp", "/tmp"} {
+		dir, err := os.MkdirTemp(base, "motita-test-")
+		if err != nil {
+			continue
+		}
+		t.Cleanup(func() { os.RemoveAll(dir) })
+		return dir
+	}
+	t.Fatalf("no temporary directory outside the private trees (/var/tmp, /tmp)")
+	return ""
 }
 
 // A prompt-injected script reads motita's logins and keys and sends them away. Confined, it cannot
