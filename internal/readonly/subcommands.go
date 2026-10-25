@@ -25,15 +25,20 @@ var gitReading = map[string]bool{
 	"ls-tree": true, "merge-base": true, "rev-list": true, "name-rev": true, "diff-tree": true,
 	"diff-index": true, "diff-files": true, "show-branch": true, "cherry": true, "range-diff": true,
 	"check-ignore": true, "check-attr": true, "var": true, "verify-commit": true, "verify-tag": true,
+	"version": true, "symbolic-ref": true, "check-ref-format": true, "show-index": true,
 	// These have a writing form too, so gitSubcommandRule keeps them to the listing one.
 	"ls-remote": true, "worktree": true, "stash": true, "submodule": true,
+	"notes": true, "sparse-checkout": true, "rerere": true,
 }
 
 // gitListingVerbs are the only verbs of the subcommands that also change things.
 var gitListingVerbs = map[string][]string{
-	"worktree":  {"list"},
-	"stash":     {"list", "show"},
-	"submodule": {"status"},
+	"worktree":        {"list"},
+	"stash":           {"list", "show"},
+	"submodule":       {"status"},
+	"notes":           {"list", "show"},
+	"sparse-checkout": {"list"},
+	"rerere":          {"status", "diff"},
 }
 
 // gitHarmless are the options before a git subcommand that change nothing it runs or where.
@@ -96,10 +101,12 @@ func gitSubcommandRule(sub string, rest []string) (string, bool) {
 		return gitListRule(sub, rest)
 	case "remote":
 		return gitRemoteRule(rest)
-	case "worktree", "stash", "submodule":
+	case "worktree", "stash", "submodule", "notes", "sparse-checkout", "rerere":
 		return gitListingVerbRule(sub, rest)
 	case "ls-remote":
 		return gitLsRemoteRule(rest)
+	case "symbolic-ref":
+		return gitSymbolicRefRule(rest)
 	default:
 		return "", false
 	}
@@ -115,8 +122,8 @@ func gitListingVerbRule(sub string, rest []string) (string, bool) {
 			return "", false
 		}
 	}
-	return fmt.Sprintf("git %s %s can change the repository; only %s is read-only", sub, verb,
-		strings.Join(gitListingVerbs[sub], " or ")), true
+	return fmt.Sprintf("git %s can change the repository; only git %s %s is read-only",
+		strings.TrimSpace(sub+" "+verb), sub, strings.Join(gitListingVerbs[sub], " or ")), true
 }
 
 // gitLsRemoteRule allows `git ls-remote` as a listing of a remote's references, which reads over
@@ -394,4 +401,24 @@ func gitGlobalOptions(args []string) (int, string) {
 		}
 	}
 	return i, ""
+}
+
+// gitSymbolicRefRule allows `git symbolic-ref HEAD` (one name reads it); a second operand sets
+// it, and `-d`/`--delete` removes it.
+func gitSymbolicRefRule(rest []string) (string, bool) {
+	operands := 0
+	for _, a := range rest {
+		switch {
+		case a == "-d" || a == "--delete":
+			return "git symbolic-ref " + a + " deletes a reference", true
+		case !strings.HasPrefix(a, "-"):
+			operands++
+		default:
+			// -q, --short, --recurse: they only format what is read.
+		}
+	}
+	if operands > 1 {
+		return "git symbolic-ref with a target sets the reference", true
+	}
+	return "", false
 }
