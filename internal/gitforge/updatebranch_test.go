@@ -9,7 +9,8 @@ import (
 func TestUpdateBranchMergesTheBaseInWhereTheHostCan(t *testing.T) {
 	ctx := context.Background()
 	r := Remote{Path: "o/r"}
-	gh, ghHost := newAPI(t, KindGitHub, map[string]string{"PUT /repos/o/r/pulls/7/update-branch": `{"message":"Updating"}`})
+	route := map[string]string{"PUT /repos/o/r/pulls/7/update-branch": `{"message":"Updating"}`}
+	gh, ghHost := newAPI(t, KindGitHub, route)
 	if err := gh.UpdateBranch(ctx, r, 7); err != nil {
 		t.Fatalf("github: %v", err)
 	}

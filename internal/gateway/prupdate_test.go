@@ -83,7 +83,8 @@ func TestPRUpdateNeedsAHostThatCanMergeTheBaseIn(t *testing.T) {
 	// GitLab only rebases, which force-pushes: the branch is left alone, and quietly.
 	tg := prTarget{api: gitforge.API{Service: gitforge.Service{Kind: gitforge.KindGitLab}}}
 	w := &prWatchState{status: prPassed}
-	srv.updateBase(context.Background(), c, w, tg, gitforge.PullRequest{Number: 7}, gitforge.MergeState{Code: gitforge.MergeBehind})
+	behind := gitforge.MergeState{Code: gitforge.MergeBehind}
+	srv.updateBase(context.Background(), c, w, tg, gitforge.PullRequest{Number: 7}, behind)
 	if w.status != prPassed {
 		t.Errorf("nothing was updated: %s", w.status)
 	}
