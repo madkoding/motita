@@ -474,11 +474,6 @@ func Start(opts Options) (*Server, error) {
 		}
 	}
 
-	// The git the gateway runs through gitx (fetch, pull, worktrees, the remote watch) gets the same
-	// credential helper and no-prompt environment as the clones: otherwise it ignores the stored
-	// login and asks for a password on the terminal the gateway was started from.
-	s.installGitEnv()
-
 	// Projects first: a restored session finds its project, and with it the scope its agent is told,
 	// its worktrees of the project's other repositories and its runtime.
 	s.openProjectStore()
