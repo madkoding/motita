@@ -119,12 +119,12 @@ function repoItems(
 }
 
 // MAIN_BRANCHES are the names taken as a repository's main line when it does not say its own.
-const MAIN_BRANCHES = ["main", "master", "develop"];
+const MAIN_BRANCHES = new Set(["main", "master", "develop"]);
 
 // isOffMain says the repository is on a branch that is not its main line; with no branch known
 // there is nothing to flag.
 const isOffMain = (r: NestedRepo) =>
-  !!r.branch && r.branch !== r.main_branch && !MAIN_BRANCHES.includes(r.branch);
+  !!r.branch && r.branch !== r.main_branch && !MAIN_BRANCHES.has(r.branch);
 
 // repoTooltip names the branch (and the changes) on the repository's icon, so a long name never
 // takes the room of the row's menu.
@@ -159,7 +159,7 @@ function NestedRepoRow({ p, r }: { p: ProjectInfo; r: NestedRepo }) {
       <span
         class={`flex-none inline-flex ${choose(offMain, "text-amber-400", "text-accent/60")}`}
         data-testid="nested-state"
-        data-off-main={offMain ? "true" : undefined}
+        data-off-main={choose(offMain, "true", "")}
         title={repoTooltip(r)}
       >
         <IconFolder size={11} />

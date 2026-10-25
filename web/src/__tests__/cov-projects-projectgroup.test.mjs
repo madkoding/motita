@@ -231,7 +231,7 @@ test("the repositories inside a plain folder are a tree, each with its own menu"
   );
   assert.deepEqual(
     icons.map((i) => i.dataset.offMain),
-    [undefined, undefined, "true", undefined],
+    ["", "", "true", ""],
     "only a branch other than the main line changes the icon's colour",
   );
   assert.equal(m.q("[data-testid=refresh-nested]"), null, "menus start closed");
