@@ -17,7 +17,9 @@ import {
   IconClose,
   IconDownload,
   IconNotes,
+  IconPullRequest,
 } from "./icons";
+import { openPullRequests } from "./pullRequestsOpen";
 import { NEW_PROJECT, NEW_SESSION_TITLE } from "./appConst";
 import { closesOnPhone, isPhone } from "./viewport";
 
@@ -186,6 +188,14 @@ function SidebarFoot() {
             <polyline points="14 2 14 8 20 8" />
           </svg>
           {t("Artifacts")}
+        </button>
+        <button
+          class={FOOT_BUTTON}
+          data-testid="pull-requests-button"
+          onClick={openPullRequests}
+        >
+          <IconPullRequest size={18} />
+          {t("Pull requests")}
         </button>
         <button class={FOOT_BUTTON} onClick={schedules.openScheduledTasks}>
           <IconClock size={18} />

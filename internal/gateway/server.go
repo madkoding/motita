@@ -383,6 +383,8 @@ type Server struct {
 	prMu       sync.Mutex
 	prWatching map[string]bool
 	baseCI     map[string]baseCIEntry
+	// prLists is the short memory of the pull request overview. See prlist.go.
+	prLists prListCache
 	// etags makes the reads of the git hosts conditional; see gitforge.ETagCache.
 	etags gitforge.ETagCache
 	// hosts are the host names, lower-cased, a request's Host header may carry besides an IP
@@ -809,6 +811,7 @@ func (s *Server) skillRoutes(mux *http.ServeMux, prefix string, wrap func(http.H
 // projectRoutes is the table of projects and their repositories; the notes have their own.
 func (s *Server) projectRoutes(mux *http.ServeMux, plain func(http.HandlerFunc) http.Handler) {
 	mux.Handle("GET /v1/projects", plain(s.handleListProjects))
+	mux.Handle("GET /v1/pull-requests", plain(s.handleListPRs))
 	s.notesRoutes(mux, plain)
 	s.nestedRoutes(mux, plain)
 	mux.Handle("GET /v1/projects/{id}/code-index", plain(s.handleProjectCodeIndex))

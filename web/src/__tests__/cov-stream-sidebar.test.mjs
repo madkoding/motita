@@ -500,6 +500,7 @@ test("the sidebar has its header, buttons, lists and footer", async () => {
   await click(root.querySelector("[data-testid=notes-button]"));
   const art = root.querySelector("[data-testid=artifacts-button]");
   assert.equal(art.disabled, true, "no session: no artifacts");
+  await click(buttonNamed(root, "Pull requests"));
   await click(buttonNamed(root, "Tasks"));
   await click(buttonNamed(root, "Settings"));
   assert.deepEqual(v.calls, [
