@@ -179,6 +179,10 @@ test("a project session with nothing to propose has no bar; with work in it, Cre
   assert.equal(m.root.innerHTML, "");
   await m.done();
 
+  m = await mount(routes, { session: sess({ pr_ready: true }) });
+  assert.ok(button(m.root, "Create PR"));
+  await m.done();
+
   m = await mount(routes, { session: sess({ mergeable: true }) });
   const create = button(m.root, "Create PR");
   assert.equal(create.disabled, false);

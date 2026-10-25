@@ -94,3 +94,23 @@ func (c *conversation) changesAcrossRepos(ctx context.Context) int {
 	}
 	return total
 }
+
+// hasProposableWork reports whether any repository in the session's folder has something a pull
+// request could carry: uncommitted changes, or commits on a work branch that its default branch
+// lacks. It does not need the session to have a worktree of its own: the project's main session
+// works in the project's folder, and its work is as proposable as an isolated session's.
+func (c *conversation) hasProposableWork(ctx context.Context) bool {
+	for _, dir := range repoDirsIn(ctx, c.workspace) {
+		if n, err := gitx.WorkingTreeChanges(ctx, dir); err == nil && n > 0 {
+			return true
+		}
+		base, head := gitx.DefaultBranch(ctx, dir), gitx.Display(ctx, dir)
+		if base == "" || head == "" || head == base {
+			continue
+		}
+		if ahead, _, err := gitx.CommitsBetween(ctx, dir, base, head); err == nil && len(ahead) > 0 {
+			return true
+		}
+	}
+	return false
+}
