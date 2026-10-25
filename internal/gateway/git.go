@@ -474,6 +474,7 @@ func (s *Server) handleGitDefaultBranch(w http.ResponseWriter, r *http.Request) 
 // remoteDefaultBranch asks a remote for the branch its HEAD points to. A repository with no
 // commits has no HEAD to point anywhere, and answers "" rather than an error.
 func remoteDefaultBranch(ctx context.Context, url string, env []string) (string, error) {
+	// #nosec G204 G702 -- the program is git; url passed cloneableURL (no flag, no transport::) and follows "--".
 	cmd := exec.CommandContext(ctx, "git", append(gitx.Hardening(), "ls-remote", "--symref", "--", url, "HEAD")...)
 	cmd.Env = env
 	out, err := cmd.CombinedOutput()

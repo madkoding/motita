@@ -70,6 +70,7 @@ const gitTimeout = 10 * time.Second
 // exercised by the one test that drives it, instead of each of them needing a
 // seam of its own.
 var execCommand = func(ctx context.Context, name string, args ...string) ([]byte, error) {
+	// #nosec G204 -- the one seam where git starts: name is "git" and every caller builds args through gitArgs.
 	cmd := exec.CommandContext(ctx, name, args...)
 	cmd.Env = Env()
 	return cmd.CombinedOutput()
