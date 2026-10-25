@@ -105,7 +105,11 @@ function Body({ list }: { list: PRList }) {
         ))}
       </ul>
       {(list.problems ?? []).map((p) => (
-        <p class="text-xs text-warning mt-2" data-testid="pr-problem">
+        <p
+          key={p.project}
+          class="text-xs text-warning mt-2"
+          data-testid="pr-problem"
+        >
           {p.project}: {p.error}
         </p>
       ))}

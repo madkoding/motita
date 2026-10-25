@@ -1,5 +1,6 @@
 // The pull request overview: the client of GET /v1/pull-requests and the words for what it says.
 // No value imports: the node tests load this file as is.
+import { choose } from "./choose";
 import type { Api, CICheck, CIState, MergeCode, PRRef, PRWatch } from "./prApi";
 
 // PRItem is one open pull request of a project's repository.
@@ -31,7 +32,9 @@ export async function fetchPullRequests(
   api: Api,
   refresh = false,
 ): Promise<PRList> {
-  const res = await api("/v1/pull-requests" + (refresh ? "?refresh=1" : ""));
+  const res = await api(
+    "/v1/pull-requests" + choose(refresh, "?refresh=1", ""),
+  );
   if (!res.ok) {
     const body = await res.json().catch(() => ({}));
     throw new Error(body.error || "HTTP " + res.status);
@@ -52,7 +55,11 @@ export function ciBadge(item: PRItem): {
     return { label: "none", detail: "", tone: "idle" };
   }
   const passed = ci.checks.filter((c) => c.state === "success").length;
-  const detail = ci.checks.length > 0 ? passed + "/" + ci.checks.length : "";
+  const detail = choose(
+    ci.checks.length > 0,
+    passed + "/" + ci.checks.length,
+    "",
+  );
   const tones: Record<CIState, Tone> = {
     success: "good",
     failure: "bad",
@@ -66,20 +73,21 @@ export function ciBadge(item: PRItem): {
 // or conflicts is what the person can act on.
 export function mergeNote(item: PRItem): MergeCode | null {
   const code = item.merge?.code;
-  return code && code !== "ok" && code !== "unknown" ? code : null;
+  const quiet = !code || code === "ok" || code === "unknown";
+  return choose(quiet, null, code as MergeCode);
 }
 
 // failingFirst puts the pull requests that need a look before the rest: a failing CI, then a
 // conflict, then the ones still running. The order inside a group is the host's.
 export function failingFirst(items: PRItem[]): PRItem[] {
+  const needs = [
+    (i: PRItem) => i.ci?.state === "failure",
+    (i: PRItem) => i.merge?.code === "conflict",
+    (i: PRItem) => i.ci?.state === "pending",
+  ];
   const rank = (i: PRItem) => {
-    if (i.ci?.state === "failure") {
-      return 0;
-    }
-    if (i.merge?.code === "conflict") {
-      return 1;
-    }
-    return i.ci?.state === "pending" ? 2 : 3;
+    const at = needs.findIndex((need) => need(i));
+    return choose(at < 0, needs.length, at);
   };
   return items
     .map((item, at) => ({ item, at }))
