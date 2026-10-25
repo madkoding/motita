@@ -234,7 +234,7 @@ export function Sidebar() {
       {/* Mobile overlay: click to close the sidebar. */}
       <div ref={overlay} class="fixed inset-0 bg-black/50 z-20 md:hidden" />
       <aside
-        class="sidebar frosted fixed md:relative inset-y-0 left-0 w-72 max-w-[85vw] z-30 flex flex-col border-r border-white/5"
+        class="sidebar frosted fixed md:relative inset-y-0 left-0 w-full md:w-80 z-30 flex flex-col border-r border-white/5"
         ref={aside}
       >
         <SidebarHeader />

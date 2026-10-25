@@ -209,6 +209,7 @@ test("the repositories inside a plain folder are a tree, each with its own menu"
       { path: "api" },
       { path: "group/web", branch: "main", changes: 3 },
       { path: "lib", branch: "dev" },
+      { path: "own", branch: "trunk", main_branch: "trunk" },
     ],
   };
   const closed = store({});
@@ -220,7 +221,18 @@ test("the repositories inside a plain folder are a tree, each with its own menu"
   const rows = m.qa("[data-testid=nested-repo]");
   assert.deepEqual(
     rows.map((r) => r.textContent),
-    ["api", "group/webmain · 3±", "libdev"],
+    ["api", "group/web", "lib", "own"],
+  );
+  const icons = m.qa("[data-testid=nested-state]");
+  assert.deepEqual(
+    icons.map((i) => i.title),
+    ["api", "Branch main · 3±", "Branch dev", "Branch trunk"],
+    "the branch is the tooltip of the repository's icon",
+  );
+  assert.deepEqual(
+    icons.map((i) => i.dataset.offMain),
+    [undefined, undefined, "true", undefined],
+    "only a branch other than the main line changes the icon's colour",
   );
   assert.equal(m.q("[data-testid=refresh-nested]"), null, "menus start closed");
   await click(m.qa("[data-testid=nested-menu]")[1]);
