@@ -97,9 +97,9 @@ El acoplamiento es razonable y en una sola dirección (`gateway` → `plan` → 
 |---|---|---|
 | Crítico | 0 | — |
 | Alto | 4 | A1, A2, A3, A4 |
-| Medio | 3 | M1, M2, M3 |
+| Medio | 4 | M1, M2, M3, M4 |
 | Bajo | 3 | B1, B2, B3 |
-| **Total** | **10** | |
+| **Total** | **11** | |
 
 ## 10. Acciones recomendadas (ordenadas)
 
@@ -145,5 +145,9 @@ Tras esas correcciones los siete comandos pasan. La limitación ambiental que qu
 ### A4 (alto) — `internal/webui/assets/index.html` está versionado y los bundles que nombra no
 
 `internal/webui/assets/index.html` se versiona, pero los ficheros con hash que referencia (`/assets/index-*.js`, `/assets/index-*.css`) están ignorados por git. En un checkout limpio `TestThePageNamesAssetsThatAreActuallyThere` (`internal/webui/page_test.go:536`) falla con `the page names 2 asset(s) the binary does not carry`, porque el `index.html` versionado nombra el build anterior; solo pasa después de `npm run build`. **Recomendación:** o se versionan también los bundles, o el test se salta cuando no hay build local, o `index.html` deja de versionarse y se genera en el build.
+
+### M4 (medio) — `TestTheProxyTransportIsDirectGuardedAndPinned` es intermitente
+
+`internal/peers/probe_test.go:288` falla de forma intermitente. En cinco ejecuciones seguidas de `go test -count=1 ./internal/peers/` falló una (`--- FAIL: TestTheProxyTransportIsDirectGuardedAndPinned`); la pasada completa de `go test ./...` de una ronda falló por él y la de la ronda siguiente pasó con 57 paquetes `ok`. El test levanta un servidor TLS y comprueba el pinning del certificado: tras la petición con el pin correcto llama a `tr.CloseIdleConnections()` y lanza otra petición con otro pin (`internal/peers/probe_test.go:305-309`), de modo que el resultado depende de si el handshake anterior ya había terminado cuando se cierra la conexión inactiva. **Recomendación:** hacer el test determinista usando un `Transport` nuevo por caso (o esperando explícitamente al cierre de la conexión anterior) en vez de confiar en `CloseIdleConnections` para forzar el siguiente handshake.
 
 **NO EJECUTADO:** ninguno. Los siete comandos se ejecutaron de verdad y su resultado real es el de la tabla de arriba.
