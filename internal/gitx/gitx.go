@@ -31,6 +31,7 @@ import (
 	"os/exec"
 	"sort"
 	"strings"
+	"sync/atomic"
 	"time"
 )
 
@@ -70,7 +71,31 @@ const gitTimeout = 10 * time.Second
 // seam of its own.
 var execCommand = func(ctx context.Context, name string, args ...string) ([]byte, error) {
 	cmd := exec.CommandContext(ctx, name, args...)
+	cmd.Env = Env()
 	return cmd.CombinedOutput()
+}
+
+// gitEnv is the environment of every git this package starts, nil to inherit the process's own.
+var gitEnv atomic.Pointer[[]string]
+
+// SetEnv sets the environment of every git this package runs. The gateway passes the one that
+// names motita as the credential helper and turns the terminal prompt off, so a fetch, pull or
+// worktree command uses the stored OAuth login instead of asking for a password nobody can type.
+// nil goes back to the process environment.
+func SetEnv(env []string) {
+	if env == nil {
+		gitEnv.Store(nil)
+		return
+	}
+	gitEnv.Store(&env)
+}
+
+// Env is the environment for one git: the one set by SetEnv, else nil (inherit).
+func Env() []string {
+	if p := gitEnv.Load(); p != nil {
+		return append([]string(nil), *p...)
+	}
+	return nil
 }
 
 // execute runs git once in dir and returns its trimmed output.

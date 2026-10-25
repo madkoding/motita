@@ -11,6 +11,8 @@ import (
 	"sync"
 	"testing"
 	"time"
+
+	"github.com/madkoding/motita/internal/gitx"
 )
 
 // gitHost fakes every git host and OAuth server by "METHOD url-prefix".
@@ -457,5 +459,19 @@ func TestGitSecondPasteIsRefused(t *testing.T) {
 	}
 	if w := postJSON(t, srv, "/v1/git/flows/f/paste", testToken, `{"code":"two"}`); w.Code != http.StatusConflict {
 		t.Errorf("second paste: %d", w.Code)
+	}
+}
+
+// TestInstallGitEnvGivesGitxTheCredentialEnvironment: the git that gitx runs (fetch, pull, the
+// remote watch) must use the stored login and never prompt, like the clones do.
+func TestInstallGitEnvGivesGitxTheCredentialEnvironment(t *testing.T) {
+	t.Cleanup(func() { gitx.SetEnv(nil) })
+	s := &Server{opts: Options{ExePath: "/bin/motita", GitAuthDir: t.TempDir()}}
+	s.installGitEnv()
+	env := strings.Join(gitx.Env(), "\n")
+	for _, want := range []string{"GIT_TERMINAL_PROMPT=0", "GIT_CONFIG_KEY_0=credential.helper", "MOTITA_AUTH_DIR="} {
+		if !strings.Contains(env, want) {
+			t.Fatalf("gitx env lacks %q:\n%s", want, env)
+		}
 	}
 }

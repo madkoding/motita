@@ -82,6 +82,9 @@ func (s *Server) gitCommandEnv() []string {
 	return append(env, "LC_ALL=C", "GIT_TERMINAL_PROMPT=0")
 }
 
+// installGitEnv hands gitx the environment of the gateway's own git commands.
+func (s *Server) installGitEnv() { gitx.SetEnv(s.gitCommandEnv()) }
+
 // withoutInlineGitConfig drops the inline git configuration (GIT_CONFIG_COUNT and
 // its GIT_CONFIG_KEY_n / GIT_CONFIG_VALUE_n pairs) the process may have inherited.
 // motita exports one to point git at its own credential helper, and a gateway that
