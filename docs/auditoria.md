@@ -98,8 +98,8 @@ El acoplamiento es razonable y en una sola dirección (`gateway` → `plan` → 
 | Crítico | 0 | — |
 | Alto | 4 | A1, A2, A3, A4 |
 | Medio | 4 | M1, M2, M3, M4 |
-| Bajo | 3 | B1, B2, B3 |
-| **Total** | **11** | |
+| Bajo | 4 | B1, B2, B3, B4 |
+| **Total** | **12** | |
 
 ## 10. Acciones recomendadas (ordenadas)
 
