@@ -183,7 +183,7 @@ ${tabs("sse", sseExamples("en"))}
 <li>Commit messages and pull-request titles must be semantic (<code>type(scope): description</code>); anything else is refused before it is made.</li>
 <li>The agent opens a pull request with <code>motita forge pr create</code> (you are asked first) and gives you its link.</li>
 <li>From then on the <em>gateway</em> follows the CI, the reviews and the merge state without the model, so waiting costs no tokens. When a job fails or a reviewer comments, the agent is sent back to fix it, up to a limit you set (5 by default).</li>
-<li>A project can merge by itself (<code>auto_merge</code>) and open the next session by itself (<code>auto_continue</code>).</li>
+<li>A project can merge by itself (<code>auto_merge</code>), open the next session by itself (<code>auto_continue</code>) and update a branch whose base moved on (<code>auto_update_pr</code>, the host merges the base in: no rebase or force-push).</li>
 </ul>
 ${sequence("A pull request followed by the gateway", [{ name: "Session", sub: "its own branch" }, { name: "Gateway", sub: "no model needed" }, { name: "Git host", sub: "GitHub, GitLab…" }], [
   { from: "Session", to: "Git host", label: "pushes and opens the pull request" },

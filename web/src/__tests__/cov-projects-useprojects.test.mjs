@@ -211,6 +211,7 @@ const PROJECT = {
   merge_method: "squash",
   pr_max_fixes: 3,
   auto_merge: true,
+  auto_update_pr: true,
   auto_continue: true,
 };
 
@@ -235,6 +236,7 @@ test("the edit dialog starts from the project's values and the gateway's branche
     mergeMethod: "squash",
     prMaxFixes: 3,
     autoMerge: true,
+    autoUpdatePR: true,
     autoContinue: true,
     dir: "/ws/motita",
     path: "",
@@ -261,6 +263,7 @@ test("a project with no settings yet gets the defaults", async () => {
     mergeMethod: "",
     prMaxFixes: 0,
     autoMerge: false,
+    autoUpdatePR: false,
     autoContinue: false,
     dir: "/ws/bare/",
     path: "",
@@ -338,6 +341,7 @@ test("saving sends the dialog, reads the list again and says so", async () => {
     merge_method: "rebase",
     pr_max_fixes: 3,
     auto_merge: true,
+    auto_update_pr: true,
     auto_continue: true,
   });
   assert.equal(s.p.editProject, null);

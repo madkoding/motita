@@ -54,6 +54,9 @@ type Project struct {
 	// AutoMerge merges a pull request of this project by itself when its CI passes and the host
 	// accepts the merge. Off, merging is always the user's click.
 	AutoMerge bool `json:"auto_merge,omitempty"`
+	// AutoUpdatePR brings a pull request of this project up to date by itself when its base branch
+	// moved on: the host merges the base into the branch, nothing is rebased or force-pushed.
+	AutoUpdatePR bool `json:"auto_update_pr,omitempty"`
 	// AutoContinue opens a fresh session from the updated branch by itself when a pull request of
 	// this project is merged, so the next piece of work has somewhere to start.
 	AutoContinue bool `json:"auto_continue,omitempty"`

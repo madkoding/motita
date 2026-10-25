@@ -314,6 +314,7 @@ const DRAFT = {
   mergeMethod: "",
   prMaxFixes: 0,
   autoMerge: false,
+  autoUpdatePR: false,
   autoContinue: false,
   dir: "/ws/motita",
   path: "",
