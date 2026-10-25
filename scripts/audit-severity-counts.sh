@@ -4,6 +4,8 @@
 #
 # A finding is written once, as "- **A1 (alto) — title.**" or "### M4 (medio) — title", and may be
 # mentioned again further down; the count is of distinct IDs, so a mention never counts twice.
+# --check also fails when a finding header carries no severity: such a finding is not counted, so
+# the table would silently under-report it.
 #
 # Usage:
 #   scripts/audit-severity-counts.sh           print the counts
@@ -34,6 +36,17 @@ pairs="$(printf '%s\n' "$flat" | awk '
   }
   END { for (i = 1; i <= n; i++) print ids[i], seen[ids[i]] }
 ' | sort -k1,1V)"
+
+# Finding headers that do not declare a severity. The count above only sees "ID (severity)", so a
+# finding written without it is invisible: the table would under-report it and --check would pass.
+# A header is a bullet or a heading that starts with an ID such as A1 or M4.
+unmarked() {
+  printf '%s\n' "$flat" | awk '
+    /^[[:space:]]*(-[[:space:]]+\*\*|#{2,4}[[:space:]]+)[A-Z][0-9]+/ {
+      if ($0 !~ /[A-Z][0-9]+ \((critico|alto|medio|bajo)\)/) print NR ": " $0
+    }
+  '
+}
 
 count() { printf '%s\n' "$pairs" | awk -v s="$1" '$2 == s { n++ } END { print n + 0 }'; }
 ids()   { printf '%s\n' "$pairs" | awk -v s="$1" '$2 == s { printf "%s%s", sep, $1; sep = ", " }'; }
@@ -104,6 +117,13 @@ write_table() {
 case "${1:-}" in
   --check)
     print_counts
+    missing="$(unmarked)"
+    if [ -n "$missing" ]; then
+      echo "AUDIT_COUNTS_UNMARKED: these findings do not declare a severity in their header:" >&2
+      printf '%s\n' "$missing" >&2
+      echo "write them as \"- **A1 (alto) — title.**\" or \"### M4 (medio) — title\"; an unmarked finding is not counted" >&2
+      exit 1
+    fi
     if [ "$(current)" = "$(table)" ]; then
       echo "AUDIT_COUNTS_OK: section 9 matches the findings"
       exit 0
@@ -117,7 +137,7 @@ case "${1:-}" in
     echo "AUDIT_COUNTS_WRITTEN: section 9 rewritten from the findings"
     ;;
   -h|--help)
-    sed -n '2,15p' "$0"
+    sed -n '2,16p' "$0"
     ;;
   "")
     print_counts
