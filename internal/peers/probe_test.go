@@ -302,9 +302,12 @@ func TestTheProxyTransportIsDirectGuardedAndPinned(t *testing.T) {
 		t.Fatal(err)
 	}
 	_ = res.Body.Close()
+	// A fresh transport for the second pin. Reusing the first one made the result
+	// depend on whether the previous handshake had already finished when
+	// CloseIdleConnections ran, which is what made this test flaky.
+	other := Transport(testCert)
 	req, _ = http.NewRequestWithContext(WithPin(context.Background(), "another"), http.MethodGet, url, nil)
-	tr.CloseIdleConnections()
-	if _, err := tr.RoundTrip(req); !errors.Is(err, ErrIdentity) {
+	if _, err := other.RoundTrip(req); !errors.Is(err, ErrIdentity) {
 		t.Fatalf("another certificate: %v", err)
 	}
 }
