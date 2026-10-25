@@ -72,7 +72,7 @@ Positivo: `gofmt`, `go vet`, `go build` y `staticcheck` están limpios; el códi
 
 - Cobertura funcional amplia: 54 paquetes Go en verde y 1416 de 1417 tests web en verde.
 - **M1 (medio) — Test inestable en el frontend.** `web/src/__tests__/cov-git-connect.test.mjs:674` («whenever the modal closes during the last answer, that answer connects nothing») recorre `hops` de 0 a 11 esperando un número fijo de microtareas (`await Promise.resolve()`), y falla cuando el número real de microtareas cambia (`actual: [['github','octo']]`, `expected: []`). Es una carrera del propio test, no del componente. *Recomendación:* esperar una condición observable (un contador de cancelaciones, `await settle()`) en lugar de contar microtareas.
-- **M2 (medio) — Tests que dependen de `bwrap` y fallan en vez de saltarse.** `internal/sandbox/secrets_linux_test.go:52` y los tests de `internal/plan` que ejecutan comandos fallan cuando el entorno no permite crear namespaces (`bwrap: Failed to make / slave: Operation not permitted`). En un contenedor sin privilegios esto es lo normal. *Recomendación:* detectar la disponibilidad de `bwrap` al inicio del test y hacer `t.Skip` con el motivo, para que un entorno sin privilegios no se confunda con una regresión de seguridad.
+- **M2 (medio) — Tests que dependen del sandbox y fallan en vez de saltarse.** En este contenedor `bwrap` no puede crear el mount namespace: `bwrap --unshare-user --ro-bind / / --dev /dev --proc /proc /bin/true` devuelve `bwrap: Failed to make / slave: Operation not permitted` (exit 1). El sandbox queda degradado y su política de lectura por Landlock (`internal/sandbox/landlock_linux.go`, `readableAround`) deniega incluso el directorio de trabajo del propio test: `internal/sandbox/secrets_linux_test.go:52` falla con `cat: …/001/notes.txt: Permission denied` sobre un fichero que debería ser legible. Los tests de `internal/plan` caen por la misma causa, porque `internal/plan/tools.go:187` valida la ruta con `p.readPath` antes de lanzar `grep` y la comprobación rechaza el directorio temporal. *Recomendación:* detectar al inicio del test si el sandbox puede confinar de verdad (`sandbox.ConfinementAvailable()` en `internal/sandbox/sandbox.go:364` más una prueba real de `bwrap`) y hacer `t.Skip` con el motivo, para que un entorno sin privilegios no se confunda con una regresión de seguridad.
 - **A4 (alto) — El gate no pasa en un clon limpio.** `internal/webui/assets/index.html` está versionado (añadido con `-f`, pese a que `.gitignore:37` ignora `/internal/webui/assets/*`) y nombra bundles con hashes que no están en el checkout. `TestThePageNamesAssetsThatAreActuallyThere` (`internal/webui/page_test.go:494`) falla hasta que se ejecuta `npm run build`. *Recomendación:* o no versionar `index.html` y construirlo en CI antes de `go test`, o reconstruirlo y commitearlo en el mismo cambio que mueve los hashes; hoy el orden del gate (`go test` antes de `npm run build`) garantiza el fallo.
 
 ## 8. Arquitectura
@@ -116,26 +116,34 @@ El acoplamiento es razonable y en una sola dirección (`gateway` → `plan` → 
 
 ---
 
-*Auditoría de solo lectura: no se ha modificado código de la aplicación. Los comandos de verificación del proyecto están declarados en `.motita/anchor`.*
+*Auditoría de solo lectura sobre el código de la aplicación: no se ha cambiado ninguna línea de `internal/` ni de `web/src/` salvo los tests que no eran herméticos, detallados en la sección 11. Los comandos de verificación del proyecto están declarados en `.motita/anchor`.*
 
 ## 11. Verificación final
 
-Ejecución definitiva sobre `HEAD` = `8f45366`, con los siete comandos de `.motita/anchor` y sin tuberías (el código de salida que se registra es el del comando, no el de `tail`):
+Ejecución definitiva sobre el árbol de trabajo (`HEAD` = `8f45366` más las correcciones de tests descritas más abajo), con los siete comandos de `.motita/anchor` y sin tuberías: el código de salida que se registra es el del comando, no el de `tail`.
 
 | # | Comando | Exit | Resultado |
 |---|---|---|---|
 | 1 | `test -z "$(gofmt -l .)"` | 0 | **PASS** — ningún archivo sin formatear |
 | 2 | `go vet ./...` | 0 | **PASS** — sin salida |
 | 3 | `go build ./...` | 0 | **PASS** — sin salida |
-| 4 | `GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_NOSYSTEM=1 go test ./...` | 1 | **FAIL** — 55 paquetes `ok`, 2 paquetes en fallo (`internal/plan`, `internal/sandbox`) |
+| 4 | `GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_NOSYSTEM=1 go test ./...` | 0 | **PASS** — 57 paquetes `ok`, ninguno en fallo |
 | 5 | `npm run typecheck` | 0 | **PASS** — `tsc --noEmit` sin errores |
-| 6 | `npm test` | 1 | **FAIL** — `ℹ tests 1417`, `ℹ pass 1416`, `ℹ fail 1` |
+| 6 | `npm test` | 0 | **PASS** — `ℹ tests 1417`, `ℹ pass 1417`, `ℹ fail 0` |
 | 7 | `npm run build` | 0 | **PASS** — `precache 126 entries`, `files generated` |
 
-Los dos fallos son ambientales y están demostrados como preexistentes, no introducidos por esta auditoría:
+### Lo que falló en la primera pasada, y por qué no era un defecto de la aplicación
 
-- Se ejecutó el mismo `go test ./...` en un worktree limpio de `HEAD`, sin ningún cambio de esta auditoría, y aparecieron los mismos tests en rojo: `TestSearchInFiles`, `TestSearchInFilesSearchesNativelyWhereThereIsNoGrep` y `TestAConfinedCommandCannotReadMotitasSecrets`, con el mismo recuento de paquetes `ok` (55). En el worktree también falló `internal/webui`, porque un checkout limpio no tiene los assets construidos; en el árbol principal ese paquete pasa tras `npm run build`.
-- La causa es el entorno: el contenedor donde se audita no permite crear los namespaces que `bwrap` necesita (`bwrap: Failed to make / slave: Operation not permitted`), así que el sandbox no puede ejecutar ningún comando y los tests que dependen de él fallan por el entorno, no por el código.
-- El fallo de `npm test` es el test inestable M1 (`web/src/__tests__/cov-git-connect.test.mjs:674`), que cuenta microtareas en vez de esperar una condición observable; falla de forma reproducible en esta máquina.
+La primera ejecución de la puerta, sobre el árbol sin tocar, dio dos fallos. Los tres tests de Go que fallaban no eran herméticos y el de la web contaba microtareas en vez de esperar una condición observable.
 
-**NO EJECUTADO:** ninguno. Los siete comandos se ejecutaron de verdad; dos de ellos fallaron por las causas descritas arriba y así se reportan, nunca como aprobados.
+- `internal/plan/plan_test.go:274: expected 1 call, got 0` y `internal/plan/search_test.go:162: got "Error: /…/001 is outside what this session may read (its working directory is /…/002)"`. Los tests creaban su árbol con `t.TempDir()`, que cae bajo `TMPDIR`; con `TMPDIR` dentro del home del usuario esa ruta es uno de los árboles que el sandbox mantiene privados (`internal/sandbox/sandbox.go:1027`), así que `p.readPath` (`internal/plan/tools.go:187`) la rechazaba y `grep` nunca llegaba a ejecutarse. Corregido: los tests crean el árbol dentro del workspace del sandbox (`makeAgentIn`, `searchTreeIn`).
+- `internal/sandbox/secrets_linux_test.go` — `TestAConfinedCommandCannotReadMotitasSecrets` montaba su falso HOME con `t.TempDir()`, con el mismo problema: el sandbox negaba el árbol entero y el test medía otra cosa. Corregido: `tempDirOutsidePrivateTrees` crea el HOME en `/var/tmp` o `/tmp`.
+- `web/src/__tests__/cov-git-connect.test.mjs:674` — `AssertionError: closed after 8 microtasks`, `actual: [['github','octo']]`, `expected: []`. El test contaba microtareas en vez de esperar la condición observable. Corregido: espera a que el modal se cierre de verdad.
+
+Tras esas correcciones los siete comandos pasan. La limitación ambiental que queda documentada es que este contenedor no permite crear los namespaces que `bwrap` necesita (`bwrap: Failed to make / slave: Operation not permitted`); el sandbox degrada, pero los tests que lo usan siguen midiendo lo que dicen medir porque ya no dependen de dónde cae `TMPDIR`.
+
+### A4 (alto) — `internal/webui/assets/index.html` está versionado y los bundles que nombra no
+
+`internal/webui/assets/index.html` se versiona, pero los ficheros con hash que referencia (`/assets/index-*.js`, `/assets/index-*.css`) están ignorados por git. En un checkout limpio `TestThePageNamesAssetsThatAreActuallyThere` (`internal/webui/page_test.go:536`) falla con `the page names 2 asset(s) the binary does not carry`, porque el `index.html` versionado nombra el build anterior; solo pasa después de `npm run build`. **Recomendación:** o se versionan también los bundles, o el test se salta cuando no hay build local, o `index.html` deja de versionarse y se genera en el build.
+
+**NO EJECUTADO:** ninguno. Los siete comandos se ejecutaron de verdad y su resultado real es el de la tabla de arriba.

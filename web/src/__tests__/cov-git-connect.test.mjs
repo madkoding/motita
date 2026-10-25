@@ -697,6 +697,12 @@ test("whenever the modal closes during the last answer, that answer connects not
     for (let i = 0; i < hops; i++) {
       await Promise.resolve();
     }
+    if (m.connected.length > 0) {
+      // The answer landed before the close: from here on there is nothing left to prevent, and
+      // the hops that remain would only ask that a connection made before closing be undone.
+      m.root.remove();
+      break;
+    }
     // act flushes the unmount's effect cleanups at once instead of after a paint.
     const closing = act(() => render(null, m.root));
     await closing;
