@@ -132,3 +132,10 @@ func (s *Server) followerOf(item *PRListItem) {
 		return
 	}
 }
+
+// prCaches are the short memories of what the git hosts said: the CI of base branches, shared by
+// the sessions that follow pull requests into them, and the pull request overview.
+type prCaches struct {
+	baseCI  map[string]baseCIEntry
+	prLists prListCache
+}
