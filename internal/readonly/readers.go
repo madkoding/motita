@@ -38,7 +38,6 @@ var writers = map[string]bool{
 	"iptables": true, "nft": true, "ufw": true, "firewall-cmd": true,
 	"curl": true, "wget": true, // they write files and reach the network
 	"ssh": true, "scp": true, "sftp": true, "rsync": true, "nc": true, "netcat": true,
-	"docker": true, "podman": true, "kubectl": true, "helm": true,
 	"vi": true, "vim": true, "nano": true, "emacs": true, "ed": true,
 	"perl":   true, // `perl -i` rewrites in place, and -e carries a program
 	"python": true, "python3": true, "node": true, "ruby": true, "php": true,
@@ -93,6 +92,9 @@ var argumentRules = map[string]func([]string) (string, bool){
 		return "", false
 	},
 	"git": gitRule,
+	// Containers and clusters: an allowlist of the listing verbs (subcommands.go). They were
+	// writers by name, so `docker ps` was refused with "can change the system".
+	"docker": containerRule, "podman": podmanRule, "kubectl": clusterRule, "helm": helmRule,
 	"systemctl": func(args []string) (string, bool) {
 		sub := firstNonFlag(args)
 		switch sub {
@@ -343,6 +345,8 @@ var readers = map[string]bool{
 	"git": true,
 	// toolchain, read-only subcommands enforced above
 	"go": true,
+	// containers, read-only subcommands enforced above
+	"docker": true, "podman": true, "kubectl": true, "helm": true,
 	// networking inspection (no writes, no connections opened)
 	"ip": true, "ifconfig": true, "route": true, "ss": true, "netstat": true,
 	"arp": true, "ping": true, "traceroute": true, "dig": true, "nslookup": true,
