@@ -11,7 +11,8 @@ import (
 
 // Literals used more than once in this file.
 const (
-	flagOutput = "--output"
+	flagOutput        = "--output"
+	gitSparseCheckout = "sparse-checkout"
 )
 
 // gitReading are the git subcommands that inspect a repository. Anything else can write the
@@ -28,7 +29,7 @@ var gitReading = map[string]bool{
 	"version": true, "symbolic-ref": true, "check-ref-format": true, "show-index": true,
 	// These have a writing form too, so gitSubcommandRule keeps them to the listing one.
 	"ls-remote": true, "worktree": true, "stash": true, "submodule": true,
-	"notes": true, "sparse-checkout": true, "rerere": true,
+	"notes": true, gitSparseCheckout: true, "rerere": true,
 }
 
 // gitListingVerbs are the only verbs of the subcommands that also change things.
@@ -37,7 +38,7 @@ var gitListingVerbs = map[string][]string{
 	"stash":           {"list", "show"},
 	"submodule":       {"status"},
 	"notes":           {"list", "show"},
-	"sparse-checkout": {"list"},
+	gitSparseCheckout: {"list"},
 	"rerere":          {"status", "diff"},
 }
 
@@ -101,7 +102,7 @@ func gitSubcommandRule(sub string, rest []string) (string, bool) {
 		return gitListRule(sub, rest)
 	case "remote":
 		return gitRemoteRule(rest)
-	case "worktree", "stash", "submodule", "notes", "sparse-checkout", "rerere":
+	case "worktree", "stash", "submodule", "notes", gitSparseCheckout, "rerere":
 		return gitListingVerbRule(sub, rest)
 	case "ls-remote":
 		return gitLsRemoteRule(rest)

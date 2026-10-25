@@ -84,7 +84,8 @@ func clusterRule(args []string) (string, bool) {
 		name, _, _ := strings.Cut(a, "=")
 		switch name {
 		case "--kubeconfig", "--server", "-s", "--token", "--as", "--as-group", "--context", "--cluster", "--user":
-			return fmt.Sprintf("kubectl %s changes which cluster or identity is used, and read-only mode cannot check it", name), true
+			return fmt.Sprintf("kubectl %s changes which cluster or identity is used, "+
+				"and read-only mode cannot check it", name), true
 		default:
 			// Everything else formats or selects what is read.
 		}
@@ -109,7 +110,8 @@ func helmRule(args []string) (string, bool) {
 		name, _, _ := strings.Cut(a, "=")
 		switch name {
 		case "--kubeconfig", "--kube-context", "--kube-apiserver", "--kube-token", "--repository-config":
-			return fmt.Sprintf("helm %s changes which cluster or configuration is used, and read-only mode cannot check it", name), true
+			return fmt.Sprintf("helm %s changes which cluster or configuration is used, "+
+				"and read-only mode cannot check it", name), true
 		default:
 			// Everything else formats or selects what is read.
 		}
