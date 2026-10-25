@@ -514,7 +514,8 @@ func TestThePageNamesAssetsThatAreActuallyThere(t *testing.T) {
 	// on disk, and the embed cannot carry them. That is a missing local build, not a broken
 	// page: skip, and let CI — which builds the frontend before `go test` — enforce this.
 	if absent := assetsMissingFromDisk(string(body)); len(absent) > 0 {
-		t.Skipf("no local build: index.html names %d asset(s) that are not on disk (%v); run `npm run build` in web/ to check this", len(absent), absent)
+		t.Skipf("no local build: index.html names %d asset(s) that are not on disk (%v); "+
+			"run `npm run build` in web/ to check this", len(absent), absent)
 	}
 
 	served := make(map[string]bool)
