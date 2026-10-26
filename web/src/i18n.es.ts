@@ -588,6 +588,16 @@ const first: Record<string, string> = {
   "{n}y ago": "hace {n} años",
   behind: "atrás",
   outdated: "desactualizada",
+  "no gate": "sin gate",
+  "This project declares no gate (a Makefile with check or test, go.mod, package.json, Cargo.toml, pyproject.toml or .motita/anchor), so its sessions finish unverified. Add one, or write the commands to run in .motita/anchor.":
+    "Este proyecto no declara un gate (un Makefile con check o test, go.mod, package.json, Cargo.toml, pyproject.toml o .motita/anchor), así que sus sesiones terminan sin verificar. Agrega uno, o escribe los comandos a ejecutar en .motita/anchor.",
+  "−{count} tests": "−{count} tests",
+  "The project had {was} tests and now has {now}. A gate over fewer tests proves less; look at what was deleted, or choose “Accept the lower test count” in the menu.":
+    "El proyecto tenía {was} tests y ahora tiene {now}. Un gate sobre menos tests prueba menos; revisa qué se borró, o elige “Aceptar la cantidad menor de tests” en el menú.",
+  "Accept the lower test count": "Aceptar la cantidad menor de tests",
+  "Takes today's number of tests as the one to measure from; use it when deleting them was on purpose.":
+    "Toma la cantidad de tests de hoy como la de referencia; úsalo cuando borrarlos fue a propósito.",
+  "could not accept the tests": "no se pudieron aceptar los tests",
   "Update main branch": "Actualizar rama principal",
   "Update {repo}": "Actualizar {repo}",
   "Branch {branch}": "Rama {branch}",
