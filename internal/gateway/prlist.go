@@ -2,6 +2,8 @@ package gateway
 
 import (
 	"context"
+	"errors"
+	"fmt"
 	"net/http"
 	"sync"
 	"time"
@@ -36,6 +38,8 @@ type PRListProblem struct {
 type PRList struct {
 	PullRequests []PRListItem    `json:"pull_requests"`
 	Problems     []PRListProblem `json:"problems,omitempty"`
+	// Failing is how many of them have a failing CI, for the badge in the sidebar.
+	Failing int `json:"failing"`
 }
 
 // prListTTL is how long the overview is remembered: the hosts are asked about every pull request
@@ -73,28 +77,46 @@ func (s *Server) handleListPRs(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, l)
 }
 
-// listPRs reads the pull requests of each project's repository, once per repository: projects that
-// share one see the same list under the first of them.
+// prRepo is one repository of a project whose pull requests are listed.
+type prRepo struct{ name, dir, url string }
+
+// prReposOf are the project's own repository and the other repositories added to it.
+func prReposOf(p Project) []prRepo {
+	repos := []prRepo{{"", p.Dir, p.GitURL}}
+	for _, r := range p.Repos {
+		repos = append(repos, prRepo{r.Name, r.Dir, r.GitURL})
+	}
+	return repos
+}
+
+// listPRs reads the pull requests of each repository of each project, once per repository:
+// projects that share one see the same list under the first of them.
 func (s *Server) listPRs(ctx context.Context) PRList {
 	out := PRList{PullRequests: []PRListItem{}}
 	seen := map[string]bool{}
 	for _, p := range s.allProjects() {
-		t, err := s.forgeOf(ctx, p)
-		if err != nil {
-			out.Problems = append(out.Problems, PRListProblem{Project: p.Title, Error: err.Error()})
-			continue
+		for _, r := range prReposOf(p) {
+			t, err := s.forgeOfRepo(ctx, r.dir, r.url)
+			if err == nil && !seen[t.key()] {
+				seen[t.key()] = true
+				var prs []gitforge.PullRequest
+				if prs, err = t.api.OpenPRsFrom(ctx, t.remote, ""); err == nil {
+					out.PullRequests = append(out.PullRequests, s.describePRs(ctx, p, t, prs)...)
+				}
+			}
+			if err != nil {
+				label := p.Title
+				if r.name != "" {
+					label += " / " + r.name
+				}
+				out.Problems = append(out.Problems, PRListProblem{Project: label, Error: err.Error()})
+			}
 		}
-		if seen[t.key()] {
-			continue
+	}
+	for _, it := range out.PullRequests {
+		if it.CI != nil && it.CI.State == gitforge.StateFailure {
+			out.Failing++
 		}
-		seen[t.key()] = true
-		prs, err := t.api.OpenPRsFrom(ctx, t.remote, "")
-		if err != nil {
-			out.Problems = append(out.Problems, PRListProblem{Project: p.Title, Error: err.Error()})
-			continue
-		}
-		items := s.describePRs(ctx, p, t, prs)
-		out.PullRequests = append(out.PullRequests, items...)
 	}
 	return out
 }
@@ -138,4 +160,90 @@ func (s *Server) followerOf(item *PRListItem) {
 type prCaches struct {
 	baseCI  map[string]baseCIEntry
 	prLists prListCache
+	red     redPRs
+}
+
+// invalidate forgets the remembered overview, so the next read asks the hosts.
+func (c *prListCache) invalidate() {
+	c.mu.Lock()
+	c.at = time.Time{}
+	c.mu.Unlock()
+}
+
+// handleUpdatePRBranch asks the host to merge a pull request's base into its branch, for the
+// pull request the person picked in the overview: it needs no session. Nothing is rebased or
+// force-pushed, and a branch that conflicts is refused by the host.
+func (s *Server) handleUpdatePRBranch(w http.ResponseWriter, r *http.Request) {
+	var body struct {
+		ProjectID string `json:"project_id"`
+		Repo      string `json:"repo"`
+		Number    int    `json:"number"`
+	}
+	if !s.decodeBody(w, r, &body) {
+		return
+	}
+	p := s.projectOf(body.ProjectID)
+	if p == nil || body.Number <= 0 {
+		writeError(w, http.StatusNotFound, "there is no such project or pull request")
+		return
+	}
+	for _, repo := range prReposOf(*p) {
+		t, err := s.forgeOfRepo(r.Context(), repo.dir, repo.url)
+		if err != nil || t.remote.Path != body.Repo {
+			continue
+		}
+		err = t.api.UpdateBranch(r.Context(), t.remote, body.Number)
+		if errors.Is(err, gitforge.ErrNoBranchUpdate) {
+			writeError(w, http.StatusConflict, err.Error())
+		} else if err != nil {
+			s.writePRError(w, prHostError(t.api.Service, err))
+		} else {
+			s.prLists.invalidate()
+			writeJSON(w, http.StatusAccepted, map[string]bool{"updating": true})
+		}
+		return
+	}
+	writeError(w, http.StatusNotFound, "that repository is not one of the project's")
+}
+
+// redPRs tracks which pull requests had a failing CI at the last look, so a phone is told once when
+// one turns red. The first look only takes the baseline: what was red before is not news.
+type redPRs struct {
+	mu     sync.Mutex
+	seen   map[string]bool
+	primed bool
+}
+
+// fresh records the failing pull requests of list and returns the ones that were not failing at the
+// last look.
+func (r *redPRs) fresh(list PRList) []PRListItem {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	now := map[string]bool{}
+	var fresh []PRListItem
+	for _, it := range list.PullRequests {
+		if it.CI == nil || it.CI.State != gitforge.StateFailure {
+			continue
+		}
+		key := fmt.Sprintf("%s#%d", it.Repo, it.PR.Number)
+		now[key] = true
+		if r.primed && !r.seen[key] {
+			fresh = append(fresh, it)
+		}
+	}
+	r.seen, r.primed = now, true
+	return fresh
+}
+
+// announceRedPRs reads the overview and tells the phones about each pull request whose CI just
+// turned red, and says how many that were. It also refreshes the remembered overview.
+func (s *Server) announceRedPRs(ctx context.Context) int {
+	list := s.listPRs(ctx)
+	s.prLists.put(list)
+	fresh := s.red.fresh(list)
+	for _, it := range fresh {
+		s.notifyAutopilot(fmt.Sprintf("motita-pr-red-%s-%d", it.ProjectID, it.PR.Number),
+			"CI failing on a pull request", "%s #%d: the CI is failing. %s", it.Repo, it.PR.Number, it.PR.Title)
+	}
+	return len(fresh)
 }

@@ -2,19 +2,28 @@
 // merge, and which session follows it, so a failing CI or a stale branch shows without opening
 // each session.
 import { useCallback, useEffect, useState } from "preact/hooks";
+import { PR_LIST_POLL_MS } from "./appConst";
 import { t, tf } from "./i18n";
 import { choose } from "./choose";
 import { useApp } from "./appStore";
 import { errorMessage } from "./errors";
+import type { Api } from "./prApi";
 import { mergeBlockedLabel } from "./appFormat";
 import { ModalBackdrop } from "./ModalBackdrop";
 import { IconClose, IconPullRequest, IconRefresh, IconSpinner } from "./icons";
-import { closePullRequests, usePullRequestsOpen } from "./pullRequestsOpen";
 import {
+  closePullRequests,
+  reloadPullRequests,
+  usePullRequestsOpen,
+  usePullRequestsReloads,
+} from "./pullRequestsOpen";
+import {
+  canUpdate,
   ciBadge,
   failingFirst,
   fetchPullRequests,
   mergeNote,
+  updatePRBranch,
   type PRItem,
   type PRList,
   type Tone,
@@ -43,7 +52,23 @@ function ciWord(state: string): string {
   return t("no checks");
 }
 
+const itemKey = (i: PRItem) => i.repo + "#" + i.pr.number;
+
 function Row({ item }: { item: PRItem }) {
+  const { api } = useApp();
+  const [updating, setUpdating] = useState(false);
+  const [failure, setFailure] = useState("");
+  const update = async () => {
+    setUpdating(true);
+    try {
+      await updatePRBranch(api as Api, item);
+      setFailure("");
+      reloadPullRequests();
+    } catch (e) {
+      setFailure(errorMessage(e));
+    }
+    setUpdating(false);
+  };
   const ci = ciBadge(item);
   const note = mergeNote(item);
   return (
@@ -70,11 +95,28 @@ function Row({ item }: { item: PRItem }) {
         {item.project} · {item.repo}
         {item.pr.head && " · " + item.pr.head + " → " + (item.pr.base ?? "")}
       </p>
+      {failure && (
+        <p class="text-xs text-danger mt-1" data-testid="pr-update-error">
+          {failure}
+        </p>
+      )}
       <div class="flex flex-wrap gap-1.5 mt-2 empty:hidden">
         {note && (
           <span class={TAG + " " + TONE.wait} data-testid="pr-merge">
             {mergeBlockedLabel(note)}
           </span>
+        )}
+        {canUpdate(item) && (
+          <button
+            class={
+              TAG + " " + TONE.idle + " hover:bg-white/5 disabled:opacity-50"
+            }
+            data-testid="pr-update"
+            disabled={updating}
+            onClick={() => void update()}
+          >
+            {choose(updating, t("Updating…"), t("Update branch"))}
+          </button>
         )}
         {item.session && (
           <span class={TAG + " " + TONE.idle} data-testid="pr-follow">
@@ -101,7 +143,7 @@ function Body({ list }: { list: PRList }) {
       )}
       <ul class="space-y-2">
         {items.map((i) => (
-          <Row key={i.project_id + "#" + i.pr.number} item={i} />
+          <Row key={itemKey(i)} item={i} />
         ))}
       </ul>
       {(list.problems ?? []).map((p) => (
@@ -123,6 +165,7 @@ export function PullRequestsModal() {
   const [list, setList] = useState<PRList | null>(null);
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
+  const reloads = usePullRequestsReloads();
   const load = useCallback(
     async (refresh: boolean) => {
       if (!api) {
@@ -141,10 +184,18 @@ export function PullRequestsModal() {
     [api],
   );
   useEffect(() => {
-    if (open) {
-      void load(false);
+    if (!open) {
+      return undefined;
     }
+    void load(false);
+    const id = setInterval(() => void load(false), PR_LIST_POLL_MS);
+    return () => clearInterval(id);
   }, [open, load]);
+  useEffect(() => {
+    if (open && reloads > 0) {
+      void load(true);
+    }
+  }, [reloads]);
   if (!open) {
     return null;
   }

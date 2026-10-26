@@ -20,6 +20,7 @@ import {
   IconPullRequest,
 } from "./icons";
 import { openPullRequests } from "./pullRequestsOpen";
+import { usePullRequestBadge } from "./usePullRequestBadge";
 import { NEW_PROJECT, NEW_SESSION_TITLE } from "./appConst";
 import { closesOnPhone, isPhone } from "./viewport";
 
@@ -148,6 +149,7 @@ function Settings() {
 // SidebarFoot is the skill library, the notes, the artifacts, the scheduled tasks and the settings.
 function SidebarFoot() {
   const { api, skills, artifacts, schedules, notes, rs } = useApp();
+  const failingPRs = usePullRequestBadge(api);
   return (
     <>
       {api && <ProviderUsagePanel api={api} running={rs.running} />}
@@ -196,6 +198,15 @@ function SidebarFoot() {
         >
           <IconPullRequest size={18} />
           {t("Pull requests")}
+          {failingPRs > 0 && (
+            <span
+              class="ml-auto px-2 rounded-full bg-danger/20 text-danger text-xs text-center"
+              data-testid="pull-requests-failing"
+              title={t("Pull requests with a failing CI")}
+            >
+              {failingPRs}
+            </span>
+          )}
         </button>
         <button class={FOOT_BUTTON} onClick={schedules.openScheduledTasks}>
           <IconClock size={18} />

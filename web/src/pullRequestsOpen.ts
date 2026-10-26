@@ -3,6 +3,7 @@
 import { useEffect, useState } from "preact/hooks";
 
 let open = false;
+let reloads = 0;
 const listeners = new Set<() => void>();
 
 function set(next: boolean) {
@@ -23,6 +24,27 @@ export function usePullRequestsOpen(): boolean {
   const [value, setValue] = useState(open);
   useEffect(() => {
     const on = () => setValue(open);
+    listeners.add(on);
+    on();
+    return () => {
+      listeners.delete(on);
+    };
+  }, []);
+  return value;
+}
+
+// reloadPullRequests asks the open overview to read the list again from the hosts, as after a branch
+// was updated.
+export function reloadPullRequests() {
+  reloads += 1;
+  listeners.forEach((l) => l());
+}
+
+// usePullRequestsReloads counts the reloads asked for, so the overview reads again when it grows.
+export function usePullRequestsReloads(): number {
+  const [value, setValue] = useState(reloads);
+  useEffect(() => {
+    const on = () => setValue(reloads);
     listeners.add(on);
     on();
     return () => {

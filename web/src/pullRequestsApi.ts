@@ -25,6 +25,8 @@ export interface PRProblem {
 export interface PRList {
   pull_requests: PRItem[];
   problems?: PRProblem[];
+  // failing is how many have a failing CI.
+  failing?: number;
 }
 
 // fetchPullRequests reads the overview; refresh skips the gateway's short memory of it.
@@ -93,4 +95,27 @@ export function failingFirst(items: PRItem[]): PRItem[] {
     .map((item, at) => ({ item, at }))
     .sort((a, b) => rank(a.item) - rank(b.item) || a.at - b.at)
     .map((e) => e.item);
+}
+
+// canUpdate: the host says the branch is behind its base, which "Update branch" fixes.
+export function canUpdate(item: PRItem): boolean {
+  return item.merge?.code === "behind";
+}
+
+// updatePRBranch asks the host to merge the base into the pull request's branch. Nothing is
+// rebased or force-pushed; the host refuses a branch that conflicts.
+export async function updatePRBranch(api: Api, item: PRItem): Promise<void> {
+  const res = await api("/v1/pull-requests/update", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      project_id: item.project_id,
+      repo: item.repo,
+      number: item.pr.number,
+    }),
+  });
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({}));
+    throw new Error(body.error || "HTTP " + res.status);
+  }
 }

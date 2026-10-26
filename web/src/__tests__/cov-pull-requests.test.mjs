@@ -1,7 +1,7 @@
 // The pull request overview: the client and its words, the store that opens it, and the modal that
 // lists every project's open pull requests with their CI.
 // Run with: node --test web/src/__tests__/cov-pull-requests.test.mjs
-import test from "node:test";
+import test, { mock } from "node:test";
 import assert from "node:assert/strict";
 import {
   bundle,
@@ -21,8 +21,12 @@ const {
   ciBadge,
   mergeNote,
   failingFirst,
+  canUpdate,
+  updatePRBranch,
+  usePullRequestBadge,
   openPullRequests,
   closePullRequests,
+  reloadPullRequests,
 } = await bundle({
   "PullRequestsModal.tsx": ["PullRequestsModal"],
   "pullRequestsApi.ts": [
@@ -30,8 +34,15 @@ const {
     "ciBadge",
     "mergeNote",
     "failingFirst",
+    "canUpdate",
+    "updatePRBranch",
   ],
-  "pullRequestsOpen.ts": ["openPullRequests", "closePullRequests"],
+  "usePullRequestBadge.ts": ["usePullRequestBadge"],
+  "pullRequestsOpen.ts": [
+    "openPullRequests",
+    "closePullRequests",
+    "reloadPullRequests",
+  ],
 });
 
 const item = (n, over = {}) => ({
@@ -198,5 +209,128 @@ test("without a gateway connection nothing is read", async () => {
   await flush();
   assert.equal(qa("pr-row").length, 0);
   await act(() => closePullRequests());
+  await m.unmount();
+});
+
+test("only a branch that is behind its base can be updated, and the update is one call", async () => {
+  assert.equal(canUpdate(item(1)), false);
+  assert.equal(canUpdate(item(1, { merge: { code: "conflict" } })), false);
+  assert.equal(canUpdate(item(1, { merge: { code: "behind" } })), true);
+  const api = fakeApi({
+    "POST /v1/pull-requests/update": res(202, { updating: true }),
+  });
+  await updatePRBranch(api, item(7));
+  assert.deepEqual(api.calls[0].body, {
+    project_id: "p1",
+    repo: "o/r",
+    number: 7,
+  });
+  const refused = fakeApi({ "POST ": res(409, { error: "it conflicts" }) });
+  await assert.rejects(updatePRBranch(refused, item(7)), /it conflicts/);
+  const bare = fakeApi({ "POST ": res(502, new Error("not json")) });
+  await assert.rejects(updatePRBranch(bare, item(7)), /HTTP 502/);
+});
+
+test("the modal updates a branch that is behind and reads the list again", async () => {
+  let list = [item(1, { merge: { code: "behind" } }), item(2)];
+  let updateAnswer = res(202, { updating: true });
+  const api = fakeApi({
+    "POST /v1/pull-requests/update": () => updateAnswer,
+    "GET /v1/pull-requests": () => res(200, { pull_requests: list }),
+  });
+  const m = await mount(AppCtx, { api }, h(PullRequestsModal));
+  await act(() => openPullRequests());
+  await flush();
+  assert.equal(qa("pr-update").length, 1, "only the one that is behind");
+  list = [item(1), item(2)];
+  await click(q("pr-update"));
+  await flush();
+  assert.equal(qa("pr-update").length, 0, "it is up to date after the update");
+  assert.equal(api.calls.at(-1).path, "/v1/pull-requests?refresh=1");
+  list = [item(1, { merge: { code: "behind" } })];
+  updateAnswer = res(409, { error: "it conflicts" });
+  await click(q("pr-refresh"));
+  await flush();
+  await click(q("pr-update"));
+  await flush();
+  assert.match(q("pr-update-error").textContent, /it conflicts/);
+  assert.equal(q("pr-update").disabled, false, "it can be tried again");
+  await act(() => closePullRequests());
+  await m.unmount();
+});
+
+test("while it is open the modal reads the list again every half minute", async (t) => {
+  t.mock.timers.enable({ apis: ["setInterval"] });
+  const api = fakeApi({
+    "GET /v1/pull-requests": res(200, { pull_requests: [] }),
+  });
+  const m = await mount(AppCtx, { api }, h(PullRequestsModal));
+  await act(() => openPullRequests());
+  await flush();
+  const before = api.calls.length;
+  await act(() => t.mock.timers.tick(30_000));
+  await flush();
+  assert.equal(api.calls.length, before + 1);
+  await act(() => closePullRequests());
+  await act(() => t.mock.timers.tick(120_000));
+  assert.equal(api.calls.length, before + 1, "closed: no more reads");
+  await m.unmount();
+});
+
+test("the badge counts the failing pull requests, now and a minute later", async (t) => {
+  t.mock.timers.enable({ apis: ["setInterval"] });
+  let failing = 1;
+  const api = fakeApi({
+    "GET /v1/pull-requests": () => res(200, { pull_requests: [], failing }),
+  });
+  const Badge = ({ api: a }) => h("b", { id: "badge" }, usePullRequestBadge(a));
+  const m = await mount(AppCtx, {}, h(Badge, { api }));
+  await flush();
+  assert.equal(document.getElementById("badge").textContent, "1");
+  failing = 3;
+  await act(() => t.mock.timers.tick(60_000));
+  await flush();
+  assert.equal(document.getElementById("badge").textContent, "3");
+  await m.rerender({}, h(Badge, { api: null }));
+  assert.equal(api.calls.length, 2, "no gateway, no reads");
+  // A read that fails leaves the count as it was.
+  const broken = fakeApi({ "GET ": res(500, { error: "down" }) });
+  await m.rerender({}, h(Badge, { api: broken }));
+  await flush();
+  assert.equal(document.getElementById("badge").textContent, "3");
+  // An answer that does not count them (an older gateway) is none.
+  const old = fakeApi({
+    "GET /v1/pull-requests": res(200, { pull_requests: [] }),
+  });
+  await m.rerender({}, h(Badge, { api: old }));
+  await flush();
+  assert.equal(document.getElementById("badge").textContent, "0");
+  await m.unmount();
+});
+
+test("an answer that comes after the badge is gone changes nothing", async () => {
+  let release;
+  const api = fakeApi({
+    "GET /v1/pull-requests": () =>
+      new Promise((r) => {
+        release = () => r(res(200, { pull_requests: [] }));
+      }),
+  });
+  const Badge = ({ api: a }) => h("b", {}, usePullRequestBadge(a));
+  const m = await mount(AppCtx, {}, h(Badge, { api }));
+  await m.unmount();
+  release();
+  await flush();
+  assert.equal(api.calls.length, 1, "it asked once and then went quiet");
+});
+
+test("a reload asked for while the overview is closed reads nothing", async () => {
+  const api = fakeApi({
+    "GET /v1/pull-requests": res(200, { pull_requests: [] }),
+  });
+  const m = await mount(AppCtx, { api }, h(PullRequestsModal));
+  await act(() => reloadPullRequests());
+  await flush();
+  assert.equal(api.calls.length, 0);
   await m.unmount();
 });

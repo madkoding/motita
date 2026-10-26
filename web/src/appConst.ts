@@ -83,6 +83,11 @@ export const UPDATE_POLL_MS = 10 * 60 * 1000;
 // REMOTE_POLL_MS is how often the page re-reads the projects, so the news the gateway found on
 // origin (it looks every 15 minutes) reaches an open page.
 export const REMOTE_POLL_MS = 300_000;
+
+// PR_LIST_POLL_MS is how often the open pull request overview asks again, and PR_BADGE_POLL_MS how
+// often the sidebar asks how many have a failing CI. The gateway remembers its answer for 30 s.
+export const PR_LIST_POLL_MS = 30_000;
+export const PR_BADGE_POLL_MS = 60_000;
 // How long after a project is created its first session is opened.
 export const NEW_PROJECT_SESSION_DELAY_MS = 100;
 // How long a downloaded artifact's object URL is kept before it is released.
