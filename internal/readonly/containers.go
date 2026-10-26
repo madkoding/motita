@@ -13,7 +13,7 @@ import (
 // dockerReading are the top-level docker/podman verbs that only report.
 var dockerReading = map[string]bool{
 	"ps": true, "images": true, "inspect": true, "logs": true, "version": true, "info": true,
-	"top": true, "port": true, "diff": true, "history": true, "stats": true,
+	"top": true, "port": true, "diff": true, "history": true, "stats": true, "events": true,
 }
 
 // dockerGroupReading are the verbs of the management groups (`docker image ls`) that only report.
@@ -24,6 +24,7 @@ var dockerGroupReading = map[string][]string{
 	"volume":    {"ls", "list", "inspect"},
 	"system":    {"df", "info"},
 	"compose":   {"ps", "ls", "logs", "images", "top", "port", "version", "config"},
+	"context":   {"ls", "list", "inspect", "show"},
 }
 
 // containerRule allows docker and podman only in their reporting forms. Options before the
@@ -74,7 +75,15 @@ func composeOutputRule(group string, rest []string) (string, bool) {
 // is a long read, not a write; `-o`/`--kubeconfig`/`--server` options are limited below.
 var clusterReading = map[string]bool{
 	"get": true, "describe": true, "logs": true, "version": true, "explain": true,
-	"api-resources": true, "api-versions": true, "cluster-info": true, "top": true,
+	"api-resources": true, "api-versions": true, "cluster-info": true, "top": true, "events": true,
+}
+
+// clusterGroupReading are the verbs of the kubectl groups (`kubectl config get-contexts`) that
+// only report. The others of each group select a context, edit the kubeconfig or restart things.
+var clusterGroupReading = map[string][]string{
+	"config":  {"get-contexts", "current-context", "get-clusters", "get-users"},
+	"auth":    {"can-i", "whoami"},
+	"rollout": {"status", "history"},
 }
 
 // clusterRule allows kubectl only in its reporting verbs. Options that point it at another
@@ -90,12 +99,22 @@ func clusterRule(args []string) (string, bool) {
 			// Everything else formats or selects what is read.
 		}
 	}
-	sub := firstNonFlag(args)
+	sub, rest := clusterVerb(args)
 	if clusterReading[sub] {
 		return "", false
 	}
+	if verbs, ok := clusterGroupReading[sub]; ok {
+		verb := firstNonFlag(rest)
+		for _, v := range verbs {
+			if verb == v {
+				return "", false
+			}
+		}
+		return fmt.Sprintf("kubectl %s %s can change the cluster; only %s is read-only",
+			sub, verb, strings.Join(verbs, ", ")), true
+	}
 	return fmt.Sprintf("kubectl %s can change the cluster; only get, describe, logs, top, explain, "+
-		"version, api-resources, api-versions and cluster-info are read-only", sub), true
+		"events, version, api-resources, api-versions and cluster-info are read-only", sub), true
 }
 
 // helmReading are the helm verbs that only report on installed releases.
@@ -122,4 +141,21 @@ func helmRule(args []string) (string, bool) {
 	}
 	return fmt.Sprintf("helm %s can change the cluster; only list, status, get, history, show and "+
 		"version are read-only", sub), true
+}
+
+// clusterVerb finds the kubectl verb and what follows it, skipping a leading `-n NAMESPACE`, which
+// is how kubectl is most often written (`kubectl -n kube-system get pods`).
+func clusterVerb(args []string) (string, []string) {
+	for i := 0; i < len(args); i++ {
+		a := args[i]
+		switch {
+		case a == "-n" || a == "--namespace":
+			i++
+		case strings.HasPrefix(a, "-"):
+			// Another option: it formats or selects what is read.
+		default:
+			return a, args[i+1:]
+		}
+	}
+	return "", nil
 }

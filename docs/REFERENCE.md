@@ -2240,8 +2240,13 @@ motita -p "list the .go files and suggest a refactor"
 ![Plan mode](screenshots/plan.png)
 
 Plan mode is **structurally read-only**: the agent calls tools (`read_file`,
-`execute_command`) through a path that never invokes a shell, so redirections,
-pipes and shell metacharacters are syntactically impossible. Destructive
+`execute_command`) through a path that never invokes a shell, so redirections
+and shell metacharacters are syntactically impossible. A line may chain programs
+with `;`, `&&` and `||` and end one in a pipe into `head`, `tail`, `wc` or `grep`
+(motita runs those itself; every program is checked before any of them runs).
+`git fetch` (remote-tracking refs only), `gh` reporting verbs (`gh pr view`,
+`gh api` as a GET), `npm ls`, `pip list`, `kubectl config get-contexts` and
+version queries (`node --version`) are read-only too. Destructive
 commands are refused before they run.
 
 **Graceful shutdown:** `Ctrl+C` (or `SIGINT`/`SIGTERM`) works everywhere. The first

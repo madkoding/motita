@@ -1061,14 +1061,17 @@ flowchart LR
     P --> TL["Tools reached through a path<br/>that never invokes a shell"]
     TL --> ANS["An answer grounded<br/>in your actual files"]
 
-    M["Metacharacters, pipes,<br/>redirections"] -.->|"not <b>blocked</b> —<br/>syntactically impossible"| TL
+    M["Metacharacters,<br/>redirections"] -.->|"not <b>blocked</b> —<br/>syntactically impossible"| TL
 
     style P fill:#1f6feb22,stroke:#1f6feb
     style M fill:#8b949e22,stroke:#8b949e
 ```
 
-Pipes and shell metacharacters aren't filtered out in plan mode: there is nothing
-to filter _and_ nothing to bypass, because the shell is never in the path.
+Redirections and shell metacharacters aren't filtered out in plan mode: there is
+nothing to filter _and_ nothing to bypass, because the shell is never in the path.
+A line can still chain programs with `;`, `&&` and `||`, and end one in a pipe into
+`head`, `tail`, `wc` or `grep`: motita splits the line itself, checks every program
+before any of them runs, and runs each one directly.
 
 ## It learns from you, not from a retraining pipeline
 
