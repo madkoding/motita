@@ -312,6 +312,9 @@ func (a *Agent) exec(ctx context.Context, p execx.Request) (string, bool, int, e
 // It is the entry point used by interactive modes (plan/chat) where the model
 // requests a tool call instead of emitting JSON.
 func (a *Agent) RunCommand(ctx context.Context, command string) (string, int, error) {
+	if a.readOnly() {
+		return a.runReadOnly(ctx, command)
+	}
 	p := a.planRequest(command)
 	if p.Verdict == policy.Deny {
 		return fmt.Sprintf("[refused: %s]\n", p.Reason), 1, fmt.Errorf("command was refused: %s", p.Reason)

@@ -443,8 +443,9 @@ func (p *Planner) baseTools() []llm.Tool {
 		llm.NewTool("execute_command", "Runs a read-only command on the local system and returns stdout and stderr "+
 			"combined. Destructive commands are refused by guardrails.",
 			llm.ObjectSchema(map[string]any{
-				"command": llm.StringProperty("The command to run. Pipes, redirections, shell metacharacters and " +
-					"multi-command chains are not allowed in read-only mode."),
+				"command": llm.StringProperty("The command to run. Commands can be chained with ;, && and ||, and " +
+					"a pipe may end in head, tail, wc or grep (no shell runs them). Redirections, $(), " +
+					"backticks and other pipes are not allowed in read-only mode."),
 				"timeout_seconds": llm.IntegerProperty("Maximum run time in seconds (defaults to 120)."),
 			}, "command")),
 		llm.NewTool("search_in_files", "Searches for a pattern inside text files under a directory using grep/ripgrep.",

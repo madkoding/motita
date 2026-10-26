@@ -277,6 +277,8 @@ func goRule(args []string) (string, bool) {
 	switch sub {
 	case "version", "list", "doc", "vet", "":
 		return "", false
+	case "mod":
+		return goModRule(args)
 	case "env":
 		return goEnvRule(args)
 	case "test":
@@ -287,6 +289,23 @@ func goRule(args []string) (string, bool) {
 		return "go build writes a binary", true
 	default:
 		return fmt.Sprintf("go %s can write to the module cache or the tree", sub), true
+	}
+}
+
+// goModRule allows the `go mod` verbs that report: graph, why and verify.
+func goModRule(args []string) (string, bool) {
+	verb := ""
+	for i, a := range args {
+		if a == "mod" {
+			verb = firstNonFlag(args[i+1:])
+			break
+		}
+	}
+	switch verb {
+	case "graph", "why", "verify":
+		return "", false
+	default:
+		return fmt.Sprintf("go mod %s can rewrite go.mod or go.sum; only graph, why and verify are read-only", verb), true
 	}
 }
 
