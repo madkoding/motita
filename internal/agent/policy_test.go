@@ -716,3 +716,24 @@ func TestShellForIsTheConfiguredShell(t *testing.T) {
 		t.Errorf("ShellFor = %q", got)
 	}
 }
+
+// TestWithSudoHint: a privileged command that failed for want of a terminal says why; everything
+// else is returned as it was.
+func TestWithSudoHint(t *testing.T) {
+	failed := "sudo: a terminal is required to read the password"
+	if got := withSudoHint("sudo apt install jq", failed, 1); !strings.Contains(got, "NOPASSWD") {
+		t.Errorf("want the hint, got %q", got)
+	}
+	for _, c := range []struct {
+		command, out string
+		exit         int
+	}{
+		{"sudo ls", failed, 0},
+		{"ls", failed, 1},
+		{"sudo ls", "permission denied", 1},
+	} {
+		if got := withSudoHint(c.command, c.out, c.exit); got != c.out {
+			t.Errorf("%q exit %d: output must stay, got %q", c.command, c.exit, got)
+		}
+	}
+}

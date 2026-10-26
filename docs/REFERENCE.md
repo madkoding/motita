@@ -1754,7 +1754,7 @@ Settings → **Security** in the browser interface chooses how much of the disk 
 
 A command you approve one by one may write anywhere in both modes, but still cannot read motita's
 configuration, stored keys or model logins (git's logins stay readable for `git push`); a line that
-runs `sudo` or another set-user-ID program runs unconfined, since confining it would break it. Each
+runs `sudo` or another set-user-ID program runs unconfined, since confining it would break it (a command has no terminal, so sudo needs passwordless `NOPASSWD` for that command; when it fails for that reason the output says so). Each
 project's sessions get a HOME of their own in the tools directory (`homes/<project>`), and a session
 cannot read the rest of the gateway's workspace root: the other projects and sessions. The change is written into the
 configuration file in place and handed to every open session at once, from its next command; a

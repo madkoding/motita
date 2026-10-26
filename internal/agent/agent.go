@@ -327,7 +327,7 @@ func (a *Agent) RunCommand(ctx context.Context, command string) (string, int, er
 		approveRequest(&p.Request, command)
 	}
 	output, _, exit, err := a.exec(ctx, p.Request)
-	return output, exit, err
+	return withSudoHint(command, output, exit), exit, err
 }
 
 // --- Result of each phase ---------------------------------------------------

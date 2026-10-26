@@ -270,6 +270,7 @@ func (rr *roundRun) shell(i int, action Command) {
 	}
 
 	output, truncated, exit, err := a.exec(rr.ctx, plan.Request)
+	output = withSudoHint(action.Command, output, exit)
 	rr.record(action, output, truncated, exit, err)
 	if err != nil {
 		rr.lastErr = fmt.Errorf("action %d (%s) could not run: %w", i+1, action.Command, err)
