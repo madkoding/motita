@@ -8,6 +8,7 @@ import type { SlashCommand } from "./appTypes";
 import { TASK_INPUT_ID } from "./appConst";
 import { useLayoutEffect, useRef } from "preact/hooks";
 import { fitToContent } from "./autosize";
+import { filesOf, sizeLabel } from "./attachments";
 
 // The colour of a command's name in the popup, by its group.
 const GROUP_COLOR: Record<string, string> = {
@@ -83,6 +84,86 @@ function TagPills() {
           </button>
         </span>
       ))}
+    </>
+  );
+}
+
+// AttachmentChips are the files attached to the message, each with a way to take it off.
+function AttachmentChips() {
+  const { attachments, removeAttachment, uploading } = useApp().composer;
+  return (
+    <>
+      {attachments.map((a) => (
+        <span
+          key={a.path}
+          class="inline-flex items-center gap-1 max-w-[200px] px-2 py-0.5 rounded-md text-xs bg-white/10 text-[#e8e8ea] flex-none"
+          title={`${a.name} (${sizeLabel(a.size)})`}
+          data-testid="attachment-chip"
+        >
+          <span class="truncate">{a.name}</span>
+          <button
+            type="button"
+            class="ml-0.5 opacity-60 hover:opacity-100"
+            aria-label={t("Remove attachment")}
+            onClick={() => removeAttachment(a.path)}
+          >
+            <IconClose size={12} stroke="2.5" />
+          </button>
+        </span>
+      ))}
+      {uploading > 0 && (
+        <span
+          class="text-xs text-[#9a9aaa] flex-none"
+          data-testid="attach-busy"
+        >
+          {t("Uploading…")}
+        </span>
+      )}
+    </>
+  );
+}
+
+// AttachButton opens the file picker. Pasting and dropping files onto the composer do the same.
+function AttachButton({ disabled }: { disabled: boolean }) {
+  const { attachFiles } = useApp().composer;
+  const pickerRef = useRef<HTMLInputElement>(null);
+  return (
+    <>
+      <input
+        ref={pickerRef}
+        type="file"
+        multiple
+        hidden
+        data-testid="attach-input"
+        onChange={(e) => {
+          const el = e.target as HTMLInputElement;
+          void attachFiles(filesOf(el));
+          el.value = "";
+        }}
+      />
+      <button
+        type="button"
+        disabled={disabled}
+        onClick={() => pickerRef.current?.click()}
+        title={t("Attach files, images or videos")}
+        aria-label={t("Attach files, images or videos")}
+        data-testid="composer-attach"
+        class="composer-attach min-h-[44px] min-w-[44px] rounded-2xl flex items-center justify-center border border-white/10 bg-black/30 text-[#e8e8ea] disabled:opacity-40 active:scale-95 transition-transform"
+      >
+        <svg
+          width="20"
+          height="20"
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          stroke-width="2"
+          stroke-linecap="round"
+          stroke-linejoin="round"
+          aria-hidden="true"
+        >
+          <path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48" />
+        </svg>
+      </button>
     </>
   );
 }
@@ -241,6 +322,11 @@ export function Composer() {
     <form
       class="frosted flex gap-2 px-3 py-2.5 sm:px-5 sm:py-3 border-t border-white/5 flex-none z-10 relative"
       onSubmit={composer.handleSubmit}
+      onDragOver={(e) => e.preventDefault()}
+      onDrop={(e) => {
+        e.preventDefault();
+        void composer.attachFiles(filesOf(e.dataTransfer));
+      }}
     >
       {isMerged && (
         <span class="inline-flex items-center gap-1.5 px-2.5 py-2 rounded-xl text-xs font-semibold bg-[#f0a040]/15 text-[#f0a040] border border-[#f0a040]/20 flex-none">
@@ -261,12 +347,21 @@ export function Composer() {
       )}
       {slashPopup && <SlashPopup items={slashPopup.items} />}
       {voice.listening && <ListeningBadge />}
+      {composer.attachError && (
+        <output
+          class="absolute -top-3 right-4 max-w-[80%] truncate px-2 py-0.5 rounded-full text-[11px] font-semibold bg-[#ff4d6d]/15 text-[#ff8da1] border border-[#ff4d6d]/30"
+          data-testid="attach-error"
+        >
+          {composer.attachError}
+        </output>
+      )}
 
       <label htmlFor={TASK_INPUT_ID} class="sr-only">
         {t("Task")}
       </label>
       <div class="composer-field flex-1 flex flex-wrap items-center gap-1.5 min-h-[44px] max-h-[120px] p-2 rounded-2xl bg-black/30 border border-white/5 focus-within:border-accent backdrop-blur-xs overflow-y-auto">
         <TagPills />
+        <AttachmentChips />
         <textarea
           ref={inputRef}
           id={TASK_INPUT_ID}
@@ -277,6 +372,13 @@ export function Composer() {
             composer.onInput((e.target as HTMLTextAreaElement).value)
           }
           onKeyDown={composer.handleKeydown}
+          onPaste={(e) => {
+            const files = filesOf(e.clipboardData);
+            if (files.length > 0) {
+              e.preventDefault();
+              void composer.attachFiles(files);
+            }
+          }}
           placeholder={placeholderOf(
             isMerged,
             composer.activeTags.length > 0,
@@ -297,8 +399,9 @@ export function Composer() {
           →
         </button>
       )}
+      <AttachButton disabled={isMerged} />
       {voice.showMic && <MicButton disabled={isMerged} />}
-      <SendButton disabled={isMerged} />
+      <SendButton disabled={isMerged || composer.uploading > 0} />
     </form>
   );
 }

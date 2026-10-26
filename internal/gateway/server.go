@@ -991,6 +991,7 @@ func (s *Server) routes() *http.ServeMux {
 	mux.Handle("GET /v1/sessions/{id}/events", scoped(s.handleAttach))
 	mux.Handle("POST /v1/sessions/{id}/cancel", scoped(s.handleCancelRun))
 	mux.Handle("POST /v1/sessions/{id}/queue", scoped(s.handleQueue))
+	mux.Handle("POST /v1/sessions/{id}/attachments", scoped(s.handleUploadAttachment))
 	mux.Handle("POST /v1/sessions/{id}/steer", scoped(s.handleSteer))
 	s.shellRoutes(mux, scoped)
 	mux.Handle("POST /v1/sessions/{id}/interrupt", scoped(s.handleInterrupt))

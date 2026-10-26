@@ -9,6 +9,14 @@ import type { Drawers } from "./useDrawers";
 import type { Stream } from "./useStream";
 import type { ActiveTag, SlashCommand } from "./appTypes";
 import { SLASH_POPUP_MAX, TASK_INPUT_ID } from "./appConst";
+import type { Api } from "./gitApi";
+import {
+  type Attachment,
+  shownWith,
+  uploadAttachment,
+  withAttachments,
+} from "./attachments";
+import { errorMessage } from "./errors";
 
 // tagSeq numbers the tags as they are added, so removing one never renames the others.
 let tagSeq = 0;
@@ -70,6 +78,7 @@ function keepsLine(e: KeyboardEvent): boolean {
 }
 
 interface Deps {
+  api: Api;
   rs: RunState;
   drawers: Drawers;
   stream: Stream;
@@ -82,6 +91,7 @@ interface Deps {
 }
 
 export function useComposer({
+  api,
   rs,
   drawers,
   stream,
@@ -100,6 +110,37 @@ export function useComposer({
   // Active slash command tags: when set, the composer shows them as pills
   // above the textarea. Multiple tags can be active at once.
   const [activeTags, setActiveTags] = useState<ActiveTag[]>([]);
+
+  // Files attached to the message being written: already stored in the session's workspace.
+  const [attachments, setAttachments] = useState<Attachment[]>([]);
+  const [uploading, setUploading] = useState(0);
+  const [attachError, setAttachError] = useState("");
+
+  // attachFiles stores files in the conversation's workspace (opening one when there is none) and
+  // lists them above the field. A file that fails says why and leaves the others alone.
+  const attachFiles = async (files: File[]) => {
+    if (files.length === 0) {
+      return;
+    }
+    setAttachError("");
+    const sid = sessionRef.current || (await startSession());
+    if (!sid) {
+      return;
+    }
+    setUploading((n) => n + files.length);
+    for (const file of files) {
+      try {
+        const saved = await uploadAttachment(api, sid, file);
+        setAttachments((prev) => [...prev, saved]);
+      } catch (e) {
+        setAttachError(errorMessage(e));
+      }
+      setUploading((n) => n - 1);
+    }
+  };
+
+  const removeAttachment = (path: string) =>
+    setAttachments((prev) => prev.filter((a) => a.path !== path));
 
   const isCommandBlocked = (cmdName: string) => blockedBy(activeTags, cmdName);
 
@@ -155,18 +196,20 @@ export function useComposer({
   const clear = () => {
     setInput("");
     setActiveTags([]);
+    setAttachments([]);
+    setAttachError("");
   };
 
   // sendInNewSession opens a conversation for a message typed with none on screen, then sends
   // it there: the first message IS the start of the conversation, with nothing to click first.
   // When no conversation could be opened the message goes back to the field, not lost.
-  const sendInNewSession = async (text: string) => {
+  const sendInNewSession = async (text: string, shown?: string) => {
     const id = await startSession();
     if (!id) {
       setInput(text);
       return;
     }
-    stream.submit(text);
+    stream.submit(text, undefined, shown);
   };
 
   // send does what the composer holds: /agents opens the agents drawer, a shell line runs in the
@@ -174,21 +217,29 @@ export function useComposer({
   // it waits for the end of the turn), and anything else starts a run. Stopping is Escape, or the
   // turn's menu: typing never cuts the work off.
   const send = () => {
-    const text = composedText(input, activeTags);
-    if (text === "/agents") {
+    const typed = composedText(input, activeTags);
+    if (typed === "/agents") {
       drawers.showAgents();
       clear();
       return;
     }
-    if (!text) {
+    if (!typed && attachments.length === 0) {
       return;
     }
-    const shellLine = shellCommandOf(text);
-    if (shellLine) {
+    const shellLine = shellCommandOf(typed);
+    if (shellLine && attachments.length === 0) {
       clear();
       void runShellLine(shellLine);
       return;
     }
+    // What the agent receives names the files; what the conversation draws is the typed text and
+    // their names.
+    const text = withAttachments(typed, attachments);
+    const shown = choose(
+      attachments.length,
+      shownWith(typed, attachments),
+      undefined,
+    );
     if (runningRef.current) {
       clear();
       stream.sendWhileRunning(text);
@@ -196,13 +247,13 @@ export function useComposer({
     }
     if (!sessionRef.current) {
       clear();
-      void sendInNewSession(text);
+      void sendInNewSession(text, shown);
       return;
     }
     // Remove placeholder messages (.kind) before the first real turn.
     rs.setMessages((prev) => prev.filter((m) => m.kind !== "kind"));
     clear();
-    stream.submit(text);
+    stream.submit(text, undefined, shown);
   };
 
   // handleSubmit is called when the form is submitted.
@@ -324,6 +375,11 @@ export function useComposer({
     sendQueued: send,
     shellMode,
     nextSuggestion,
+    attachments,
+    uploading,
+    attachError,
+    attachFiles,
+    removeAttachment,
   };
 }
 
