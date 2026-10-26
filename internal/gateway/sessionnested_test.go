@@ -189,3 +189,32 @@ func TestNestedSessionWorktreeReusesCheckoutsAndSkipsAnEmptyRepository(t *testin
 		t.Errorf("the empty repository must be skipped: %v", err)
 	}
 }
+
+// The agent of a plain folder that holds repositories is told not to make the folder one.
+func TestNestedReposNoteForbidsGitInitOnAContainerFolder(t *testing.T) {
+	ctx := context.Background()
+	dir := t.TempDir()
+	if got := nestedReposNote(ctx, dir); got != "" {
+		t.Fatalf("a folder with no repository needs no note, got %q", got)
+	}
+	if got := nestedReposNote(ctx, ""); got != "" {
+		t.Fatalf("no folder needs no note, got %q", got)
+	}
+	for _, rel := range []string{"api", "group/web"} {
+		sub := filepath.Join(dir, filepath.FromSlash(rel))
+		if err := os.MkdirAll(sub, 0o755); err != nil {
+			t.Fatal(err)
+		}
+		gitRepo(t, sub)
+	}
+	note := nestedReposNote(ctx, dir)
+	for _, want := range []string{"NOT a git repository", "Never run `git init`", "api", "group/web"} {
+		if !strings.Contains(note, want) {
+			t.Errorf("the note must mention %q, got %q", want, note)
+		}
+	}
+	gitRepo(t, dir)
+	if got := nestedReposNote(ctx, dir); got != "" {
+		t.Fatalf("a folder that is a repository itself needs no note, got %q", got)
+	}
+}

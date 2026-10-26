@@ -720,7 +720,7 @@ func applyRuntimeTo(svc Service, p *Project, workspace string) {
 	// that is, and that each repository is committed on its own.
 	if setter, ok := svc.(interface{ SetProjectNote(string) }); ok {
 		home, _ := os.UserHomeDir()
-		setter.SetProjectNote(projectScopeNote(p, workspace) + projectReposNote(p) + dependenciesNote(p) +
+		setter.SetProjectNote(projectScopeNote(p, workspace) + projectReposNote(p) + nestedReposNote(context.Background(), workspace) + dependenciesNote(p) +
 			projectInstructionsNote(workspace, home))
 	}
 }
