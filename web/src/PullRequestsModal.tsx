@@ -202,9 +202,9 @@ export function PullRequestsModal() {
       return next;
     });
   };
-  const update = (item: PRItem) => {
+  function update(item: PRItem) {
     void runUpdate(item);
-  };
+  }
   if (!open) {
     return null;
   }
