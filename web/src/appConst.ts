@@ -83,6 +83,9 @@ export const UPDATE_POLL_MS = 10 * 60 * 1000;
 // REMOTE_POLL_MS is how often the page re-reads the projects, so the news the gateway found on
 // origin (it looks every 15 minutes) reaches an open page.
 export const REMOTE_POLL_MS = 300_000;
+// PROJECT_FEED_RETRY_MS is how long the page waits before listening again to the gateway's project
+// feed after it dropped.
+export const PROJECT_FEED_RETRY_MS = 5000;
 
 // PR_LIST_POLL_MS is how often the open pull request overview asks again, and PR_BADGE_POLL_MS how
 // often the sidebar asks how many have a failing CI. The gateway remembers its answer for 30 s.

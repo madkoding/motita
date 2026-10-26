@@ -27,6 +27,7 @@ import { useCheckpoints } from "./useCheckpoints";
 import { useAuth, useLanguage } from "./useAuth";
 import { usePrefsSync } from "./usePrefsSync";
 import { useRemoteChanges } from "./useRemoteChanges";
+import { useProjectFeed } from "./useProjectFeed";
 import { useUpdates } from "./useUpdates";
 import { useRowMenus } from "./useRowMenus";
 import { useRepoGit } from "./useRepoGit";
@@ -135,6 +136,7 @@ export function useAppStore(api: Api, machine = "") {
   });
   const updates = useUpdates(api, setToast, auth.authState === "ok");
   useRemoteChanges(lists, setToast, auth.authState === "ok");
+  useProjectFeed(api, lists.fetchProjects, auth.authState === "ok");
   const voice = useVoice({
     api,
     authed: auth.authState === "ok",
