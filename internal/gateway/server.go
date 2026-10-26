@@ -456,6 +456,9 @@ func Start(opts Options) (*Server, error) {
 	if opts.MaxBodyKB <= 0 {
 		opts.MaxBodyKB = defaultMaxBodyKB
 	}
+	if noNewPrivs() && opts.Log != nil {
+		opts.Log.Warn("sudo cannot work: the gateway runs with NO_NEW_PRIVS", "fix", noNewPrivsHint)
+	}
 	first := newConversation(DefaultSession, opts.Service)
 	baseCtx, baseCancel := context.WithCancel(context.Background())
 	s := &Server{

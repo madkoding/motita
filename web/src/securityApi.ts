@@ -36,6 +36,11 @@ export interface SecurityView {
   // gateway older than the setting.
   desktop_control?: boolean;
   desktop_reason?: string;
+  // Whether the gateway itself runs with NO_NEW_PRIVS (a systemd unit with NoNewPrivileges=yes, a
+  // container with no-new-privileges), which every command inherits: sudo cannot work, approved or
+  // not. Missing where it does not, and from an older gateway.
+  no_new_privs?: boolean;
+  no_new_privs_hint?: string;
 }
 
 const HTTP_NOT_FOUND = 404;

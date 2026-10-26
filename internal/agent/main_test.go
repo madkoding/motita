@@ -25,5 +25,6 @@ func TestMain(m *testing.M) {
 	// The suite measures the policy as Linux with Landlock applies it, whatever kernel runs the
 	// tests; what changes without confinement has its own tests (unconfined_test.go).
 	confinementAvailable = func() bool { return true }
+	noNewPrivs = func() bool { return false }
 	os.Exit(m.Run())
 }

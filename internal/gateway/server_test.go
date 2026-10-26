@@ -972,3 +972,22 @@ func TestTheGatewayAnswersNoCrossOriginRequest(t *testing.T) {
 		t.Errorf("health answered %d; the absence of CORS must not break non-browser clients", resp2.StatusCode)
 	}
 }
+
+// A gateway started with NO_NEW_PRIVS says in its log that sudo cannot work, and how to fix it.
+func TestStartWarnsAboutNoNewPrivs(t *testing.T) {
+	withNoNewPrivs(t, true)
+	path := filepath.Join(t.TempDir(), "gateway.log")
+	log, err := logx.New(logx.Options{Path: path, Level: logx.Info})
+	if err != nil {
+		t.Fatalf("building the logger: %v", err)
+	}
+	srv, err := Start(Options{Service: &fakeService{}, Listen: "127.0.0.1:0", Token: testToken, Log: log})
+	if err != nil {
+		t.Fatalf("Start: %v", err)
+	}
+	t.Cleanup(func() { _ = srv.Close(context.Background()) })
+	body, _ := os.ReadFile(path)
+	if !strings.Contains(string(body), "NoNewPrivileges=yes") {
+		t.Fatalf("log = %q, want the warning with the fix", body)
+	}
+}

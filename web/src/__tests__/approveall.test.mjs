@@ -191,3 +191,16 @@ test("every string of the choice has a Spanish translation", () => {
     [],
   );
 });
+
+test("a gateway started with NO_NEW_PRIVS says sudo cannot work and how to fix it", async () => {
+  let m = await mount(gateway({ ...SEC, no_new_privs: true }).api);
+  const note = m.root.querySelector("[data-testid=security-nnp]");
+  assert.match(text(note), /sudo cannot work here/);
+  assert.match(text(note), /NoNewPrivileges=yes/);
+  assert.ok(es[note.textContent.trim()], "the note has a Spanish text");
+  await m.unmount();
+
+  m = await mount(gateway(SEC).api);
+  assert.equal(m.root.querySelector("[data-testid=security-nnp]"), null);
+  await m.unmount();
+});
