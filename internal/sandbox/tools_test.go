@@ -71,7 +71,7 @@ func TestToolsDirIsIgnoredUnderAChroot(t *testing.T) {
 	if s.toolsDir() != "" || s.tempRoot() != s.base {
 		t.Error("under a chroot the old layout is kept")
 	}
-	env := strings.Join(s.environmentWithTmp("/x", false), "\n")
+	env := strings.Join(s.environmentWithTmp("/x", false, false), "\n")
 	if !strings.Contains(env, "HOME="+s.base) || !strings.Contains(env, "PATH="+systemPath+"\n") {
 		t.Errorf("under a chroot HOME is the base and PATH the system one: %s", env)
 	}
@@ -323,7 +323,7 @@ func TestCommandPathOnWindowsIsMotitasOwn(t *testing.T) {
 func TestWindowsCommandsGetTheSystemVariables(t *testing.T) {
 	onPlatform(t, "windows", map[string]string{"SystemRoot": `C:\Windows`, "PATHEXT": ".COM;.EXE"})
 	s := &Sandbox{base: "/work"}
-	env := strings.Join(s.environmentWithTmp("/tmp/run", false), "\n") + "\n"
+	env := strings.Join(s.environmentWithTmp("/tmp/run", false, false), "\n") + "\n"
 	for _, want := range []string{"TEMP=/tmp/run\n", "TMP=/tmp/run\n", "USERPROFILE=/work\n",
 		"APPDATA=" + filepath.Join("/work", "AppData", "Roaming") + "\n",
 		"LOCALAPPDATA=" + filepath.Join("/work", "AppData", "Local") + "\n",
@@ -337,7 +337,74 @@ func TestWindowsCommandsGetTheSystemVariables(t *testing.T) {
 	}
 
 	onPlatform(t, "linux", nil)
-	if env := strings.Join(s.environmentWithTmp("/tmp/run", false), "\n"); strings.Contains(env, "TEMP=") {
+	if env := strings.Join(s.environmentWithTmp("/tmp/run", false, false), "\n"); strings.Contains(env, "TEMP=") {
 		t.Errorf("only Windows gets TEMP: %s", env)
+	}
+}
+
+// TestToolPathLast: the tools directory's bin directories come BEHIND the given PATH, so an
+// agent-written shim cannot shadow a system program; with no tools directory nothing changes.
+func TestToolPathLast(t *testing.T) {
+	if got := ToolPathLast(" ", "/usr/bin"); got != "/usr/bin" {
+		t.Errorf("no tools directory: %q", got)
+	}
+	tools := t.TempDir()
+	bin := filepath.Join(tools, "bin")
+	if err := os.MkdirAll(bin, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	sep := string(os.PathListSeparator)
+	if got, want := ToolPathLast(tools, "/usr/bin"), "/usr/bin"+sep+bin; got != want {
+		t.Errorf("ToolPathLast = %q, want %q", got, want)
+	}
+	if got := ToolPathLast(tools, ""); got != bin {
+		t.Errorf("ToolPathLast with no PATH = %q, want %q", got, bin)
+	}
+}
+
+// TestLookToolLastAndEnvironmentLast: a program is found on the process' PATH before the tools
+// directory, and still found in the tools directory when the system has none.
+func TestLookToolLastAndEnvironmentLast(t *testing.T) {
+	tools, system := t.TempDir(), t.TempDir()
+	bin := filepath.Join(tools, "bin")
+	for _, d := range []string{bin, system} {
+		if err := os.MkdirAll(d, 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for _, f := range []string{filepath.Join(bin, "shared"), filepath.Join(system, "shared"), filepath.Join(bin, "only")} {
+		if err := os.WriteFile(f, []byte("#!/bin/sh\n"), 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	t.Setenv("PATH", system)
+	if got := LookToolLast(tools, "shared"); got != filepath.Join(system, "shared") {
+		t.Errorf("the system's program must win, got %q", got)
+	}
+	if got := LookToolLast(tools, "only"); got != filepath.Join(bin, "only") {
+		t.Errorf("a tools-only program is still found, got %q", got)
+	}
+	env := strings.Join(ToolEnvironmentLast(tools, []string{"A=1", "PATH=" + system}), "\n")
+	if !strings.Contains(env, "PATH="+system+string(os.PathListSeparator)+bin) {
+		t.Errorf("the tools directory must come last in PATH:\n%s", env)
+	}
+}
+
+// TestSystemToolsFirstPutsToolsLastInTheChildEnvironment: the request flag reaches the PATH the
+// confined command gets.
+func TestSystemToolsFirstPutsToolsLastInTheChildEnvironment(t *testing.T) {
+	tools := t.TempDir()
+	bin := filepath.Join(tools, "bin")
+	if err := os.MkdirAll(bin, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	s := &Sandbox{op: Options{ToolsDir: tools}, base: t.TempDir()}
+	first := strings.Join(s.environmentWithTmp("/x", false, false), "\n")
+	last := strings.Join(s.environmentWithTmp("/x", false, true), "\n")
+	if !strings.Contains(first, "PATH="+bin) {
+		t.Errorf("by default the tools directory leads PATH:\n%s", first)
+	}
+	if strings.Contains(last, "PATH="+bin) || !strings.Contains(last, bin) {
+		t.Errorf("with systemFirst the tools directory trails PATH:\n%s", last)
 	}
 }

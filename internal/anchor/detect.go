@@ -147,12 +147,18 @@ func (a *Anchor) makefileChecks(timeout time.Duration) []config.Check {
 		return nil
 	}
 	targets := map[string]bool{}
-	for _, m := range makeTarget.FindAllStringSubmatch(body, -1) {
+	for _, m := range makeTarget.FindAllStringSubmatchIndex(body, -1) {
+		name, rest := body[m[2]:m[3]], body[m[4]:m[5]]
 		// `FOO := bar` and `FOO = bar` both begin with a name; neither is a target.
-		if strings.HasPrefix(strings.TrimSpace(m[2]), "=") {
+		if strings.HasPrefix(strings.TrimSpace(rest), "=") {
 			continue
 		}
-		targets[m[1]] = true
+		// A target that checks nothing (`check: ; true`, or no recipe and no prerequisites) is not
+		// a gate: declaring it passes anything, and the next convention speaks for the project.
+		if trivialTarget(rest, body[m[5]:]) {
+			continue
+		}
+		targets[name] = true
 	}
 	for _, name := range []string{"check", "test"} {
 		if targets[name] {
@@ -171,6 +177,45 @@ func (a *Anchor) makefileChecks(timeout time.Duration) []config.Check {
 		}
 	}
 	return nil
+}
+
+// trivialCommand says whether a command line does nothing that could fail: empty, `true`, `:`,
+// `exit 0`, or a few of them chained. A script like that is not a gate, it is a way to pass.
+func trivialCommand(cmd string) bool {
+	for _, part := range strings.FieldsFunc(cmd, func(r rune) bool { return r == ';' || r == '&' }) {
+		part = strings.TrimLeft(strings.TrimSpace(part), "@-+ \t")
+		switch part {
+		case "", "true", ":", "exit 0", "exit":
+		default:
+			return false
+		}
+	}
+	return true
+}
+
+// trivialTarget says whether a makefile target does nothing: no prerequisites and no recipe that
+// could fail. rest is what follows the colon on the target's line, after the line's end the
+// remaining body, whose tab-indented lines are the recipe.
+func trivialTarget(rest, after string) bool {
+	prereq, inline, hasInline := strings.Cut(rest, ";")
+	if strings.TrimSpace(prereq) != "" {
+		return false
+	}
+	if hasInline && !trivialCommand(inline) {
+		return false
+	}
+	for _, line := range strings.Split(after, "\n") {
+		if line == "" || strings.HasPrefix(line, "#") {
+			continue
+		}
+		if line[0] != '\t' {
+			break
+		}
+		if !trivialCommand(line) {
+			return false
+		}
+	}
+	return true
 }
 
 // makefileNames are the files GNU make reads, in the order it prefers them: it uses the FIRST that
@@ -232,7 +277,7 @@ func (a *Anchor) npmChecks(timeout time.Duration) []config.Check {
 	}
 	var out []config.Check
 	for _, name := range []string{"lint", "typecheck", "test"} {
-		if _, declared := pkg.Scripts[name]; declared {
+		if script, declared := pkg.Scripts[name]; declared && !trivialCommand(script) {
 			out = append(out, config.Check{
 				Name:       "npm " + name,
 				Command:    "npm",
@@ -268,10 +313,8 @@ func (a *Anchor) cargoChecks(timeout time.Duration) []config.Check {
 // is why the anchor's reason is the actionable part - and why a project with a real
 // gate should say so in .motita/anchor instead of relying on this.
 func (a *Anchor) pythonChecks(timeout time.Duration) []config.Check {
-	if _, ok := readIfPresent(a.dir, "pyproject.toml"); !ok {
-		if _, ok := readIfPresent(a.dir, "setup.py"); !ok {
-			return nil
-		}
+	if !a.declaresPytest() {
+		return nil
 	}
 	return []config.Check{{
 		Name:       "pytest",
@@ -280,6 +323,24 @@ func (a *Anchor) pythonChecks(timeout time.Duration) []config.Check {
 		Timeout:    timeout,
 		ExpectExit: 0,
 	}}
+}
+
+// declaresPytest says whether the project gives evidence that it uses pytest: its own
+// configuration, a conftest.py, or a pyproject/setup file that names it. A pyproject.toml alone
+// says "this is Python", not "run pytest", and a command the project never asked for is a gate
+// that passes (or fails) for the wrong reason.
+func (a *Anchor) declaresPytest() bool {
+	for _, name := range []string{"pytest.ini", "conftest.py", "tox.ini"} {
+		if _, ok := readIfPresent(a.dir, name); ok {
+			return true
+		}
+	}
+	for _, name := range []string{"pyproject.toml", "setup.py", "setup.cfg", "requirements.txt", "requirements-dev.txt"} {
+		if body, ok := readIfPresent(a.dir, name); ok && strings.Contains(strings.ToLower(body), "pytest") {
+			return true
+		}
+	}
+	return false
 }
 
 // GateFingerprint identifies the gate kind=auto would run right now: the detected checks, and the
@@ -303,9 +364,11 @@ func (a *Anchor) GateFingerprint() string {
 	// beside a Makefile is how the gate was made to run a different target (make prefers them),
 	// so each one's presence and content is part of what the caller compares.
 	names := append([]string{declaredGateFile}, makefileNames...)
+	texts := make([]string, 0, len(names)+1)
 	for _, name := range names {
 		body, ok := readIfPresent(a.dir, name)
 		fmt.Fprintf(h, "file %s %t %d\n%s\n", name, ok, len(body), body)
+		texts = append(texts, body)
 	}
 	// Only the scripts: a dependency added to package.json changes nothing the gate runs. The
 	// .npmrc is included because it can change how `npm run` resolves and runs those scripts.
@@ -316,9 +379,12 @@ func (a *Anchor) GateFingerprint() string {
 		_ = json.Unmarshal([]byte(body), &pkg)
 		scripts, _ := json.Marshal(pkg.Scripts)
 		fmt.Fprintf(h, "scripts %s\n", scripts)
+		texts = append(texts, string(scripts))
 		npmrc, present := readIfPresent(a.dir, ".npmrc")
 		fmt.Fprintf(h, "npmrc %t %d\n%s\n", present, len(npmrc), npmrc)
 	}
+	// What the gate runs and reads: included makefiles, scripts it calls, the Python configuration.
+	a.writeExtraFingerprint(h, texts)
 	return hex.EncodeToString(h.Sum(nil))
 }
 

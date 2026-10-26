@@ -37,7 +37,7 @@ func TestTheHomeIsTheProjectsOwn(t *testing.T) {
 	if !isDir(home) {
 		t.Error("the project's HOME is created for the programs that write to it")
 	}
-	if env := strings.Join(p.environmentWithTmp(t.TempDir(), false), "\n"); !strings.Contains(env, "HOME="+home+"\n") {
+	if env := strings.Join(p.environmentWithTmp(t.TempDir(), false, false), "\n"); !strings.Contains(env, "HOME="+home+"\n") {
 		t.Errorf("the commands are given the project's HOME: %s", env)
 	}
 	if roots := p.writeRoots(p.base, t.TempDir()); !slices.Contains(roots, home) ||
