@@ -103,6 +103,12 @@ func (c securityChange) widens() bool {
 	return isTrue(c.AutoApplySuggestions) || isTrue(c.ApproveAllCommands) || isTrue(c.DesktopControl)
 }
 
+// badApprovalTimeout says the change names an approval timeout outside what the settings take.
+func (c securityChange) badApprovalTimeout() bool {
+	m := c.ApprovalTimeoutMinutes
+	return m != nil && (*m < 0 || *m > maxApprovalMinutes)
+}
+
 // empty says the change names nothing.
 func (c securityChange) empty(mode string) bool {
 	for _, t := range c.toggles() {
@@ -125,7 +131,7 @@ func (c securityChange) refusal(mode string) string {
 	case c.empty(mode):
 		return "send disk_access (workspace or full), ask_unconfined_runs, isolate_network, " +
 			"auto_apply_suggestions, approve_all_commands, approval_timeout_minutes, desktop_control, or several"
-	case c.ApprovalTimeoutMinutes != nil && (*c.ApprovalTimeoutMinutes < 0 || *c.ApprovalTimeoutMinutes > maxApprovalMinutes):
+	case c.badApprovalTimeout():
 		return fmt.Sprintf("approval_timeout_minutes must be between 0 and %d", maxApprovalMinutes)
 	case mode != "" && !config.ValidDiskAccess(mode):
 		return "disk_access must be workspace or full"

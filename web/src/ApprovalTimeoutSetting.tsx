@@ -7,11 +7,15 @@ import { type SecurityView, setApprovalTimeout } from "./securityApi";
 import { Row, Segmented } from "./SettingsControls";
 
 // The waits offered, in minutes: 0 is for as long as it takes (the default).
-const WAITS = [0, 5, 15, 60];
+const NO_LIMIT = 0;
+const SHORT_WAIT = 5;
+const MEDIUM_WAIT = 15;
+const LONG_WAIT = 60;
+const WAITS = [NO_LIMIT, SHORT_WAIT, MEDIUM_WAIT, LONG_WAIT];
 
 // timeoutHint says what the wait shown means.
 function timeoutHint(minutes: number): string {
-  if (minutes === 0) {
+  if (minutes === NO_LIMIT) {
     return t(
       "A question about a command waits until you answer it. A run you left alone stays stopped until you come back.",
     );
@@ -35,11 +39,12 @@ export function ApprovalTimeoutSetting({
 }) {
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState("");
-  const current = view.approval_timeout_minutes ?? 0;
+  // Only drawn when the gateway reports it (see SecuritySettings).
+  const current = view.approval_timeout_minutes as number;
   // A limit set in the file that the page does not offer is still shown, so it is not misread as 0.
   const waits = choose(WAITS.includes(current), WAITS, [...WAITS, current]);
 
-  const pick = useCallback(
+  const save = useCallback(
     async (value: string) => {
       setBusy(true);
       setErr("");
@@ -52,6 +57,7 @@ export function ApprovalTimeoutSetting({
     },
     [api, onView],
   );
+  const pick = useCallback((value: string) => void save(value), [save]);
 
   return (
     <>
@@ -65,7 +71,7 @@ export function ApprovalTimeoutSetting({
           name="settings-approval-timeout"
           labelledBy="settings-approval-timeout"
           value={String(current)}
-          onChange={(v) => void pick(v)}
+          onChange={pick}
           disabled={!view.can_save || busy}
           options={waits.map((m) => ({
             value: String(m),
