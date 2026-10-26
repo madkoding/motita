@@ -1054,16 +1054,6 @@ func (c *Config) validateTaskSource() error {
 	}
 }
 
-func (c *Config) validateAnchor() error {
-	if err := oneOf("anchor.kind", c.Anchor.Kind, "none", "command", "auto"); err != nil {
-		return err
-	}
-	if c.Anchor.Kind == "command" {
-		return requireField("anchor.kind=command", "command", c.Anchor.Command)
-	}
-	return nil
-}
-
 func (c *Config) validateSandbox() error {
 	if err := oneOf("sandbox.kind", c.Sandbox.Kind, "none", "chroot", "cgroups"); err != nil {
 		return err

@@ -191,3 +191,21 @@ func TestADisabledGatewaySkipsItsChecks(t *testing.T) {
 		t.Errorf("a disabled gateway must not be validated as a running one: %v", err)
 	}
 }
+
+func TestValidateAnchorRejectsBadExpectOutput(t *testing.T) {
+	c := Default()
+	c.Anchor.Kind = "auto"
+	c.Anchor.ExpectOutput = "("
+	if err := c.validateAnchor(); err == nil || !strings.Contains(err.Error(), "anchor.expect_output") {
+		t.Fatalf("main pattern: %v", err)
+	}
+	c.Anchor.ExpectOutput = ""
+	c.Anchor.Checks = []Check{{Name: "fmt", ExpectOutput: "["}}
+	if err := c.validateAnchor(); err == nil || !strings.Contains(err.Error(), `"fmt"`) {
+		t.Fatalf("extra check pattern: %v", err)
+	}
+	c.Anchor.Checks[0].ExpectOutput = "^$"
+	if err := c.validateAnchor(); err != nil {
+		t.Fatalf("valid patterns: %v", err)
+	}
+}
