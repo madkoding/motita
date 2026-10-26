@@ -147,7 +147,9 @@ func TestTrivialGatesAreNotGates(t *testing.T) {
 			t.Errorf("%q must not count as the gate, got %+v", body, checks)
 		}
 	}
-	for _, body := range []string{"check: dep\n\t@true\n", "check: ; echo hi\n", "check:\n\t@true\n\tmake lint\n", "check:\n\techo\n#x\nlint:\n"} {
+	for _, body := range []string{
+		"check: dep\n\t@true\n", "check: ; echo hi\n", "check:\n\t@true\n\tmake lint\n", "check:\n\techo\n#x\nlint:\n",
+	} {
 		dir := t.TempDir()
 		writeFile(t, dir, "Makefile", body)
 		if checks := autoAnchor(dir).detectChecks(); len(checks) != 1 || checks[0].Name != "check" {

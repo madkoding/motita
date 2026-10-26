@@ -149,12 +149,7 @@ func (a *Anchor) Validate(ctx context.Context) Result {
 	}
 
 	if res.Pass {
-		res.Reason = fmt.Sprintf("%d check(s) passed", len(res.Checks))
-		if a.vacuous(checks) {
-			// `go test ./...` over no test files exits 0: green, and nothing was run.
-			res.Unverified = true
-			res.Reason += ", but the tree declares no tests, so nothing was actually verified"
-		}
+		a.describePass(&res, checks)
 	} else {
 		var failed []string
 		for _, c := range res.Checks {
@@ -175,6 +170,16 @@ func (a *Anchor) Validate(ctx context.Context) Result {
 		a.log.Warn("anchor validation", fields...)
 	}
 	return res
+}
+
+// describePass words a PASS. `go test ./...` over no test files exits 0: green, and nothing was
+// run, so that PASS is marked unverified.
+func (a *Anchor) describePass(res *Result, checks []config.Check) {
+	res.Reason = fmt.Sprintf("%d check(s) passed", len(res.Checks))
+	if a.vacuous(checks) {
+		res.Unverified = true
+		res.Reason += ", but the tree declares no tests, so nothing was actually verified"
+	}
 }
 
 // vacuous says whether a PASS from kind=auto proves nothing: every check is a bare toolchain test

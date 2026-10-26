@@ -38,7 +38,8 @@ var pythonConfigFiles = []string{"pyproject.toml", "setup.py", "setup.cfg", "pyt
 var makeInclude = regexp.MustCompile(`(?m)^[ \t]*-?(?:include|sinclude)[ \t]+(.+)$`)
 
 // testMarker matches what makes a line a test: a Go, Python, Rust, or JS/TS test declaration.
-var testMarker = regexp.MustCompile(`(?m)^\s*(?:func Test\w|def test_?\w|async def test_?\w|#\[test\]|#\[tokio::test\]|(?:it|test)(?:\.\w+)?\()`)
+var testMarker = regexp.MustCompile(`(?m)^\s*(?:` +
+	`func Test\w|(?:async )?def test_?\w|#\[test\]|#\[tokio::test\]|(?:it|test)(?:\.\w+)?\()`)
 
 // scriptExt are the extensions of a file a gate RUNS. Only those are followed from a gate's text:
 // a source file that merely appears in a build command (`go build main.go`) is the agent's
@@ -51,10 +52,10 @@ var scriptExt = map[string]bool{
 // isTestFile says whether a file name is a test file by the conventions of the toolchains the
 // anchor detects.
 func isTestFile(name string) bool {
-	switch {
-	case strings.HasSuffix(name, "_test.go"):
+	if strings.HasSuffix(name, "_test.go") {
 		return true
-	case strings.HasSuffix(name, ".py"):
+	}
+	if strings.HasSuffix(name, ".py") {
 		return strings.HasPrefix(name, "test_") || strings.HasSuffix(name, "_test.py")
 	}
 	for _, ext := range []string{".js", ".jsx", ".ts", ".tsx", ".mjs", ".cjs"} {
@@ -94,7 +95,7 @@ func (a *Anchor) TestCount() int {
 
 // readLimited reads a file up to maxGateFile bytes.
 func readLimited(path string) (string, bool) {
-	f, err := os.Open(path)
+	f, err := os.Open(path) // #nosec G304 -- path is inside the anchor's directory, read-only.
 	if err != nil {
 		return "", false
 	}
@@ -115,37 +116,20 @@ func (a *Anchor) referencedFiles(texts []string) []string {
 	var queue []string
 	add := func(rel string) {
 		rel = filepath.Clean(strings.TrimPrefix(rel, "./"))
-		if rel == "." || filepath.IsAbs(rel) || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) || seen[rel] {
-			return
-		}
-		info, err := os.Stat(filepath.Join(a.dir, rel))
-		if err != nil || !info.Mode().IsRegular() {
+		if seen[rel] || !a.insideProject(rel) {
 			return
 		}
 		seen[rel] = true
 		queue = append(queue, rel)
 	}
-	scan := func(text string) {
-		for _, m := range makeInclude.FindAllStringSubmatch(text, -1) {
-			for _, f := range strings.Fields(m[1]) {
-				add(f)
-			}
-		}
-		for _, tok := range strings.Fields(text) {
-			tok = strings.Trim(tok, `"'();&|<>`)
-			if scriptExt[strings.ToLower(filepath.Ext(tok))] {
-				add(tok)
-			}
-		}
-	}
 	for _, t := range texts {
-		scan(t)
+		scanReferences(t, add)
 	}
 	// The files found are scanned too, but only for includes and the scripts they call: a bounded
 	// number of rounds keeps a cycle or a huge tree from running away.
 	for i := 0; i < len(queue) && i < 64; i++ {
 		if body, ok := readLimited(filepath.Join(a.dir, queue[i])); ok {
-			scan(body)
+			scanReferences(body, add)
 		}
 	}
 	files := make([]string, 0, len(seen))
@@ -154,6 +138,30 @@ func (a *Anchor) referencedFiles(texts []string) []string {
 	}
 	sort.Strings(files)
 	return files
+}
+
+// scanReferences calls add for every makefile text includes and every token that names a script.
+func scanReferences(text string, add func(string)) {
+	for _, m := range makeInclude.FindAllStringSubmatch(text, -1) {
+		for _, f := range strings.Fields(m[1]) {
+			add(f)
+		}
+	}
+	for _, tok := range strings.Fields(text) {
+		tok = strings.Trim(tok, `"'();&|<>`)
+		if scriptExt[strings.ToLower(filepath.Ext(tok))] {
+			add(tok)
+		}
+	}
+}
+
+// insideProject says whether rel is a regular file inside the anchor's directory.
+func (a *Anchor) insideProject(rel string) bool {
+	if rel == "." || rel == ".." || filepath.IsAbs(rel) || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+		return false
+	}
+	info, err := os.Stat(filepath.Join(a.dir, rel))
+	return err == nil && info.Mode().IsRegular()
 }
 
 // writeExtraFingerprint adds to h the gate's referenced files, the Python configuration and every
