@@ -131,6 +131,7 @@ func (s *Server) lookForRemoteChanges(ctx context.Context) {
 			return
 		}
 		s.watchRemote(ctx, &p, asked)
+		s.watchTests(&p)
 	}
 	s.announceRedPRs(ctx)
 }
