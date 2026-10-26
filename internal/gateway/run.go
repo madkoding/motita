@@ -88,6 +88,8 @@ type run struct {
 	// onDenied receives the command of every question refused for want of someone to ask. It is
 	// how the friction journal hears of it.
 	onDenied func(command string)
+	// quiet keeps the run off the phones: it is a scheduled run, which reports on its own.
+	quiet bool
 
 	mu      sync.Mutex
 	seq     uint64

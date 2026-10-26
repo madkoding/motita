@@ -407,6 +407,7 @@ func (s *Server) reportDone(c *conversation, rn *run, kind, startRev, result str
 		out.Files = done.Changes.Files
 	}
 	c.recordOutcome(rn.turn, out)
+	s.pushUnwatched(c, rn, "done", "")
 	s.closeRun(c, rn, runEnd{event: EventDone, payload: done, outcome: "done", result: result, snap: snap})
 	s.autoTitle(c)
 }
@@ -416,6 +417,9 @@ func (s *Server) reportDone(c *conversation, rn *run, kind, startRev, result str
 func (s *Server) reportFailed(c *conversation, rn *run, outcome, msg string) {
 	msg = s.localizeLLM(msg)
 	c.recordOutcome(rn.turn, turnOutcome{Error: msg})
+	if outcome != "cancelled" {
+		s.pushUnwatched(c, rn, "error", msg)
+	}
 	s.closeRun(c, rn, runEnd{event: EventError, payload: map[string]string{"error": msg}, outcome: outcome, errText: msg})
 }
 
@@ -438,6 +442,8 @@ func (s *Server) approverFactory(c *conversation) func(*run) agent.Approver {
 // would hold its conversation's only run slot for the life of the process.
 func (s *Server) unattendedApprover(scheduleID string) func(*run) agent.Approver {
 	return func(rn *run) agent.Approver {
+		// A scheduled run has its own report; a phone notification for each would be noise.
+		rn.quiet = true
 		return func(_ context.Context, req agent.ApprovalRequest) (bool, error) {
 			err := fmt.Errorf("this run was started by the scheduled task %s and has nobody to ask: "+
 				"set agent.policy.enforce=false to run such actions unattended, or run the task by hand",
@@ -714,6 +720,7 @@ func (s *Server) approverFor(c *conversation, rn *run) agent.Approver {
 		defer c.clearPendingApproval()
 
 		rn.append(EventApproval, approvalEvent{ID: id, Command: req.Command, Reason: req.Reason, Rule: req.Rule})
+		s.pushUnwatched(c, rn, "approval", req.Command)
 
 		select {
 		case ok := <-p.ch:
