@@ -222,6 +222,27 @@ func approveRequest(req *execx.Request, command string) {
 	}
 }
 
+// sudoNoTerminal are the ways sudo (and doas) say they have nowhere to ask for a password.
+var sudoNoTerminal = []string{"a terminal is required", "a password is required", "no tty present"}
+
+// withSudoHint explains a privileged command that failed because a command has no terminal to
+// type a password in. Approving it lets it run; it cannot make sudo ask for a password, and the
+// bare "terminal is required" reads as if the agent had refused.
+func withSudoHint(command, output string, exit int) string {
+	if exit == 0 || !policy.Elevates(command) {
+		return output
+	}
+	low := strings.ToLower(output)
+	for _, m := range sudoNoTerminal {
+		if strings.Contains(low, m) {
+			return output + "\n[hint: the command was approved and ran, but sudo needs a password and a " +
+				"command has no terminal to type it in. Passwordless sudo (NOPASSWD) for this command would " +
+				"let it run; otherwise ask the user to run it themselves]\n"
+		}
+	}
+	return output
+}
+
 // approve asks the user about a consequential command.
 //
 // It returns an error when there is nobody to ask, and the error is not a failure to

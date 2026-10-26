@@ -21,7 +21,7 @@ Installing is a ONE-TIME cost: done right, the next round and the next session f
   write there; the same command run unasked is refused by the sandbox. Put the unpacking and
   the linking in that approved command, not in a script that runs later.
 - Never into the repository, never into `/usr/local` or another system directory, never with
-  `sudo`. Do not `export PATH=...` in your commands: the PATH is already set for you.
+  `sudo` (it is for system changes the user asked for, not for installing a toolchain). Do not `export PATH=...` in your commands: the PATH is already set for you.
 - HOME is outside the repository too, so caches (`~/go`, `~/.npm`, `~/.cache`) never land in a
   commit.
 

@@ -53,7 +53,7 @@ func TestDescribeTools(t *testing.T) {
 	got := describeTools(config.Sandbox{Kind: "none", ToolsDir: "/opt/mt"}, "")
 	for _, want := range []string{
 		"HOME is /opt/mt/home", "/tmp is NOT writable", "$TMPDIR", "$MOTITA_SCRATCH",
-		"/opt/mt/tools/<name>/", "/opt/mt/bin", "never use sudo", "installing-a-toolchain",
+		"/opt/mt/tools/<name>/", "/opt/mt/bin", "use sudo only", "installing-a-toolchain",
 	} {
 		if !strings.Contains(got, want) {
 			t.Errorf("the description must say %q:\n%s", want, got)
