@@ -280,6 +280,9 @@ type Server struct {
 	// scanJob is the progress of the notes scan running in the background, if any.
 	scanJob scanTracker
 
+	// intentGate rests auto mode's model call after it fails: one slow turn, not all. See runs.go.
+	intentGate modelGate
+
 	// evalJob is the model check running in the background, if any; evalStore holds its results.
 	evalJob   evalTracker
 	evalStore *evals.Store
@@ -379,7 +382,7 @@ type Server struct {
 	// prWatching holds the sessions whose pull request is being followed. See prwatch.go.
 	prMu       sync.Mutex
 	prWatching map[string]bool
-	baseCI     map[string]baseCIEntry
+	prCaches
 	// etags makes the reads of the git hosts conditional; see gitforge.ETagCache.
 	etags gitforge.ETagCache
 	// hosts are the host names, lower-cased, a request's Host header may carry besides an IP
@@ -986,7 +989,7 @@ func (s *Server) routes() *http.ServeMux {
 	mux.Handle("POST /v1/sessions/{id}/cancel", scoped(s.handleCancelRun))
 	mux.Handle("POST /v1/sessions/{id}/queue", scoped(s.handleQueue))
 	mux.Handle("POST /v1/sessions/{id}/steer", scoped(s.handleSteer))
-	mux.Handle("POST /v1/sessions/{id}/shell", scoped(s.handleShell))
+	s.shellRoutes(mux, scoped)
 	mux.Handle("POST /v1/sessions/{id}/interrupt", scoped(s.handleInterrupt))
 	mux.Handle("POST /v1/sessions/{id}/runs/approval", scoped(s.handleApproval))
 	mux.Handle("POST /v1/sessions/{id}/auto-approve", scoped(s.handleAutoApprove))

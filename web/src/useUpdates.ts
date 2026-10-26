@@ -40,7 +40,7 @@ function reloadWhenBack(giveUp: () => void) {
 }
 
 // readFrames reads an event stream to its end and hands each complete frame to onFrame, in order.
-async function readFrames(
+export async function readFrames(
   reader: ReadableStreamDefaultReader<Uint8Array>,
   onFrame: (frame: string) => void,
 ): Promise<void> {

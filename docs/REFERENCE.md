@@ -559,7 +559,7 @@ honoured. The documented one wins when both are set.
 | `task_source`  | `kind` (`stdin`/`file`/`api`/`queue`), `path`, `dir`, `url`, `method`, `field`, `interval`, `headers`, `body`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    |
 | `anchor`       | `kind` (`auto`/`command`/`none`), `command`, `args`, `timeout`, `expect_exit`, `expect_output` (regex), `baseline` (bool, default `true`, `kind: auto` only: a check that fails on a claim of done is run again on a clean checkout of the starting commit, and one that failed there too is reported as already failing instead of blocking), `checks[]`                                                                                                                                                                                                                                                                        |
 | `sandbox`      | `kind` (`none`/`chroot`/`cgroups`), `root`, `user`, `memory_mb`, `cpu_seconds`, `processes`, `open_files`, `max_file_size_mb`, `isolate_network` (default `true`: on Linux every command runs in a network namespace of its own with only a loopback, so it cannot send out what it read while tests on `127.0.0.1` still work; as a non-root user this takes unprivileged user namespaces, and where the kernel refuses them, or on macOS and Windows, it is reported as not applied (Ubuntu 24.04 and later refuse them to programs without an AppArmor profile: `sudo motita sandbox apparmor install` loads one for the motita binary (`motita gateway setup` offers to), `print` shows it and `remove` takes it back); a command you approve, and every command with the policy off, keeps the network. Settings → Security in the webui changes it, live, with a confirmation before turning it off; `MOTITA_SANDBOX_ISOLATE_NETWORK` overrides it), `cgroups`, `cgroup_root`, `timeout`, `check_timeout`, `keep_ephemeral`, `max_output_kb`, `tools_dir`, `confine_writes` (default `true`: on Linux a command can write only under the working directory, the HOME in the tools directory (not its `bin/` or `tools/`) and its own temp directory, even from a script that changes directory, and cannot read motita's logins, its configuration and `motita.env`, or your git credential store; a command you approve is exempt), `disk_access` (`workspace`/`full`, default `workspace`: confined to the workspace a command also cannot read nor list your files outside the directories it works in (the home directory, `/home`, `/root`, `/mnt`, `/media`, `/srv`) and `write_file`/`edit_file` refuse a path outside the workspace; `full` lets both reach the whole disk, motita's logins stay hidden, and a command that leaves the workspace, writes outside it or runs a script from elsewhere is no longer asked about (one that names a path among your keys still is). Settings → Security in the webui changes it, live, with a confirmation before `full`; `MOTITA_SANDBOX_DISK_ACCESS` overrides it), `ask_unconfined_runs` (default `true`: where nothing confines a command — Windows, macOS, Linux without Landlock — the agent asks before the project's own code runs (a script, a build, a test); `false` runs it without asking, while a command that reaches outside the workspace and a `cmd.exe` line with cmd's own syntax are still asked about. Settings → Security in the webui changes it, with a confirmation before turning it off; `MOTITA_SANDBOX_ASK_UNCONFINED_RUNS` overrides it), `gpg_signing` (default `true`: when your global git configuration asks for signed commits (`commit.gpgsign` or `tag.gpgsign`, OpenPGP), the git a command runs signs them with the keys of **your own gpg-agent**. A command is given the agent's socket (its restricted `S.gpg-agent.extra` one when there is one) and a `GNUPGHOME` of its own, made of links to the public half of your keyring; no key is copied and the private keys (`private-keys-v1.d`, `secring.gpg`) stay unreadable to every confined command, with or without this setting. The agent must already be running and the key unlocked (a sandboxed command has no terminal for pinentry): otherwise motita logs why at start-up, and a commit that fails to sign gets a line saying what to do — run `echo test | gpg --clearsign >/dev/null` once in your terminal so the agent caches the passphrase. `false` leaves signing out of reach; `MOTITA_SANDBOX_GPG_SIGNING` overrides it. SSH signing (`gpg.format=ssh`) is not covered) |
-| `llm`          | `provider` (`openai`/`codex`/`copilot`/`ollama`/`ollama-cloud`/`anthropic`/`claude-code`/`gemini`/`qwen`), `model`, `api_key`, `base_url`, `max_tokens` (output ceiling; the client learns a model's own limit from the provider's refusal and stays within it, and an answer cut off before any text is asked again with a larger budget; reasoning models spend it on hidden thinking, so give them up to `65536`), `temperature` (optional; unset uses the provider default, and Anthropic models that refuse it get the request again without it), `timeout`, `max_attempts`, `backoff_initial`, `backoff_max`, `reasoning{enabled,level}`, `session{context_window,reserve,compact_at,keep_recent}`                                                          |
+| `llm`          | `provider` (`openai`/`codex`/`copilot`/`ollama`/`ollama-cloud`/`anthropic`/`claude-code`/`gemini`/`qwen`), `model`, `api_key`, `base_url`, `max_tokens` (output ceiling; the client learns a model's own limit from the provider's refusal and stays within it, and an answer cut off before any text is asked again with a larger budget; reasoning models spend it on hidden thinking, so give them up to `65536`), `temperature` (optional; unset uses the provider default, and Anthropic models that refuse it get the request again without it), `timeout` (a plain answer must arrive whole within it; a streamed one, and every `claude-code` turn, only must not go silent for longer, and a `claude-code` run is stopped at 30 minutes however long it keeps streaming; `MOTITA_LLM_TIMEOUT` overrides it), `max_attempts`, `backoff_initial`, `backoff_max`, `reasoning{enabled,level}`, `session{context_window,reserve,compact_at,keep_recent}`                                                          |
 | `models`       | `plan`, `code`, `review`, `research`, `summary`: one `provider/model` per kind of work (see [Models per kind of work](#models-per-kind-of-work)); empty follows `llm.provider`/`llm.model`                                                                                                                                                                                                                                                                                                                                                                                                                                       |
 | `prompts`      | `analyze`, `plan`, `execute`, `synthesize`, each with `system` and `user`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        |
 | `final_action` | `kind` (`none`/`command`/`api`/`git_commit`), `command`, `args`, `url`, `method`, `commit_message`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               |
@@ -600,10 +600,22 @@ or to a session with no project at all.
 that could change the system is refused before it runs.
 
 Auto mode (the web's default, and the TUI's **Auto** screen) picks plan or task for each
-message: an explicit `/plan` or `/task` first, then rules over the wording (an order is a
-task, a question or "don't change anything" is a plan). In the gateway, a message the rules
-cannot place costs one short model call; `agent.auto_mode_rules_only: true`
-(`MOTITA_AGENT_AUTO_MODE_RULES_ONLY`) turns that call off and runs such a message as a task.
+message. An explicit `/plan` or `/task` always wins. In the gateway, every other message is
+decided by the summary model (`models.summary`, the session's own model when it is empty): one
+short call, noted as `mode: plan (model)`. Rules over the wording stand in for it in the TUI (so
+typing is never held) and whenever the call fails. An order anywhere
+in the message is a task, also when it comes after a filler or a conjunction ("ok, now add the
+tests", "check the logs and fix it") or as a wish ("I want you to…", "let's…", "help me fix…").
+A question, an ask to understand ("show me", "explain"), an ask for a plan ("make a plan for…"),
+"don't change anything", or a report of something broken with no order in it ("the build fails
+in CI") is a plan; the go-ahead after it does the work. The rules are tuned against a corpus of
+real messages in English and Spanish (`internal/intent/testdata/corpus.tsv`). When the model
+call fails (30 s at most) the rules' guess runs and the turn says so, as in
+`mode: task (default; the model did not decide)`; the model is then not asked again for five
+minutes. `agent.auto_mode_rules_only: true` (`MOTITA_AGENT_AUTO_MODE_RULES_ONLY`) turns the call
+off and leaves auto mode to the rules. In the web, the turn's **Plan**/**Task** tag says
+why it was picked and, when no run is working, is the switch: one tap sends the message again
+in the other mode; a guess the model did not make shows as **Task?** or **Plan?**.
 
 A bare go-ahead after a plan ("ok", "do it", "dale", "hazlo") carries that plan out: the plan
 travels inside the task, the agent does not plan it again and never stops to ask, and the turn
@@ -629,6 +641,19 @@ is connected to one through Other computers, says that computer did not keep it 
 `POST /v1/sessions/{id}/auto-approve`. What the policy forbids stays forbidden. In the terminal
 the confirmation window's `a` key does the same for the folder the commands run in, kept in
 `~/.motita/approvals.json`; the transcript says when a command ran without asking.
+
+**The interactive terminal.** `GET /v1/sessions/{id}/terminal?cols=N&rows=M` (a WebSocket) is
+the session's shell on a pseudo-terminal, for a command that asks for input, an editor or a REPL:
+binary frames carry the terminal's bytes both ways, the client's text frames are
+`{"type":"resize","cols":N,"rows":M}`, and the server's are `{"type":"exit","code":N}` when the shell
+ends or `{"type":"error","message":…}` when it could not open. It holds the session's run slot while
+it is open (a run is refused, a queued message waits; the session lists `"terminal": true`, not
+`running`), and a deletion ends it. The policy cannot judge keys, so the shell runs as a command the
+person approved: network, git's logins and writes outside the workspace, still inside the sandbox
+that hides motita's own keys (unconfined with the policy off). It is bash where there is one,
+unless `agent.shell` names another, and Linux only for now (`501` where the session cannot open one).
+The web UI opens it from its own **PTY** tab, under the TTY one; it stays open while the drawer is
+closed and ends with `exit`, the drawer's **end** button or a change of session.
 
 A message typed while a task runs goes to the task (`POST /v1/sessions/{id}/steer`): the agent
 reads it at its next step, it wins over the plan where they differ, and the turn's trail shows
@@ -2215,8 +2240,13 @@ motita -p "list the .go files and suggest a refactor"
 ![Plan mode](screenshots/plan.png)
 
 Plan mode is **structurally read-only**: the agent calls tools (`read_file`,
-`execute_command`) through a path that never invokes a shell, so redirections,
-pipes and shell metacharacters are syntactically impossible. Destructive
+`execute_command`) through a path that never invokes a shell, so redirections
+and shell metacharacters are syntactically impossible. A line may chain programs
+with `;`, `&&` and `||` and end one in a pipe into `head`, `tail`, `wc` or `grep`
+(motita runs those itself; every program is checked before any of them runs).
+`git fetch` (remote-tracking refs only), `gh` reporting verbs (`gh pr view`,
+`gh api` as a GET), `npm ls`, `pip list`, `kubectl config get-contexts` and
+version queries (`node --version`) are read-only too. Destructive
 commands are refused before they run.
 
 **Graceful shutdown:** `Ctrl+C` (or `SIGINT`/`SIGTERM`) works everywhere. The first

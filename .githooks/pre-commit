@@ -1,11 +1,28 @@
 #!/bin/sh
 # Rejects a commit that stages an unformatted Go file: the same gate CI runs first.
 files="$(git diff --cached --name-only --diff-filter=ACM | grep '\.go$')"
-[ -z "$files" ] && exit 0
-# shellcheck disable=SC2086
-bad="$(gofmt -l $files)"
-if [ -n "$bad" ]; then
-	echo "Unformatted Go files (run 'make fmt'):" >&2
-	echo "$bad" >&2
-	exit 1
+if [ -n "$files" ]; then
+	# shellcheck disable=SC2086
+	bad="$(gofmt -l $files)"
+	if [ -n "$bad" ]; then
+		echo "Unformatted Go files (run 'make fmt'):" >&2
+		echo "$bad" >&2
+		exit 1
+	fi
+fi
+
+# Rejects a commit that stages internal/webui/assets/index.html naming a bundle that is not on
+# disk. Only index.html is tracked there; the bundles it names are gitignored, so a commit can
+# carry a page pointing at files nobody has: the server answers 200 and the browser 404s its own
+# script, a blank page with no error in any log. Same question as assetsMissingFromDisk in
+# internal/webui/page_test.go, asked before the commit instead of after the push.
+#
+# Runs only when the page is part of the commit, so unrelated commits stay fast. Enable the hook
+# once per checkout with: git config core.hooksPath .githooks
+if git diff --cached --name-only --diff-filter=ACM | grep -qx 'internal/webui/assets/index.html'; then
+	if ! ./scripts/check-webui-assets.sh; then
+		echo "Aborting the commit: index.html names assets that are not on disk." >&2
+		echo "Run 'npm run build' in web/ and stage internal/webui/assets/index.html with the bundles it names." >&2
+		exit 1
+	fi
 fi

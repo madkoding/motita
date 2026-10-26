@@ -470,7 +470,14 @@ command ran on that standing answer). Around the conversation:
 - **Answers rendered as Markdown**, and a conversation that does not move under you
   while you read.
 - **A thinking drawer** with the model's reasoning as it streams, and **a terminal
-  drawer** with every command and its output.
+  drawer** with every command and its output. While nothing runs in the session, the
+  terminal drawer ends in a prompt: a line typed there runs like `!cmd` from the composer
+  (the session's folder, the Security policy and sandbox, a lone `cd` kept, ↑/↓ for the
+  lines typed before); while the agent works it says so instead.
+- **A PTY drawer**, under the TTY tab: a real terminal on the session's shell (Linux), for
+  commands that ask for input. Opening it starts the shell; it stays alive while the drawer
+  is closed and ends with `exit`, its **end** button or a change of session. It waits while
+  the agent works, and the agent waits while it is open.
 - **An agents drawer** with the run's background agents: purpose, state, elapsed time,
   tokens (input, output, cache) and, once one finishes, its summary and the command that
   merges its branch.
@@ -769,9 +776,19 @@ configuration file. Disconnecting a host deletes its file.
   when the same checks also fail on the base branch, or when there is no CI. A toast (and a
   browser or terminal notification) tells you; **Merge** appears once the host would accept it,
   and a project can merge by itself (`auto_merge`), open the next session by itself
-  (`auto_continue`), choose merge/squash/rebase, and set the attempts. Reads of the host are
+  (`auto_continue`), have the host merge the base into the branch when the base moves on
+  (`auto_update_pr`, never a rebase or force-push; a conflict goes to the agent), choose merge/squash/rebase, and set the attempts. Reads of the host are
   conditional (ETag), slow down while nothing moves and back off when the host limits them. A merge done on the host's own page is noticed too. To try it end to end against a
   real repository, see [docs/PR-CI-MANUAL-TEST.md](PR-CI-MANUAL-TEST.md).
+- **All the pull requests at a glance.** **Pull requests** in the sidebar lists the open pull
+  requests of every project's repository (`GET /v1/pull-requests`): the CI of each (passed of
+  total checks), whether the host would merge it (behind, conflict, blocked, draft) and the
+  session that follows it. Failing ones come first. The gateway remembers the answer for 30 seconds;
+  the refresh button asks the hosts again, and an open list refreshes itself every 30 seconds. It
+  includes the other repositories of each project. A pull request that is behind its base has an
+  **Update branch** button (the host merges the base in; no rebase, no force-push; GitHub and
+  Gitea). The sidebar button shows how many have a failing CI, and a phone notification says when
+  one turns red (checked every 15 minutes).
 
 ### Background agents, side by side
 
@@ -1044,14 +1061,17 @@ flowchart LR
     P --> TL["Tools reached through a path<br/>that never invokes a shell"]
     TL --> ANS["An answer grounded<br/>in your actual files"]
 
-    M["Metacharacters, pipes,<br/>redirections"] -.->|"not <b>blocked</b> —<br/>syntactically impossible"| TL
+    M["Metacharacters,<br/>redirections"] -.->|"not <b>blocked</b> —<br/>syntactically impossible"| TL
 
     style P fill:#1f6feb22,stroke:#1f6feb
     style M fill:#8b949e22,stroke:#8b949e
 ```
 
-Pipes and shell metacharacters aren't filtered out in plan mode: there is nothing
-to filter _and_ nothing to bypass, because the shell is never in the path.
+Redirections and shell metacharacters aren't filtered out in plan mode: there is
+nothing to filter _and_ nothing to bypass, because the shell is never in the path.
+A line can still chain programs with `;`, `&&` and `||`, and end one in a pipe into
+`head`, `tail`, `wc` or `grep`: motita splits the line itself, checks every program
+before any of them runs, and runs each one directly.
 
 ## It learns from you, not from a retraining pipeline
 

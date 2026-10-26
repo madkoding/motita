@@ -106,6 +106,15 @@ without `allow` any origin that reaches the port gets in. Add an https port with
 (`ssh -N -L 7477:127.0.0.1:7477 the-host`) or a TLS reverse proxy. Add the proxy's DNS name to
 `gateway.hosts`. More in the [guide](docs/GUIDE.md) and the [reference](docs/REFERENCE.md).
 
+### 🧪 Tests and the local build
+
+`go test ./internal/webui` checks that the page the binary embeds names assets that are really
+there, so it needs the frontend build: run `npm ci && npm run build` in `web/` first. Without
+`internal/webui/assets/index.html` (a fresh clone that never built the UI) that test skips
+instead of failing, which is why CI builds the web UI in its own job and every Go job waits for
+it. A checkout with a stale `index.html` and no bundles fails the test on purpose: the page would
+404 its own script in the browser.
+
 ## 📚 Go deeper
 
 |                                                                         |                                                                                                |

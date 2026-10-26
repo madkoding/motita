@@ -38,7 +38,7 @@ type Decision struct {
 func Check(command string, args []string) Decision {
 	kind, reason := Classify(command, args)
 	// The name the messages quote is the program that would run, not the wrapper in front of it.
-	inner, _, _ := Unwrap(command, args)
+	inner, innerArgs, _ := Unwrap(command, args)
 	name := strings.ToLower(filepath.Base(strings.TrimSpace(inner)))
 
 	// A program named by a PATH is not the reader its base name is: `./evil/cat` is whatever
@@ -57,6 +57,14 @@ func Check(command string, args []string) Decision {
 	// to another machine (see windowsNetworkPaths).
 	if d, hit := networkPathRefusal(args); hit {
 		return d
+	}
+
+	// The reads only plan mode allows (`git fetch`, `gh pr view`, `node --version`) are judged here
+	// and only here: the wider policy has its own answer for them (see remote.go).
+	if kind == KindWriter || kind == KindUnknown {
+		if allowed, why, ok := PlanRead(inner, innerArgs); ok {
+			return Decision{allowed, why}
+		}
 	}
 
 	switch kind {

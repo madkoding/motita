@@ -82,6 +82,9 @@ func (s *Server) gitCommandEnv() []string {
 	return append(env, "LC_ALL=C", "GIT_TERMINAL_PROMPT=0")
 }
 
+// installGitEnv hands gitx the environment of the gateway's own git commands.
+func (s *Server) installGitEnv() { gitx.SetEnv(s.gitCommandEnv()) }
+
 // withoutInlineGitConfig drops the inline git configuration (GIT_CONFIG_COUNT and
 // its GIT_CONFIG_KEY_n / GIT_CONFIG_VALUE_n pairs) the process may have inherited.
 // motita exports one to point git at its own credential helper, and a gateway that
@@ -471,6 +474,7 @@ func (s *Server) handleGitDefaultBranch(w http.ResponseWriter, r *http.Request) 
 // remoteDefaultBranch asks a remote for the branch its HEAD points to. A repository with no
 // commits has no HEAD to point anywhere, and answers "" rather than an error.
 func remoteDefaultBranch(ctx context.Context, url string, env []string) (string, error) {
+	// #nosec G204 G702 -- the program is git; url passed cloneableURL (no flag, no transport::) and follows "--".
 	cmd := exec.CommandContext(ctx, "git", append(gitx.Hardening(), "ls-remote", "--symref", "--", url, "HEAD")...)
 	cmd.Env = env
 	out, err := cmd.CombinedOutput()

@@ -284,6 +284,10 @@ type claudeProcess struct {
 	cmd    *exec.Cmd
 	ctx    context.Context
 	cancel context.CancelFunc
+	// idle is how long claude may print nothing before it is stopped, and watch the timer that
+	// stops it: every line claude prints starts it over.
+	idle   time.Duration
+	watch  *time.Timer
 	stdin  io.WriteCloser
 	out    *bufio.Scanner
 	stderr bytes.Buffer
@@ -292,13 +296,42 @@ type claudeProcess struct {
 	mcp bool
 }
 
-// startClaude runs claude for at most timeout, in motita's own working directory.
+// claudeCeiling bounds one run of claude however long it keeps printing. A turn is bounded by its
+// silences, not by its length (see startClaude), so this only stops a claude that streams forever.
+var claudeCeiling = 30 * time.Minute
+
+// claudeSilence is why a claude that printed nothing for its whole llm.timeout was stopped.
+type claudeSilence struct{ idle time.Duration }
+
+func (e claudeSilence) Error() string {
+	return fmt.Sprintf("nothing came from it for %s (llm.timeout): %v", e.idle, context.DeadlineExceeded)
+}
+
+func (claudeSilence) Unwrap() error { return context.DeadlineExceeded }
+
+// claudeOverrun is why a claude still printing at claudeCeiling was stopped.
+type claudeOverrun struct{ ceiling time.Duration }
+
+func (e claudeOverrun) Error() string {
+	return fmt.Sprintf("it was still going after %s, the most one call may take: %v", e.ceiling, context.DeadlineExceeded)
+}
+
+func (claudeOverrun) Unwrap() error { return context.DeadlineExceeded }
+
+// startClaude runs claude in motita's own working directory, and stops it once it prints nothing
+// for idle.
+//
+// A silence, and not the whole call, is what is bounded. A subscription turn that thinks at
+// length, or one claude retries after an overloaded API, takes minutes while it keeps streaming;
+// bounded as a whole by llm.timeout it was cut mid-answer with "claude did not answer: context
+// deadline exceeded", whatever the model (reported from real use). The HTTP providers' streams
+// are bounded the same way (see Client.do).
 //
 // That directory, and not one of claude's own: claude tells the model where it is working and
 // whether that is a git repository, and the tools resolve paths against motita's directory. It is
 // also the same on every call, which the prompt cache needs. With the flags claude is given it
 // reports the directory but loads nothing from it (a CLAUDE.md there is ignored, measured).
-func startClaude(ctx context.Context, timeout time.Duration, args, env []string) (*claudeProcess, error) {
+func startClaude(ctx context.Context, idle time.Duration, args, env []string) (*claudeProcess, error) {
 	bin := os.Getenv("MOTITA_CLAUDE_BIN")
 	if bin == "" {
 		bin = "claude"
@@ -311,8 +344,18 @@ func startClaude(ctx context.Context, timeout time.Duration, args, env []string)
 	if errors.Is(err, exec.ErrNotFound) || errors.Is(err, fs.ErrNotExist) {
 		return nil, fatalError{fmt.Errorf("%s was not found (%w): install Claude Code and run `claude auth login`", bin, err)}
 	}
-	p := &claudeProcess{}
-	p.ctx, p.cancel = context.WithTimeout(ctx, timeout)
+	p := &claudeProcess{idle: idle}
+	ceilingCtx, stopCeiling := context.WithTimeoutCause(ctx, claudeCeiling, claudeOverrun{claudeCeiling})
+	var cancel context.CancelCauseFunc
+	p.ctx, cancel = context.WithCancelCause(ceilingCtx)
+	p.watch = time.AfterFunc(idle, func() { cancel(claudeSilence{idle}) })
+	p.cancel = func() {
+		p.watch.Stop()
+		cancel(nil)
+		stopCeiling()
+	}
+	// #nosec G204 G702 -- the program is the claude CLI the user installed (or MOTITA_CLAUDE_BIN), and
+	// every argument is built by claudeArgs, never taken from a prompt.
 	p.cmd = exec.CommandContext(p.ctx, path, args...)
 	p.cmd.Env = env
 	p.cmd.Stderr = &p.stderr
@@ -347,25 +390,35 @@ func (p *claudeProcess) send(v any) { _ = json.NewEncoder(p.stdin).Encode(v) }
 // and so is a tool server claude could not reach.
 func (p *claudeProcess) event() (claudeEvent, error) {
 	for p.out.Scan() {
+		// Any line, even one that is not an event, says claude is still at work.
+		if p.watch != nil {
+			p.watch.Reset(p.idle)
+		}
 		var ev claudeEvent
 		if json.Unmarshal(p.out.Bytes(), &ev) != nil {
 			continue
 		}
-		if p.mcp && ev.Type == "system" && ev.Subtype == "init" {
-			if status := motitaMCPStatus(ev); status != "connected" {
-				// Without it claude answers with no tools at all, which reads as a model that
-				// will not look at anything. A managed MCP policy is one way to get here.
-				return ev, fatalError{fmt.Errorf("claude could not use motita's tool server (MCP status %q)", status)}
-			}
-		}
-		if ev.Type == "rate_limit_event" {
-			for _, q := range ev.RateLimitInfo.quotas() {
-				totals.quota(usageSource{provider: "claude-code"}, q)
-			}
-		}
-		return ev, nil
+		return ev, p.note(ev)
 	}
 	return claudeEvent{}, p.exited()
+}
+
+// note acts on what an event says beyond the answer: a tool server claude could not reach is an
+// error, and the subscription's limits are recorded.
+func (p *claudeProcess) note(ev claudeEvent) error {
+	if p.mcp && ev.Type == "system" && ev.Subtype == "init" {
+		if status := motitaMCPStatus(ev); status != "connected" {
+			// Without it claude answers with no tools at all, which reads as a model that
+			// will not look at anything. A managed MCP policy is one way to get here.
+			return fatalError{fmt.Errorf("claude could not use motita's tool server (MCP status %q)", status)}
+		}
+	}
+	if ev.Type == "rate_limit_event" {
+		for _, q := range ev.RateLimitInfo.quotas() {
+			totals.quota(usageSource{provider: "claude-code"}, q)
+		}
+	}
+	return nil
 }
 
 // claudeRateLimit is one limit of a Claude subscription as claude reports it: which window, how much
@@ -470,8 +523,9 @@ func motitaMCPStatus(ev claudeEvent) string {
 // exited explains an output that ended before the answer did.
 func (p *claudeProcess) exited() error {
 	_ = p.cmd.Wait() // stderr is only complete, and safe to read, once Wait returns
-	if err := p.ctx.Err(); err != nil {
-		return fmt.Errorf("claude did not answer: %w", err)
+	if p.ctx.Err() != nil {
+		// The cause says which limit stopped it (a silence, the ceiling, or the caller).
+		return fmt.Errorf("claude did not answer: %w", context.Cause(p.ctx))
 	}
 	tail := strings.TrimSpace(p.stderr.String())
 	if len(tail) > 1000 {

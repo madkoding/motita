@@ -256,7 +256,10 @@ test("an approval without a question uses its reason, and without either the def
 function drawerStore({ rs = {}, drawers = {} } = {}) {
   const { calls, fn } = recorder();
   const store = {
+    machine: "",
+    status: { setToast: fn("setToast") },
     rs: {
+      sessionId: "s1",
       shellLog: [],
       termSeenId: 0,
       running: false,

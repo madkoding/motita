@@ -509,6 +509,15 @@ func TestThePageNamesAssetsThatAreActuallyThere(t *testing.T) {
 		t.Fatal("the served index.html is empty")
 	}
 
+	// The bundles index.html names are gitignored; only index.html is tracked. A checkout that
+	// has not run `npm run build` therefore carries an index.html pointing at files that are not
+	// on disk, and the embed cannot carry them. That is a missing local build, not a broken
+	// page: skip, and let CI — which builds the frontend before `go test` — enforce this.
+	if absent := assetsMissingFromDisk(string(body)); len(absent) > 0 {
+		t.Skipf("no local build: index.html names %d asset(s) that are not on disk (%v); "+
+			"run `npm run build` in web/ to check this", len(absent), absent)
+	}
+
 	served := make(map[string]bool)
 	for _, name := range Names() {
 		served[name] = true
@@ -659,6 +668,19 @@ func precacheURLs(worker string) []string {
 
 // assetRefs pulls the local asset paths out of the page: src/href attributes and the paths Vite
 // emits in its preload links. An absolute URL is not this build's business.
+// assetsMissingFromDisk reports the page's asset references that are not present under
+// internal/webui/assets. The bundles are gitignored, so a checkout that has not run the
+// frontend build has none of them and the page cannot be checked against the binary.
+func assetsMissingFromDisk(html string) []string {
+	var missing []string
+	for _, ref := range assetRefs(html) {
+		if _, err := os.Stat(filepath.Join("assets", strings.TrimPrefix(ref, "/"))); err != nil {
+			missing = append(missing, ref)
+		}
+	}
+	return missing
+}
+
 func assetRefs(html string) []string {
 	var out []string
 	for _, attr := range []string{"src=\"", "href=\""} {

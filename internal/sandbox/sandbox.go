@@ -31,6 +31,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"strings"
 	"sync/atomic"
 	"syscall"
@@ -372,13 +373,6 @@ func (s *Sandbox) Base() string { return s.base }
 // Run runs an isolated command. It returns the combined output, whether it was
 // truncated, the exit code and an error only when the command could not be run.
 func (s *Sandbox) Run(ctx context.Context, p execx.Request) (string, bool, int, error) {
-	// An empty command is rejected here: without this check it reached the
-	// child process, which returned code 126 without explaining that the
-	// problem was that there was nothing to run.
-	if strings.TrimSpace(p.Command) == "" {
-		return "", false, -1, fmt.Errorf("cannot run an empty command in the sandbox")
-	}
-
 	timeout := p.Timeout
 	if timeout <= 0 {
 		timeout = s.op.Timeout
@@ -395,6 +389,40 @@ func (s *Sandbox) Run(ctx context.Context, p execx.Request) (string, bool, int, 
 		maxOutput = 256 << 10
 	}
 
+	run, err := s.prepare(p, nil)
+	if err != nil {
+		return "", false, -1, err
+	}
+	defer run.cleanup()
+
+	out, truncated, code, err := s.launch(ctx, s.executable, run.args, run.workDir, timeout, maxOutput, run.limits)
+	if code != 0 {
+		out = s.withFailureHint(out, run.confined, run.tempDir)
+	}
+	return out, truncated, code, err
+}
+
+// preparedRun is a command made ready for the isolation child: the arguments that hand it its
+// spec, where it runs, and the temporary directory cleanup removes once it is over.
+type preparedRun struct {
+	args     []string
+	workDir  string
+	tempDir  string
+	limits   Limits
+	confined bool
+	cleanup  func()
+}
+
+// prepare makes p ready to run in the isolation child, with extraEnv set over the environment
+// every command gets (a terminal's TERM, say).
+func (s *Sandbox) prepare(p execx.Request, extraEnv []string) (preparedRun, error) {
+	// An empty command is rejected here: without this check it reached the
+	// child process, which returned code 126 without explaining that the
+	// problem was that there was nothing to run.
+	if strings.TrimSpace(p.Command) == "" {
+		return preparedRun{}, fmt.Errorf("cannot run an empty command in the sandbox")
+	}
+
 	// Working directory: the one the caller asks for, or the base one.
 	//
 	// Important: an ephemeral directory is NOT used as the working directory.
@@ -408,7 +436,7 @@ func (s *Sandbox) Run(ctx context.Context, p execx.Request) (string, bool, int, 
 		workDir = s.base
 	}
 	if err := os.MkdirAll(workDir, 0o755); err != nil {
-		return "", false, -1, fmt.Errorf("could not prepare the working directory %q: %w", workDir, err)
+		return preparedRun{}, fmt.Errorf("could not prepare the working directory %q: %w", workDir, err)
 	}
 	// Resolve to an absolute path HERE, while the process is still in the
 	// directory the configuration was relative to. The child re-executes this
@@ -420,7 +448,7 @@ func (s *Sandbox) Run(ctx context.Context, p execx.Request) (string, bool, int, 
 	// passed.)
 	absWorkDir, absErr := filepath.Abs(workDir)
 	if absErr != nil {
-		return "", false, -1, fmt.Errorf("could not resolve the working directory %q: %w", p.Dir, absErr)
+		return preparedRun{}, fmt.Errorf("could not resolve the working directory %q: %w", p.Dir, absErr)
 	}
 	workDir = absWorkDir
 
@@ -429,14 +457,15 @@ func (s *Sandbox) Run(ctx context.Context, p execx.Request) (string, bool, int, 
 	// the repository, in git status and in front of gofmt.
 	tempDir, err := os.MkdirTemp(s.tempRoot(), "tmp-*")
 	if err != nil {
-		return "", false, -1, fmt.Errorf("could not create the temporary directory: %w", err)
+		return preparedRun{}, fmt.Errorf("could not create the temporary directory: %w", err)
 	}
-	if !s.op.Keep {
-		defer func() {
-			if err := removeTree(tempDir); err != nil {
-				s.log.Warn("could not delete the temporary directory", "dir", tempDir, "error", err)
-			}
-		}()
+	cleanup := func() {
+		if s.op.Keep {
+			return
+		}
+		if err := removeTree(tempDir); err != nil {
+			s.log.Warn("could not delete the temporary directory", "dir", tempDir, "error", err)
+		}
 	}
 
 	confine := s.op.ConfineWrites && !s.op.UseChroot && !p.Unconfined
@@ -445,7 +474,7 @@ func (s *Sandbox) Run(ctx context.Context, p execx.Request) (string, bool, int, 
 		Args:        append([]string(nil), p.Args...),
 		Dir:         workDir,
 		Limits:      s.runLimits(p),
-		Environment: s.environmentWithTmp(tempDir, !confine || p.Approved),
+		Environment: withVariables(s.environmentWithTmp(tempDir, !confine || p.Approved, p.SystemToolsFirst), extraEnv),
 	}
 
 	switch {
@@ -457,30 +486,25 @@ func (s *Sandbox) Run(ctx context.Context, p execx.Request) (string, bool, int, 
 		// Not confined: the command writes wherever the sandbox's other rules let it.
 	}
 
-	command := s.executable
-	var args []string
-
+	spec.DropPrivileges = s.op.DropPrivs
+	spec.Uid, spec.Gid = s.op.Uid, s.op.Gid
 	if s.op.UseChroot {
 		// Inside the chroot the real command is the path relative to the root.
 		spec.Chroot = s.op.Root
 		spec.ChrootDir = "/" + strings.TrimPrefix(strings.TrimPrefix(workDir, s.base), "/")
-		spec.DropPrivileges = s.op.DropPrivs
-		spec.Uid, spec.Gid = s.op.Uid, s.op.Gid
 
 		inside := filepath.Join(spec.Chroot, p.Command)
 		if _, err := os.Stat(inside); err != nil {
-			return "", false, -1, fmt.Errorf("the command %q does not exist inside the chroot %q: %w", p.Command, inside, err)
+			cleanup()
+			return preparedRun{}, fmt.Errorf("the command %q does not exist inside the chroot %q: %w", p.Command, inside, err)
 		}
-	} else {
-		spec.DropPrivileges = s.op.DropPrivs
-		spec.Uid, spec.Gid = s.op.Uid, s.op.Gid
 	}
 
 	encoded, err := spec.Encode()
 	if err != nil {
-		return "", false, -1, err
+		cleanup()
+		return preparedRun{}, err
 	}
-	args = []string{ChildMarker, encoded}
 
 	s.log.Debug("running in sandbox",
 		"command", p.Command,
@@ -488,11 +512,24 @@ func (s *Sandbox) Run(ctx context.Context, p execx.Request) (string, bool, int, 
 		"temp_dir", tempDir,
 		"isolation", strings.Join(modesToStrings(s.Isolation()), ","))
 
-	out, truncated, code, err := s.launch(ctx, command, args, workDir, timeout, maxOutput, spec.Limits)
-	if code != 0 {
-		out = s.withFailureHint(out, confine && !p.Approved, tempDir)
+	return preparedRun{
+		args:     []string{ChildMarker, encoded},
+		workDir:  workDir,
+		tempDir:  tempDir,
+		limits:   spec.Limits,
+		confined: confine && !p.Approved,
+		cleanup:  cleanup,
+	}, nil
+}
+
+// withVariables is env with each NAME=value of extra set over the variable of that name.
+func withVariables(env, extra []string) []string {
+	for _, kv := range extra {
+		name, _, _ := strings.Cut(kv, "=")
+		env = slices.DeleteFunc(env, func(e string) bool { return strings.HasPrefix(e, name+"=") })
+		env = append(env, kv)
 	}
-	return out, truncated, code, err
+	return env
 }
 
 // withFailureHint appends to the output of a failed command the hint that fits it: how to sign
@@ -861,10 +898,15 @@ func (s *Sandbox) newRunGroup() *runGroup {
 // where they live). Only a command the user approved, or one that is not
 // confined at all, gets them: the helper hands a token to whoever asks, and a
 // confined command is one nobody looked at.
-func (s *Sandbox) environmentWithTmp(tempDir string, logins bool) []string {
+func (s *Sandbox) environmentWithTmp(tempDir string, logins, systemFirst bool) []string {
 	path, home := s.commandPath(), s.base
 	if tools := s.toolsDir(); tools != "" {
-		path, home = ToolPath(tools, path), s.Home()
+		if systemFirst {
+			path = ToolPathLast(tools, path)
+		} else {
+			path = ToolPath(tools, path)
+		}
+		home = s.Home()
 	}
 	base := []string{
 		"PATH=" + path,
@@ -928,7 +970,7 @@ func windowsEnvironment(tempDir, home string) []string {
 // environment is the environment without a temporary directory of its own (for
 // the isolation process, which does not need TMPDIR nor git's logins).
 func (s *Sandbox) environment() []string {
-	return s.environmentWithTmp(s.base, false)
+	return s.environmentWithTmp(s.base, false, false)
 }
 
 // limitedBuffer accumulates up to max bytes and flags whether there was a cut.

@@ -160,7 +160,7 @@ ${tabs("sse", sseExamples("es"))}
 <li>Los mensajes de commit y los títulos de pull request deben ser semánticos (<code>tipo(ámbito): descripción</code>); cualquier otro se rechaza antes de crearse.</li>
 <li>El agente abre un pull request con <code>motita forge pr create</code> (te pregunta antes) y te da su enlace.</li>
 <li>Desde ese momento el <em>gateway</em> sigue el CI, las revisiones y el estado de la fusión sin usar el modelo, así que esperar no gasta tokens. Cuando falla un job o alguien comenta, se envía al agente a arreglarlo, hasta un límite que tú fijas (5 por defecto).</li>
-<li>Un proyecto puede fusionar solo (<code>auto_merge</code>) y abrir la siguiente sesión solo (<code>auto_continue</code>).</li>
+<li>Un proyecto puede fusionar solo (<code>auto_merge</code>), abrir la siguiente sesión solo (<code>auto_continue</code>) y actualizar una rama cuya base avanzó (<code>auto_update_pr</code>, el host mergea la base: sin rebase ni force-push).</li>
 </ul>
 ${sequence("Un pull request seguido por el gateway", [{ name: "Sesión", sub: "su propia rama" }, { name: "Gateway", sub: "sin modelo" }, { name: "Host git", sub: "GitHub, GitLab…" }], [
   { from: "Sesión", to: "Host git", label: "hace push y abre el pull request" },

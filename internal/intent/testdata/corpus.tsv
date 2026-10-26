@@ -1,0 +1,112 @@
+# Messages as people write them, and the mode each one should run in.
+# kind<TAB>message. Lines starting with # are comments.
+# Plans: problem reports, questions, asks to understand, asks for a plan.
+plan	tengo problemas con esto, could not reach the reasoning engine: context deadline exceeded
+plan	tambien tiene problemas para resolver si lo que le pido es un plan o una tarea
+plan	el build falla en CI
+plan	me sale este error: panic: nil pointer
+plan	no funciona el login desde ayer
+plan	necesito un plan para migrar a postgres
+plan	quiero entender cómo funciona el scheduler
+plan	dime qué hace este archivo
+plan	me gustaría saber por qué tarda tanto
+plan	Can you explain how auth works?
+plan	Could you tell me what this does?
+plan	I'm getting a 500 when I log in
+plan	tests are failing after the merge
+plan	the app crashes on startup
+plan	Is it possible to add dark mode?
+plan	Puedes revisar el PR 12?
+plan	Podrías explicarme el flujo de login?
+plan	no entiendo por qué falla
+plan	what would it take to add i18n
+plan	Hazme un plan para agregar i18n
+plan	Haz un plan para agregar i18n
+plan	Make a plan to add i18n
+plan	Create a plan for the migration
+plan	Write a proposal for caching
+plan	Give me a quick summary of the gateway
+plan	dame ideas para mejorar el rendimiento
+plan	qué opinas de usar sqlite
+plan	Show me the config
+plan	muéstrame la configuración
+plan	lista los endpoints
+plan	busca dónde se define Classify
+plan	Find where Classify is defined
+plan	Check if the tests pass
+plan	quiero que me expliques el flujo de pagos
+plan	I want you to review the diff
+plan	help me understand the retry policy
+plan	ok, but explain the retry policy first
+plan	y cómo se guarda la sesión?
+plan	Add OAuth, but don't change anything yet
+plan	implementa el cache, solo el plan
+plan	agrega un botón pero todavía no, primero el diseño
+plan	What does the scheduler do
+plan	explain the retry policy?
+plan	me puedes explicar el login?
+plan	would you mind looking at the logs?
+plan	como puede motita tener un auto mode?
+plan	Diseña una migración a SQLite
+plan	the build is red, any idea?
+plan	what is the difference between add and remove?
+plan	Should we use redis here?
+plan	¿Hay que reiniciar el gateway después de cambiar la config?
+# Tasks: orders, polite requests, wishes, follow-ups.
+task	quiero que agregues un botón de exportar
+task	necesito que arregles el login
+task	quiero que el botón sea azul
+task	I want you to add a logout button
+task	I need you to fix the flaky test
+task	Let's add a logout button
+task	vamos a agregar un botón
+task	Agrega tests y haz commit
+task	Hay que arreglar el login
+task	We need to fix the login
+task	cambia el color a azul por favor
+task	ahora agrega soporte para gemini
+task	también actualiza el README
+task	Also update the README
+task	Then run the tests
+task	Please, add tests
+task	porfa arregla eso
+task	Ok, now add the tests
+task	ok ahora corre los tests
+task	sí, pero cambia el nombre a foo
+task	Puedes hacer que el botón sea azul?
+task	Can you make the button blue?
+task	Would you mind fixing the typo?
+task	would you mind making the button blue?
+task	do you mind running the tests?
+task	Me ayudas a arreglar el login?
+task	Help me fix the login
+task	Ayúdame a agregar tests
+task	Sube los cambios
+task	Haz un PR con esto
+task	Resuelve el conflicto
+task	Resolve the merge conflict
+task	Optimize the query
+task	Optimiza la consulta
+task	Documenta la función
+task	Document the function
+task	Prueba la app y arregla lo que falle
+task	Termina lo que empezaste
+task	Finish the migration
+task	Reintenta
+task	Retry
+task	Revisa si los tests pasan y arréglalos
+task	explain why it fails, then fix it
+task	¿Por qué falla el build? Corrígelo.
+task	Fix the bug in the login
+task	el login falla, arréglalo
+task	can you check the logs and fix the timeout?
+task	Add a dark theme to the settings
+task	Arréglalo
+task	¿Puedes agregar un botón de exportar?
+task	por favor actualiza las dependencias
+task	implementa el plan
+task	I want to add a settings page
+task	quiero agregar una página de ajustes
+task	ok
+task	dale
+task	hazlo

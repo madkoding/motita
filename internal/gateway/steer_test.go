@@ -53,7 +53,12 @@ func TestSteerHandsTheMessageToTheTaskInFlight(t *testing.T) {
 	})
 	a := newSessionFor(t, srv)
 	quietRunFor(t, srv, a.ID)
-	t.Cleanup(func() { close(rec.release) })
+	// The queued message still runs after the test returns; wait for it, or its session files land
+	// in the temp dir while it is being removed.
+	t.Cleanup(func() {
+		close(rec.release)
+		waitIdle(t, srv.conversationOf(a.ID))
+	})
 	base := "/v1/sessions/" + a.ID
 
 	steerExpect(t, srv, base+"/steer", `{"task":"  "}`, http.StatusBadRequest, "")

@@ -17,7 +17,10 @@ import {
   IconClose,
   IconDownload,
   IconNotes,
+  IconPullRequest,
 } from "./icons";
+import { openPullRequests } from "./pullRequestsOpen";
+import { usePullRequestBadge } from "./usePullRequestBadge";
 import { NEW_PROJECT, NEW_SESSION_TITLE } from "./appConst";
 import { closesOnPhone, isPhone } from "./viewport";
 
@@ -146,6 +149,7 @@ function Settings() {
 // SidebarFoot is the skill library, the notes, the artifacts, the scheduled tasks and the settings.
 function SidebarFoot() {
   const { api, skills, artifacts, schedules, notes, rs } = useApp();
+  const failingPRs = usePullRequestBadge(api);
   return (
     <>
       {api && <ProviderUsagePanel api={api} running={rs.running} />}
@@ -186,6 +190,23 @@ function SidebarFoot() {
             <polyline points="14 2 14 8 20 8" />
           </svg>
           {t("Artifacts")}
+        </button>
+        <button
+          class={FOOT_BUTTON}
+          data-testid="pull-requests-button"
+          onClick={openPullRequests}
+        >
+          <IconPullRequest size={18} />
+          {t("Pull requests")}
+          {failingPRs > 0 && (
+            <span
+              class="ml-auto px-2 rounded-full bg-danger/20 text-danger text-xs text-center"
+              data-testid="pull-requests-failing"
+              title={t("Pull requests with a failing CI")}
+            >
+              {failingPRs}
+            </span>
+          )}
         </button>
         <button class={FOOT_BUTTON} onClick={schedules.openScheduledTasks}>
           <IconClock size={18} />
@@ -234,7 +255,7 @@ export function Sidebar() {
       {/* Mobile overlay: click to close the sidebar. */}
       <div ref={overlay} class="fixed inset-0 bg-black/50 z-20 md:hidden" />
       <aside
-        class="sidebar frosted fixed md:relative inset-y-0 left-0 w-72 max-w-[85vw] z-30 flex flex-col border-r border-white/5"
+        class="sidebar frosted fixed md:relative inset-y-0 left-0 w-full md:w-80 z-30 flex flex-col border-r border-white/5"
         ref={aside}
       >
         <SidebarHeader />

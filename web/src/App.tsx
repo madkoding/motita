@@ -21,7 +21,7 @@ import { FolderBrowser } from "./FolderBrowser";
 import { GitConnectModal } from "./GitConnect";
 import { PRBar, usePullRequest, type PullRequest } from "./PullRequestBar";
 import { choose } from "./choose";
-import { modeOf } from "./appParse";
+import { modeOf, modeWhyOf } from "./appParse";
 import { clearCredential } from "./appAuth";
 import { AppCtx, useApp, useAppStore, type Store } from "./appStore";
 import { sameTurn, TurnCtx, useTurn, useTurnView } from "./turnView";
@@ -39,6 +39,7 @@ import { ConnectionBanner } from "./ConnectionBanner";
 import { Sidebar } from "./Sidebar";
 import { ChatHeader } from "./ChatHeader";
 import { AgentsDrawer, TermDrawer, ThinkDrawer } from "./Drawers";
+import { PtyDrawer } from "./PtyDrawer";
 import { ApprovalPanel, ChatLoadingModal } from "./ChatPanels";
 import { Composer } from "./Composer";
 import { NewSessionButton } from "./NewSessionButton";
@@ -52,6 +53,7 @@ import {
 import { EditProjectModal } from "./EditProjectModal";
 import { RepoGitPanel } from "./RepoGitPanel";
 import { GitActivityModal } from "./GitActivityModal";
+import { PullRequestsModal } from "./PullRequestsModal";
 import { NewProjectModal } from "./NewProjectModal";
 import { ModelSwitcherModal } from "./ModelSwitcherModal";
 import { ConfirmDeleteModal, ContextMenu } from "./ConfirmDeleteModal";
@@ -426,6 +428,14 @@ function turnMode(shown: StepView[]): "plan" | "task" | null {
   return modeOf(shown[0].text);
 }
 
+// turnWhy is why auto mode picked a turn's mode, read from the same first step, or "".
+function turnWhy(shown: StepView[]): string {
+  if (shown.length === 0) {
+    return "";
+  }
+  return modeWhyOf(shown[0].text);
+}
+
 interface TurnProps {
   g: Group;
   /** The turn's steps as the run state keeps them: the same array until that turn changes. */
@@ -442,6 +452,7 @@ function TurnBody({ g, steps, liveHere, activity }: TurnProps) {
   const shown = stepsOf(steps);
   // The mode auto mode picked, when this turn went through it: its first step says so.
   const mode = turnMode(shown);
+  const why = turnWhy(shown);
   // The step in progress is the activity line below, so it is not drawn twice.
   const trail = choose(liveHere && activity, shown.slice(0, -1), shown);
   return (
@@ -451,6 +462,7 @@ function TurnBody({ g, steps, liveHere, activity }: TurnProps) {
         turn={g.turn}
         liveHere={liveHere}
         mode={mode}
+        why={why}
         steps={trail}
       />
       {rest.map((m) => (
@@ -653,6 +665,7 @@ function MainColumn({ pr }: { pr: PullRequest }) {
       <ChatHeader />
       <Conversation />
       <TermDrawer />
+      <PtyDrawer />
       <ThinkDrawer />
       <AgentsDrawer />
       {scroll.chatLoading && <ChatLoadingModal />}
@@ -761,6 +774,7 @@ function ProjectModals() {
       {editProject && <EditProjectModal p={editProject} />}
       {repoGit.open && <RepoGitPanel r={repoGit.open} />}
       <GitActivityModal />
+      <PullRequestsModal />
       {showNewProject && <NewProjectModal />}
       {folderPicker && (
         <FolderBrowser
@@ -832,7 +846,7 @@ function MachineApp({
   machine: string;
   setMachine: (id: string) => void;
 }) {
-  const store = useAppStore(request);
+  const store = useAppStore(request, machine);
   const pr = usePullRequest(store, request);
   const loadEvidenceImage = useEvidenceLoader(store);
   // The computers are always this gateway's: api, never the computer's own request.

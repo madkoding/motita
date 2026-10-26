@@ -27,6 +27,7 @@ import { useCheckpoints } from "./useCheckpoints";
 import { useAuth, useLanguage } from "./useAuth";
 import { usePrefsSync } from "./usePrefsSync";
 import { useRemoteChanges } from "./useRemoteChanges";
+import { useProjectFeed } from "./useProjectFeed";
 import { useUpdates } from "./useUpdates";
 import { useRowMenus } from "./useRowMenus";
 import { useRepoGit } from "./useRepoGit";
@@ -36,7 +37,9 @@ import { useVoice } from "./useVoice";
 import { useSpeech } from "./useSpeech";
 import { useVoiceConversation } from "./useVoiceConversation";
 
-export function useAppStore(api: Api) {
+// machine is the computer the page is pointed at ("" for this one), for what cannot go through api:
+// the terminal's WebSocket.
+export function useAppStore(api: Api, machine = "") {
   const rs = useRunState();
   const status = useToastStatus();
   const { setState, setToast } = status;
@@ -133,6 +136,7 @@ export function useAppStore(api: Api) {
   });
   const updates = useUpdates(api, setToast, auth.authState === "ok");
   useRemoteChanges(lists, setToast, auth.authState === "ok");
+  useProjectFeed(api, lists.fetchProjects, auth.authState === "ok");
   const voice = useVoice({
     api,
     authed: auth.authState === "ok",
@@ -197,6 +201,7 @@ export function useAppStore(api: Api) {
   );
   return {
     api,
+    machine,
     rs,
     status,
     lists,

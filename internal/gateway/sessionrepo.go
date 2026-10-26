@@ -2,7 +2,6 @@ package gateway
 
 import (
 	"context"
-	"os"
 	"path/filepath"
 	"sort"
 	"strings"
@@ -11,25 +10,17 @@ import (
 )
 
 // repoDirsIn lists the git repositories a session's folder holds: the folder itself when it is the
-// top of one, then each of its direct subfolders that is. A project is a plain folder and the
-// repositories in it are whatever was cloned or copied there, so this is how the gateway finds them
-// instead of keeping a list.
+// top of one, then each repository inside it, one or two folders down (see reposUnder). A project is
+// a plain folder and the repositories in it are whatever was cloned or copied there, so this is how
+// the gateway finds them instead of keeping a list.
 func repoDirsIn(ctx context.Context, dir string) []string {
 	var out []string
 	if gitx.IsRepoRoot(ctx, dir) {
 		out = append(out, dir)
 	}
-	entries, err := os.ReadDir(dir)
-	if err != nil {
-		return out
-	}
 	var subs []string
-	for _, e := range entries {
-		if !e.IsDir() || strings.HasPrefix(e.Name(), ".") {
-			continue
-		}
-		sub := filepath.Join(dir, e.Name())
-		if gitx.IsRepoRoot(ctx, sub) {
+	for _, rel := range reposUnder(dir, "", nestedRepoDepth) {
+		if sub := filepath.Join(dir, filepath.FromSlash(rel)); gitx.IsRepoRoot(ctx, sub) {
 			subs = append(subs, sub)
 		}
 	}
@@ -102,4 +93,24 @@ func (c *conversation) changesAcrossRepos(ctx context.Context) int {
 		}
 	}
 	return total
+}
+
+// hasProposableWork reports whether any repository in the session's folder has something a pull
+// request could carry: uncommitted changes, or commits on a work branch that its default branch
+// lacks. It does not need the session to have a worktree of its own: the project's main session
+// works in the project's folder, and its work is as proposable as an isolated session's.
+func (c *conversation) hasProposableWork(ctx context.Context) bool {
+	for _, dir := range repoDirsIn(ctx, c.workspace) {
+		if n, err := gitx.WorkingTreeChanges(ctx, dir); err == nil && n > 0 {
+			return true
+		}
+		base, head := gitx.DefaultBranch(ctx, dir), gitx.Display(ctx, dir)
+		if base == "" || head == "" || head == base {
+			continue
+		}
+		if ahead, _, err := gitx.CommitsBetween(ctx, dir, base, head); err == nil && len(ahead) > 0 {
+			return true
+		}
+	}
+	return false
 }

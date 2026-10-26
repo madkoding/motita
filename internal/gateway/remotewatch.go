@@ -50,6 +50,8 @@ type remoteWatchState struct {
 	changes map[string][]RemoteChange
 	// alerted is the commit each repository was last announced at: the same state is told once.
 	alerted map[string]string
+	// feed tells open pages the projects changed (projectfeed.go).
+	feed projectFeed
 }
 
 // of is the changes of the project found by the last look.
@@ -130,6 +132,7 @@ func (s *Server) lookForRemoteChanges(ctx context.Context) {
 		}
 		s.watchRemote(ctx, &p, asked)
 	}
+	s.announceRedPRs(ctx)
 }
 
 // remoteTarget is one repository of a project whose main branch is watched.
@@ -185,6 +188,7 @@ func (s *Server) watchRemote(ctx context.Context, p *Project, asked map[string]e
 		}
 	}
 	fresh := s.remoteWatch.record(p.ID, found)
+	s.remoteWatch.feed.kick()
 	if asked == nil {
 		return // an update just ran: the person is looking at it, nothing to announce
 	}

@@ -7,6 +7,8 @@
 import more from "./i18n.es.part2.ts";
 import evals from "./i18n.es.evals.ts";
 import commands from "./i18n.es.commands.ts";
+import automode from "./i18n.es.automode.ts";
+import terminal from "./i18n.es.terminal.ts";
 
 // The dictionary is in two files so neither grows too long: this one and i18n.es.part2.ts.
 const first: Record<string, string> = {
@@ -213,6 +215,17 @@ const first: Record<string, string> = {
   Settings: "Ajustes",
   Skills: "Skills",
   Tasks: "Tareas",
+  "Pull requests": "Pull requests",
+  "Update branch": "Actualizar rama",
+  "Updating…": "Actualizando…",
+  "Pull requests with a failing CI": "Pull requests con el CI fallando",
+  "No open pull requests.": "No hay pull requests abiertos.",
+  CI: "CI",
+  passing: "pasando",
+  failing: "fallando",
+  "no checks": "sin checks",
+  "following: {s}": "siguiendo: {s}",
+  "has a session": "tiene una sesión",
   General: "General",
   Appearance: "Apariencia",
   Themes: "Temas",
@@ -757,6 +770,10 @@ const first: Record<string, string> = {
     "Mergear automáticamente cuando el CI pase",
   "Only when the host accepts the merge. Off, merging is always your click.":
     "Solo cuando el host acepta el merge. Apagado, mergear siempre es tu clic.",
+  "Update the branch when its base moves on":
+    "Actualizar la rama cuando su base avanza",
+  "The host merges the base into the pull request's branch; nothing is rebased or force-pushed. A conflict is handed to the agent to resolve.":
+    "El host mergea la base en la rama del pull request; no se hace rebase ni force-push. Un conflicto se le pasa al agente para que lo resuelva.",
   "Open a new session from the updated project branch":
     "Abrir una sesión nueva desde la rama actualizada del proyecto",
   "Continue in a new session": "Continuar en una sesión nueva",
@@ -811,6 +828,13 @@ const first: Record<string, string> = {
     "Tu navegador bloquea las notificaciones porque Motita se abrió sin una conexión segura.",
 };
 
-const es: Record<string, string> = { ...first, ...more, ...evals, ...commands };
+const es: Record<string, string> = {
+  ...first,
+  ...more,
+  ...evals,
+  ...commands,
+  ...automode,
+  ...terminal,
+};
 
 export default es;

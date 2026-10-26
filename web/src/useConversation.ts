@@ -14,7 +14,11 @@ import { keyed, restartFollow } from "./useRunState";
 import type { RunState } from "./useRunState";
 import type { SessionList } from "./useSessionList";
 import type { Api } from "./prApi";
-import { transcriptMessages, type Checkpoint } from "./transcript";
+import {
+  transcriptMessages,
+  type Checkpoint,
+  type TranscriptTurn,
+} from "./transcript";
 import type {
   ConfigView,
   Message,
@@ -30,6 +34,20 @@ import {
   SHELL_LOG_MAX,
   STORAGE_KEY,
 } from "./appConst";
+
+// CHECKPOINT_TRIES is how many times the steps of a conversation are asked for before they are
+// drawn without them.
+const CHECKPOINT_TRIES = 2;
+
+// readTranscript asks for a conversation's turns. A gateway that answers with an error has no
+// turns to show: that is not the same as a conversation with nothing in it, so it throws.
+async function readTranscript(api: Api, id: string): Promise<TranscriptTurn[]> {
+  const res = await api(SESSIONS_PATH + encodeURIComponent(id) + "/messages");
+  if (!res.ok) {
+    throw new Error("the transcript answered " + res.status);
+  }
+  return (await res.json()).messages || [];
+}
 
 // placeholder is what a conversation with nothing in it yet shows.
 function placeholder(nextId: () => number): Message {
@@ -141,18 +159,23 @@ function useCheckpoints(api: Api, rs: RunState) {
   // that was closed, reloaded or restarted are still there, because the gateway kept them.
   // A refresh at the end of a run leaves the terminal alone - it already has those commands,
   // and rebuilding it would type them all again.
+  //
+  // A failed read is tried once more before it is given up: the answers, reports and changed
+  // files of every turn live here, and a conversation drawn without them opens shorter than it was.
   const fetchCheckpoints = async (id: string): Promise<Checkpoint[] | null> => {
-    try {
-      const res = await api(
-        SESSIONS_PATH + encodeURIComponent(id) + "/checkpoints",
-      );
-      if (!res.ok) {
-        return null;
+    for (let attempt = 0; attempt < CHECKPOINT_TRIES; attempt++) {
+      try {
+        const res = await api(
+          SESSIONS_PATH + encodeURIComponent(id) + "/checkpoints",
+        );
+        if (res.ok) {
+          return (await res.json()).checkpoints ?? [];
+        }
+      } catch {
+        /* tried again below */
       }
-      return (await res.json()).checkpoints ?? [];
-    } catch {
-      return null;
     }
+    return null;
   };
 
   // applyCheckpoints draws the steps of checkpoints already fetched.
@@ -249,14 +272,12 @@ export function useConversation({
   // showTranscript loads a conversation's transcript and its steps, and follows its run when one
   // is in flight. It says false when the reader moved on to another conversation meanwhile.
   const showTranscript = async (id: string) => {
-    const res = await api(SESSIONS_PATH + encodeURIComponent(id) + "/messages");
-    const data = await res.json();
+    const msgs = await readTranscript(api, id);
     // The user may have clicked another conversation while this one was loading: a
     // late answer must not paint over the one now on screen.
     if (sessionRef.current !== id) {
       return false;
     }
-    const msgs = data.messages || [];
     const [live, cps] = await Promise.all([
       runIsLive(api, id),
       fetchCheckpoints(id),
@@ -359,9 +380,13 @@ export function useConversation({
   // transcript paints the conversation that already exists.
   const transcript = useCallback(async () => {
     const id = sessionRef.current;
-    const res = await api(SESSIONS_PATH + id + "/messages");
-    const data = await res.json();
-    const msgs = data.messages || [];
+    let msgs: TranscriptTurn[];
+    try {
+      msgs = await readTranscript(api, id);
+    } catch {
+      // What is on screen is better than a conversation blanked by a failed read.
+      return;
+    }
     const cps = await fetchCheckpoints(id);
     if (sessionRef.current !== id) {
       return;

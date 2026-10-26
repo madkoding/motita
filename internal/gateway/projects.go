@@ -19,14 +19,23 @@ import (
 
 // handleListProjects answers every project this gateway knows about.
 func (s *Server) handleListProjects(w http.ResponseWriter, _ *http.Request) {
-	if s.projects == nil {
-		writeJSON(w, http.StatusOK, map[string]any{"projects": []Project{}})
-		return
-	}
-	all, err := s.projects.loadAll()
+	all, err := s.projectViews()
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"projects": all})
+}
+
+// projectViews is every project with the state read live from git: what GET /v1/projects answers
+// and what the change feed (projectfeed.go) compares to tell a page it is out of date.
+func (s *Server) projectViews() ([]Project, error) {
+	if s.projects == nil {
+		return []Project{}, nil
+	}
+	all, err := s.projects.loadAll()
+	if err != nil {
+		return nil, err
 	}
 	if all == nil {
 		all = []Project{}
@@ -73,7 +82,7 @@ func (s *Server) handleListProjects(w http.ResponseWriter, _ *http.Request) {
 			}
 		}
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"projects": all})
+	return all, nil
 }
 
 // liveSessionIDsFor collects the ids of the sessions the gateway holds for one
@@ -326,6 +335,7 @@ type projectUpdate struct {
 	MergeMethod      *string `json:"merge_method"`
 	PRMaxFixes       *int    `json:"pr_max_fixes"`
 	AutoMerge        *bool   `json:"auto_merge"`
+	AutoUpdatePR     *bool   `json:"auto_update_pr"`
 	AutoContinue     *bool   `json:"auto_continue"`
 }
 
@@ -351,6 +361,9 @@ func (u projectUpdate) copyTo(dst, src *Project) {
 	}
 	if u.AutoMerge != nil {
 		dst.AutoMerge = src.AutoMerge
+	}
+	if u.AutoUpdatePR != nil {
+		dst.AutoUpdatePR = src.AutoUpdatePR
 	}
 	if u.AutoContinue != nil {
 		dst.AutoContinue = src.AutoContinue
@@ -378,6 +391,9 @@ func (u projectUpdate) applyPR(w http.ResponseWriter, p *Project) bool {
 	}
 	if u.AutoMerge != nil {
 		p.AutoMerge = *u.AutoMerge
+	}
+	if u.AutoUpdatePR != nil {
+		p.AutoUpdatePR = *u.AutoUpdatePR
 	}
 	if u.AutoContinue != nil {
 		p.AutoContinue = *u.AutoContinue
@@ -736,6 +752,16 @@ func (s *Server) handleMergeSession(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	branch := sessionBranch(c.id)
+	if len(nestedSessionRepos(r.Context(), p.Dir, c.workspace)) > 0 {
+		// A plain folder holding several repositories: each one is integrated on its own.
+		work := nestedWork(r.Context(), p.Dir, c.workspace, branch)
+		if len(work) == 0 {
+			writeError(w, http.StatusConflict, "this session has no work to integrate in any of the project's repositories")
+			return
+		}
+		s.startRunWithIntent(w, r, c, nestedMergeTask(c.id, branch, c.workspace, work), schedule.KindTask, runIntentMerge)
+		return
+	}
 	base := gitx.Display(r.Context(), p.Dir)
 	if base == "" {
 		writeError(w, http.StatusConflict, "the project has no base branch to merge into")

@@ -3,7 +3,7 @@
 // compiled on its own, `stub` replacing what they import with a stand-in).
 import { JSDOM } from "jsdom";
 
-export { stub, stubModule, load } from "./tsx-hooks.mjs";
+export { stub, stubModule, load, unreachable } from "./tsx-hooks.mjs";
 export { text, flush, jsonResponse } from "./dom-helpers.mjs";
 
 // APP_STORE_STUB stands in for ./appStore: the real context, and a useAppStore the test supplies

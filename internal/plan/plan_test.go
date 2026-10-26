@@ -47,9 +47,17 @@ func (f *fakeExecutor) run(ctx context.Context, r execx.Request) (string, bool, 
 
 func makeAgent(t *testing.T, readOnly bool) (*agent.Agent, *fakeExecutor) {
 	t.Helper()
+	return makeAgentIn(t, readOnly, t.TempDir())
+}
+
+// makeAgentIn is makeAgent with the workspace given. A test that hands a path to a confined
+// command must put it inside the workspace: t.TempDir() lands under TMPDIR, and a TMPDIR inside
+// the user's home is one of the trees the sandbox keeps private, so the command could not read it.
+func makeAgentIn(t *testing.T, readOnly bool, workspace string) (*agent.Agent, *fakeExecutor) {
+	t.Helper()
 	cfg := config.Default()
 	cfg.Agent.ReadOnly = readOnly
-	cfg.Agent.WorkspaceDir = t.TempDir()
+	cfg.Agent.WorkspaceDir = workspace
 	log, err := logx.New(logx.Options{Level: logx.Error, Console: false})
 	if err != nil {
 		t.Fatal(err)
@@ -251,8 +259,12 @@ func TestListDirectory(t *testing.T) {
 }
 
 func TestSearchInFiles(t *testing.T) {
-	a, fake := makeAgent(t, true)
-	dir := t.TempDir()
+	work := t.TempDir()
+	a, fake := makeAgentIn(t, true, work)
+	dir := filepath.Join(work, "tree")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
 	os.WriteFile(filepath.Join(dir, "one.txt"), []byte("hello world\n"), 0o644)
 
 	srv := llmServer(t, []replyStep{

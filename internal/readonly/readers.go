@@ -28,8 +28,8 @@ var writers = map[string]bool{
 	"mkdir": true, "mkfs": true, "fdisk": true, "parted": true, "mount": true,
 	"umount": true, "swapon": true, "swapoff": true,
 	"apt": true, "apt-get": true, "dpkg": true, "yum": true, "dnf": true,
-	"pacman": true, "apk": true, "snap": true, "pip": true, "pip3": true,
-	"npm": true, "yarn": true, "pnpm": true, "cargo": true, "gem": true,
+	"pacman": true, "apk": true, "snap": true,
+	"cargo": true, "gem": true,
 	"useradd": true, "userdel": true, "usermod": true, "groupadd": true,
 	"passwd": true, "su": true, "sudo": true, "visudo": true,
 	"reboot": true, "shutdown": true, "halt": true, "poweroff": true, "init": true,
@@ -38,7 +38,6 @@ var writers = map[string]bool{
 	"iptables": true, "nft": true, "ufw": true, "firewall-cmd": true,
 	"curl": true, "wget": true, // they write files and reach the network
 	"ssh": true, "scp": true, "sftp": true, "rsync": true, "nc": true, "netcat": true,
-	"docker": true, "podman": true, "kubectl": true, "helm": true,
 	"vi": true, "vim": true, "nano": true, "emacs": true, "ed": true,
 	"perl":   true, // `perl -i` rewrites in place, and -e carries a program
 	"python": true, "python3": true, "node": true, "ruby": true, "php": true,
@@ -93,6 +92,9 @@ var argumentRules = map[string]func([]string) (string, bool){
 		return "", false
 	},
 	"git": gitRule,
+	// Containers and clusters: an allowlist of the listing verbs (subcommands.go). They were
+	// writers by name, so `docker ps` was refused with "can change the system".
+	"docker": containerRule, "podman": podmanRule, "kubectl": clusterRule, "helm": helmRule,
 	"systemctl": func(args []string) (string, bool) {
 		sub := firstNonFlag(args)
 		switch sub {
@@ -208,6 +210,13 @@ var argumentRules = map[string]func([]string) (string, bool){
 	"ifconfig":    ifconfigRule,
 	"arp":         arpRule,
 	"ag":          agRule,
+	// --- what a project asks its tools about ------------------------------------
+	//
+	// These were writers by name, so `npm ls` and `pip list` stopped a plan from looking at the
+	// project it was planning for. Each keeps a list of the verbs that report.
+	"npm": npmRule, "pnpm": pnpmRule, "yarn": yarnRule, "pip": pipRule, "pip3": pipRule,
+	// `fd -x CMD` runs CMD on every match.
+	"fd": fdRule, "fdfind": fdRule,
 }
 
 // writesTo reports the first flag that names an output file, in either the separate form
@@ -309,6 +318,7 @@ var readers = map[string]bool{
 	"readlink": true, "realpath": true, "basename": true, "dirname": true,
 	"sort": true, "uniq": true, "tr": true, "seq": true, "expr": true,
 	"jq": true, "yq": true, "xmllint": true, "csvlook": true,
+	"pwd": true, "sleep": true, "zcat": true, "zgrep": true, "fd": true, "fdfind": true,
 	// The PowerShell cmdlets the Windows procedures read with (names are compared lower-cased).
 	// None of them has a parameter that writes; under PowerShell the policy refuses the syntax
 	// that would run code inside their arguments (internal/policy/powershell.go). `findstr` is
@@ -329,6 +339,7 @@ var readers = map[string]bool{
 	// `objdump -p` or `readelf -d`, which only read.
 	"nproc": true, "getconf": true,
 	"df": true, "du": true, "lsblk": true, "blkid": true, "findmnt": true,
+	"pgrep": true, "nm": true, "objdump": true, "readelf": true, "lsattr": true, "getfacl": true,
 	"id": true, "whoami": true, "groups": true, "users": true, "who": true,
 	"w": true, "last": true, "lastlog": true,
 	"date": true, "cal": true, "locale": true, "timedatectl": true,
@@ -342,7 +353,9 @@ var readers = map[string]bool{
 	// version control, read-only subcommands enforced above
 	"git": true,
 	// toolchain, read-only subcommands enforced above
-	"go": true,
+	"go": true, "npm": true, "pnpm": true, "yarn": true, "pip": true, "pip3": true,
+	// containers, read-only subcommands enforced above
+	"docker": true, "podman": true, "kubectl": true, "helm": true,
 	// networking inspection (no writes, no connections opened)
 	"ip": true, "ifconfig": true, "route": true, "ss": true, "netstat": true,
 	"arp": true, "ping": true, "traceroute": true, "dig": true, "nslookup": true,

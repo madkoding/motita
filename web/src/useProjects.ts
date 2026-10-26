@@ -38,6 +38,7 @@ function draftOf(p: ProjectInfo): EditProjectDraft {
     mergeMethod: p.merge_method ?? "",
     prMaxFixes: p.pr_max_fixes ?? 0,
     autoMerge: p.auto_merge === true,
+    autoUpdatePR: p.auto_update_pr === true,
     autoContinue: p.auto_continue === true,
     dir: p.dir,
     path: "",
@@ -54,6 +55,7 @@ function gitFields(d: EditProjectDraft) {
     merge_method: d.mergeMethod,
     pr_max_fixes: d.prMaxFixes,
     auto_merge: d.autoMerge,
+    auto_update_pr: d.autoUpdatePR,
     auto_continue: d.autoContinue,
   };
 }

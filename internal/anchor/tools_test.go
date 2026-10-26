@@ -3,6 +3,7 @@ package anchor
 import (
 	"context"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"testing"
 	"time"
@@ -48,5 +49,26 @@ func TestADetectedCheckGetsTheCheckTimeout(t *testing.T) {
 	checks = New(cfg, dir, nil).WithTools("", time.Second).detectChecks()
 	if checks[0].Timeout != 120*time.Second {
 		t.Errorf("a shorter check timeout must not shorten the configured one, got %s", checks[0].Timeout)
+	}
+}
+
+// TestAToolsDirectoryShimCannotReplaceASystemTool: the tools directory is written by the agent,
+// so a `true` it drops there that exits 1 must lose to the system's `true`.
+func TestAToolsDirectoryShimCannotReplaceASystemTool(t *testing.T) {
+	system, err := exec.LookPath("true")
+	if err != nil {
+		t.Skip("no true on PATH")
+	}
+	tools := t.TempDir()
+	bin := filepath.Join(tools, "bin")
+	if err := os.MkdirAll(bin, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(bin, filepath.Base(system)), []byte("#!/bin/sh\nexit 1\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	cfg := config.Anchor{Kind: "command", Command: filepath.Base(system)}
+	if res := New(cfg, t.TempDir(), nil).WithTools(tools, time.Minute).Validate(context.Background()); !res.Pass {
+		t.Fatalf("the system's tool must win over the tools directory's: %+v", res)
 	}
 }

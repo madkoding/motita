@@ -82,7 +82,7 @@ func TestAutoSkipsCommentsAndBlanksInTheDeclaredFile(t *testing.T) {
 // gate, so it wins over `test` when a project has both.
 func TestAutoPrefersTheMakefileCheck(t *testing.T) {
 	dir := t.TempDir()
-	writeFile(t, dir, "Makefile", "test:\n\t@true\ncheck:\n\t@true\n")
+	writeFile(t, dir, "Makefile", "test:\n\t@echo gate\ncheck:\n\t@echo gate\n")
 
 	checks := autoAnchor(dir).detectChecks()
 	if len(checks) != 1 || checks[0].Name != "check" {
@@ -93,7 +93,7 @@ func TestAutoPrefersTheMakefileCheck(t *testing.T) {
 // TestAutoFallsBackToMakeTest: a Makefile with only `test` still gives a gate.
 func TestAutoFallsBackToMakeTest(t *testing.T) {
 	dir := t.TempDir()
-	writeFile(t, dir, "Makefile", "test:\n\t@true\n")
+	writeFile(t, dir, "Makefile", "test:\n\t@echo gate\n")
 
 	checks := autoAnchor(dir).detectChecks()
 	if len(checks) != 1 || checks[0].Name != "test" {
@@ -106,7 +106,7 @@ func TestAutoFallsBackToMakeTest(t *testing.T) {
 // `make check` on a Makefile that does not define it.
 func TestAutoDoesNotReadAVariableAsATarget(t *testing.T) {
 	dir := t.TempDir()
-	writeFile(t, dir, "Makefile", "check := not-a-target\nall:\n\t@true\n")
+	writeFile(t, dir, "Makefile", "check := not-a-target\nall:\n\t@echo gate\n")
 
 	checks := autoAnchor(dir).detectChecks()
 	if len(checks) != 0 {
@@ -173,7 +173,7 @@ func TestAutoDetectsCargo(t *testing.T) {
 // pyproject.toml, and it is the last convention because it is the loosest.
 func TestAutoDetectsPython(t *testing.T) {
 	dir := t.TempDir()
-	writeFile(t, dir, "pyproject.toml", "[project]\nname = \"x\"\n")
+	writeFile(t, dir, "pyproject.toml", "[project]\nname = \"x\"\n[tool.pytest.ini_options]\n")
 
 	checks := autoAnchor(dir).detectChecks()
 	if len(checks) != 1 || checks[0].Command != "pytest" {
@@ -186,7 +186,7 @@ func TestAutoDetectsPython(t *testing.T) {
 // what keeps the gate bounded and predictable.
 func TestAutoPrefersMakeOverTheLanguages(t *testing.T) {
 	dir := t.TempDir()
-	writeFile(t, dir, "Makefile", "check:\n\t@true\n")
+	writeFile(t, dir, "Makefile", "check:\n\t@echo gate\n")
 	writeFile(t, dir, "go.mod", "module example.com/x\n")
 	writeFile(t, dir, "package.json", `{"scripts":{"test":"vitest run"}}`)
 
@@ -248,7 +248,7 @@ func TestAutoRunsTheDetectedGateForReal(t *testing.T) {
 // property that lets it run on every attempt without a side effect to reason about.
 func TestAutoIsIdempotent(t *testing.T) {
 	dir := t.TempDir()
-	writeFile(t, dir, "Makefile", "check:\n\t@true\n")
+	writeFile(t, dir, "Makefile", "check:\n\t@echo gate\n")
 	writeFile(t, dir, ".motita/anchor", "echo stable\n")
 
 	before := snapshotDir(t, dir)
@@ -325,7 +325,7 @@ func TestAutoRejectsAMalformedPackageJSON(t *testing.T) {
 // TestAutoDetectsSetupPy: the loosest declaration still counts.
 func TestAutoDetectsSetupPy(t *testing.T) {
 	dir := t.TempDir()
-	writeFile(t, dir, "setup.py", "from setuptools import setup\n")
+	writeFile(t, dir, "setup.py", "from setuptools import setup\nsetup(tests_require=[\"pytest\"])\n")
 
 	checks := autoAnchor(dir).detectChecks()
 	if len(checks) != 1 || checks[0].Command != "pytest" {
@@ -404,7 +404,7 @@ func TestGateFingerprint(t *testing.T) {
 	for _, change := range []struct{ name, body string }{
 		{"package.json", `{"scripts":{"test":"exit 0"}}`},
 		{"package.json", `not json`},
-		{"Makefile", "check:\n\ttrue\n"},
+		{"Makefile", "check:\n\t@echo gate\n"},
 		{".motita/anchor", "true\n"},
 	} {
 		before := fp()
@@ -422,7 +422,7 @@ func TestGateFingerprint(t *testing.T) {
 // runs is the one detection read, not whichever file `make` would otherwise prefer.
 func TestAutoRunsMakeWithTheFileItRead(t *testing.T) {
 	dir := t.TempDir()
-	writeFile(t, dir, "Makefile", "check:\n\t@true\n")
+	writeFile(t, dir, "Makefile", "check:\n\t@echo gate\n")
 	want := "Makefile"
 	if _, err := os.Stat(filepath.Join(dir, "makefile")); err == nil {
 		// A filesystem that ignores case (macOS): make itself opens "makefile" before "Makefile".
@@ -449,7 +449,7 @@ func TestAutoPrefersGNUmakefileAndRunsIt(t *testing.T) {
 	}
 	// lower-case makefile sits between the two.
 	only := t.TempDir()
-	writeFile(t, only, "makefile", "test:\n\t@true\n")
+	writeFile(t, only, "makefile", "test:\n\t@echo gate\n")
 	checks = autoAnchor(only).detectChecks()
 	if len(checks) != 1 || strings.Join(checks[0].Args, " ") != "-f makefile test" {
 		t.Fatalf("a lower-case makefile is a makefile: %+v", checks)
@@ -461,8 +461,8 @@ func TestAutoPrefersGNUmakefileAndRunsIt(t *testing.T) {
 // sees the gate is no longer the one the task started with instead of believing a false PASS.
 func TestGateFingerprintCatchesAPlantedMakefile(t *testing.T) {
 	for _, planted := range []struct{ name, body string }{
-		{"GNUmakefile", "check:\n\t@true\n"},
-		{"makefile", "check:\n\t@true\n"},
+		{"GNUmakefile", "check:\n\t@echo gate\n"},
+		{"makefile", "check:\n\t@echo gate\n"},
 	} {
 		dir := t.TempDir()
 		writeFile(t, dir, "Makefile", "check:\n\tgo test ./...\n")

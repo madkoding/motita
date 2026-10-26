@@ -568,3 +568,54 @@ test("storage that refuses to be written does not stop a conversation opening or
     globalThis.localStorage = saved;
   }
 });
+
+test("a gateway error on the transcript is not a conversation with nothing in it", async () => {
+  const v = await conversation(
+    gateway({}, { messages: () => json({ error: "busy" }, 503) }),
+  );
+  await act(() => v.c().switchSession("busy"));
+  assert.deepEqual(v.states, [["could not load the conversation", true]]);
+  assert.deepEqual(v.modal, [true, false]);
+  assert.deepEqual(v.rs.messages, [], "the placeholder is not drawn");
+  await v.hook.unmount();
+});
+
+test("a failed re-read of the transcript leaves the conversation on screen", async () => {
+  let fail = false;
+  const v = await conversation(
+    gateway(
+      {},
+      {
+        messages: () =>
+          fail ? json({ error: "busy" }, 500) : json({ messages: turns }),
+      },
+    ),
+  );
+  v.rs.sessionRef.current = "p";
+  await v.c().transcript();
+  assert.equal(v.rs.messages.length, 4);
+  fail = true;
+  await v.c().transcript();
+  assert.equal(v.rs.messages.length, 4, "nothing blanked");
+  await v.hook.unmount();
+});
+
+test("the steps are asked for again once before they are given up", async () => {
+  let asked = 0;
+  const v = await conversation(
+    gateway(
+      {},
+      {
+        messages: () => json({ messages: turns }),
+        checkpoints: () => {
+          asked += 1;
+          return asked === 1 ? json({}, 500) : json({ checkpoints: cps });
+        },
+      },
+    ),
+  );
+  await act(() => v.c().switchSession("r"));
+  assert.equal(asked, 2);
+  assert.equal(v.rs.shellLog.length, 2, "the second answer was drawn");
+  await v.hook.unmount();
+});

@@ -71,6 +71,8 @@ type conversation struct {
 	created  time.Time
 	lastUsed time.Time
 	running  bool
+	// terminal is the terminal holding the run slot, nil when none is open (see terminal.go).
+	terminal *terminalHold
 	// titling is set while a title is being generated for this conversation (see autoTitle).
 	titling bool
 	// prWatch is what the gateway is doing about the session's pull request, nil when nothing.
@@ -398,7 +400,7 @@ func (c *conversation) cancelRun() bool {
 func (c *conversation) stopRunForDeletion(timeout time.Duration) (bool, bool) {
 	rn, ok := c.currentRun()
 	if !ok {
-		return false, true
+		return c.stopTerminal(timeout)
 	}
 	rn.cancel()
 	select {
@@ -420,6 +422,9 @@ type SessionStatus struct {
 	Created  time.Time `json:"created"`
 	LastUsed time.Time `json:"last_used"`
 	Running  bool      `json:"running"`
+	// Terminal reports a person's terminal open in the session: it holds the run slot, so the agent
+	// waits for it, but it is not the agent working.
+	Terminal bool `json:"terminal,omitempty"`
 	// PRWatch is the state of the session's pull request while the gateway follows its CI.
 	PRWatch *PRWatchView `json:"pr_watch,omitempty"`
 	// Mergeable reports whether the session has work that can be integrated
@@ -431,6 +436,10 @@ type SessionStatus struct {
 	// absent one, so the user knows the action exists even when it has nothing
 	// to do yet.
 	Mergeable bool `json:"mergeable"`
+	// PRReady reports whether a repository of the session's folder has work a pull request could
+	// carry. Unlike Mergeable it does not need a worktree of the session's own, so the project's
+	// main session, which works in the project's folder, is offered the pull request too.
+	PRReady bool `json:"pr_ready,omitempty"`
 	// Merged marks a session whose work has already been integrated back into
 	// the project. A merged session is read-only: it still appears in the list
 	// so the user can see its commit and transcript, but it cannot be written to.
@@ -502,8 +511,8 @@ func (c *conversation) status() SessionStatus {
 	c.stateMu.Lock()
 	defer c.stateMu.Unlock()
 	st := SessionStatus{ID: c.id, Title: c.title, ProjectID: c.projectID, ParentID: c.parentID,
-		Created: c.created, LastUsed: c.lastUsed, Running: c.running, AutoApprove: c.autoApprove,
-		AgentsRunning: runningSubagents(c.agents)}
+		Created: c.created, LastUsed: c.lastUsed, Running: c.running && c.terminal == nil,
+		Terminal: c.terminal != nil, AutoApprove: c.autoApprove, AgentsRunning: runningSubagents(c.agents)}
 	st.Workspace = c.workspace
 	if c.svc != nil {
 		cfg := c.svc.Config()
@@ -547,6 +556,9 @@ func (c *conversation) workspaceStatus(st *SessionStatus) {
 	// error: the count decorates a badge, and a badge that cannot be
 	// computed should be absent rather than break the sidebar.
 	st.Changes = c.changesAcrossRepos(ctx)
+	if !c.merged {
+		st.PRReady = c.hasProposableWork(ctx)
+	}
 	// Mergeable compares the session's branch against the PROJECT's branch,
 	// not against whatever the session's own checkout is on. A session with
 	// its own worktree reports its own branch (motita/<id>), so comparing
@@ -588,12 +600,20 @@ func (c *conversation) ownWorktreeName(ctx context.Context) string {
 	if _, ok, err := gitx.LiveWorktreeAt(ctx, c.projectDir, c.workspace); err == nil && ok {
 		return filepath.Base(c.workspace)
 	}
+	// A plain project folder: the session's own folder holds a worktree of each repository.
+	if len(nestedSessionRepos(ctx, c.projectDir, c.workspace)) > 0 {
+		return filepath.Base(c.workspace)
+	}
 	return ""
 }
 
 // branchAhead reports whether the session's branch exists and has commits base does not.
 func (c *conversation) branchAhead(ctx context.Context, base string) bool {
 	branch := sessionBranch(c.id)
+	if c.projectDir != "" && gitx.Repo(ctx, c.projectDir) != nil {
+		// A plain project folder: ahead in any of its repositories, against the branch each has out.
+		return len(nestedWork(ctx, c.projectDir, c.workspace, branch)) > 0
+	}
 	if !gitx.BranchExists(ctx, c.workspace, branch) {
 		return false
 	}
@@ -636,6 +656,10 @@ func (s *Server) sessionWorktree(ctx context.Context, repoDir, sessionID string)
 	}
 	path := filepath.Join(s.opts.WorkspaceDir, "worktrees", sessionID)
 	branch := sessionBranch(sessionID)
+	// A plain folder holding repositories: a worktree of each one (see sessionnested.go).
+	if gitx.Repo(ctx, repoDir) != nil {
+		return nestedSessionWorktree(ctx, repoDir, path, branch)
+	}
 	// Already ours: a LIVE worktree of this repository at this path is the
 	// worktree asked for, whatever created it.
 	//
@@ -696,7 +720,8 @@ func applyRuntimeTo(svc Service, p *Project, workspace string) {
 	// that is, and that each repository is committed on its own.
 	if setter, ok := svc.(interface{ SetProjectNote(string) }); ok {
 		home, _ := os.UserHomeDir()
-		setter.SetProjectNote(projectScopeNote(p, workspace) + projectReposNote(p) + dependenciesNote(p) +
+		setter.SetProjectNote(projectScopeNote(p, workspace) + projectReposNote(p) +
+			nestedReposNote(context.Background(), workspace) + dependenciesNote(p) +
 			projectInstructionsNote(workspace, home))
 	}
 }

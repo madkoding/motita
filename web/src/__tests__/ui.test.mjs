@@ -139,7 +139,7 @@ test("compact density tightens the Tailwind spacing and keeps the fixed sizes", 
       }
     }
   }
-  assert.ok(used.has("w-72"), "the scan finds the sidebar width");
+  assert.ok(used.has("md:w-80"), "the scan finds the sidebar width");
   for (const cls of used) {
     const escaped = cls.replace(/[.:]/g, String.raw`\$&`);
     const sel = `html[data-density="compact"] .${escaped} {`;

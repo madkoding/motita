@@ -1,6 +1,9 @@
 package intent
 
-import "testing"
+import (
+	"strings"
+	"testing"
+)
 
 func TestClassify(t *testing.T) {
 	for _, tc := range []struct {
@@ -28,12 +31,36 @@ func TestClassify(t *testing.T) {
 		{"the build is red, any idea?", KindPlan, SourceHeuristic, ""},
 		{"Diseña una migración a SQLite", KindPlan, SourceHeuristic, ""}, // spanish-fixture: input
 		{"explain the retry policy", KindPlan, SourceHeuristic, ""},
+		// A wish is an order, and so are fillers before one and an order joined by "and".
+		{"quiero que lo arregles", KindTask, SourceHeuristic, ""},                     // spanish-fixture: input
+		{"necesito que agregues un botón de exportar", KindTask, SourceHeuristic, ""}, // spanish-fixture: input
+		{"me gustaría que corrijas el login", KindTask, SourceHeuristic, ""},          // spanish-fixture: input
+		{"vamos a mover el cache a SQLite", KindTask, SourceHeuristic, ""},            // spanish-fixture: input
+		{"hay que actualizar las dependencias", KindTask, SourceHeuristic, ""},        // spanish-fixture: input
+		{"I'd like you to add a dark theme", KindTask, SourceHeuristic, ""},
+		{"I need to fix the flaky test", KindTask, SourceHeuristic, ""},
+		{"ok, ahora agrega el botón", KindTask, SourceHeuristic, ""},                 // spanish-fixture: input
+		{"revisa por qué falla el build y arréglalo", KindTask, SourceHeuristic, ""}, // spanish-fixture: input
+		{"look at the logs and fix it", KindTask, SourceHeuristic, ""},
+		{"write the tests for the parser", KindTask, SourceHeuristic, ""},
+		{"implementa el plan", KindTask, SourceHeuristic, ""},             // spanish-fixture: input
+		{"quiero que implementes el plan", KindTask, SourceHeuristic, ""}, // spanish-fixture: input
+		// Asked to make a plan, with a verb that is otherwise an order.
+		{"hazme un plan para migrar a SQLite", KindPlan, SourceHeuristic, ""}, // spanish-fixture: input
+		{"crea una propuesta de diseño", KindPlan, SourceHeuristic, ""},       // spanish-fixture: input
+		{"quiero un plan para el cache", KindPlan, SourceHeuristic, ""},       // spanish-fixture: input
+		{"make a plan to split the gateway", KindPlan, SourceHeuristic, ""},
+		{"I need a roadmap for v2", KindPlan, SourceHeuristic, ""},
+		// A question that names two verbs asks about them.
+		{"how do I add and remove items?", KindPlan, SourceHeuristic, ""},
+		{"¿qué agrega este cambio?", KindPlan, SourceHeuristic, ""}, // spanish-fixture: input
 		// Holding off beats an order: the safe mistake.
 		{"Add OAuth, but don't change anything yet", KindPlan, SourceHeuristic, ""},
 		{"implementa el cache, solo el plan", KindPlan, SourceHeuristic, ""},
 		// Nothing matched: the mode every message had before auto mode.
 		{"hola!", KindTask, SourceDefault, ""},
 		{"can", KindTask, SourceDefault, ""},
+		{"ok then", KindTask, SourceDefault, ""},
 		{"thanks, looks good", KindTask, SourceDefault, ""},
 		{"", KindTask, SourceDefault, ""},
 	} {
@@ -63,6 +90,19 @@ func TestNoteNamesTheModeAndWhy(t *testing.T) {
 	}
 }
 
+// TestSubjunctivesNameTheirImperative: the wish forms are derived from the imperatives, with the
+// spelling Spanish asks for. (spanish-fixture: the Spanish the classifier reads)
+func TestSubjunctivesNameTheirImperative(t *testing.T) {
+	for form, verb := range map[string]string{
+		"agregues": "agrega", "publiques": "publica", "actualices": "actualiza", "subas": "sube", // spanish-fixture: input
+		"corrijas": "corrige", "hagas": "haz", "arregles": "arregla", "despliegues": "despliega", // spanish-fixture: input
+	} {
+		if got := imperative(form); got != verb {
+			t.Errorf("imperative(%q) = %q, want %q", form, got, verb)
+		}
+	}
+}
+
 func TestImperativeLeavesAWordThatIsNotAVerbAlone(t *testing.T) {
 	if got := imperative("hola"); got != "hola" {
 		t.Errorf("imperative(hola) = %q", got)
@@ -83,6 +123,27 @@ func TestGoAheadIsATaskThatSaysSo(t *testing.T) {
 		"dale una vuelta al diseño"} { // spanish-fixture: input
 		if Classify(text).Reason == ReasonGoAhead {
 			t.Errorf("%q is not a bare go-ahead", text)
+		}
+	}
+}
+
+func TestEnglishBaseFindsTheVerbOfAGerund(t *testing.T) {
+	for word, want := range map[string]string{
+		"fixing": "fix", "making": "make", "running": "run", "looking": "looking", "fix": "fix",
+	} {
+		if got := englishBase(word); got != want {
+			t.Errorf("englishBase(%q) = %q, want %q", word, got, want)
+		}
+	}
+}
+
+func TestAimsAtPlanLooksOnlyAFewWordsAhead(t *testing.T) {
+	for words, want := range map[string]bool{
+		"a plan": true, "me a quick summary": true, "me a": false, "the button": false,
+		"me a quick short plan": false,
+	} {
+		if got := aimsAtPlan(strings.Fields(words)); got != want {
+			t.Errorf("aimsAtPlan(%q) = %v, want %v", words, got, want)
 		}
 	}
 }

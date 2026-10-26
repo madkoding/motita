@@ -46,8 +46,8 @@ func TestTheSynthesisPromptAsksForTheReportShape(t *testing.T) {
 func TestTheExecutePromptTellsTheAgentHowToGetToTheWriting(t *testing.T) {
 	for _, want := range []string{
 		"HOW A ROUND OF WORK GOES",
-		"Explore in ONE round",
-		"Then WRITE, in the next round",
+		"LOOK just enough, in ONE round",
+		"WRITE in the same round as the last thing you needed to read",
 		"heredoc",
 		"every layer is done",
 		"Reading is not progress by itself",
@@ -59,15 +59,15 @@ func TestTheExecutePromptTellsTheAgentHowToGetToTheWriting(t *testing.T) {
 }
 
 // TestTheExecutePromptTeachesGettingToTheFinish: a real run read for thirteen rounds and wrote
-// nothing. The prompt has to say what order the work goes in, on any project.
+// nothing. The prompt has to say what order the work goes in, on any project, and when to stop.
 func TestTheExecutePromptTeachesGettingToTheFinish(t *testing.T) {
 	for _, want := range []string{
-		"GETTING TO THE FINISH, ON ANY PROJECT",
 		"LOOK just enough",
-		"WRITE in the same round",
-		"Create a file with write_file and change one with edit_file",
+		"Create files with \"write_file\" and change them with \"edit_file\"",
 		"no node_modules, no venv, no vendor",
 		"RUN the project's own checks",
+		"Then stop: do not re-read what you just wrote",
+		"skip the procedure library",
 		"say in \"notes\" exactly what is left",
 	} {
 		if !strings.Contains(BaseExecuteTemplate.User, want) {
@@ -83,11 +83,11 @@ func TestTheExecutePromptTeachesHowToCheck(t *testing.T) {
 	for _, want := range []string{
 		"HOW TO CHECK WHAT YOU WROTE, AND WHAT TO DO WHEN A CHECK FAILS",
 		"copy its shape",
-		"Run it by itself first",
+		"Run your test by itself first",
 		"the exit status you see is tail's",
 		"echo \"exit=$?\"",
-		"it is the next piece of work",
-		"PROVE it instead of assuming it",
+		"is the next piece of work",
+		"PROVE it: run the same check",
 		"git stash",
 		"Never leave new code untested because the old tests are red",
 		"do not retry the same way more than twice",
