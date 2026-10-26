@@ -326,6 +326,9 @@ function SessionSummary({ s, busy }: { s: SessionInfo; busy: boolean }) {
         {agentsRunning > 0 && (
           <span class="ml-1.5 text-[#79c0ff]">⧉ {agentsRunning}</span>
         )}
+        {s.awaiting_approval && (
+          <span class="ml-1.5 text-[#f0a040]">⏸ {t("Waiting for you")}</span>
+        )}
       </div>
       <SessionFacts s={s} />
     </div>
