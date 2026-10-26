@@ -18,29 +18,34 @@ import (
 func PlanRead(command string, args []string) (allowed bool, reason string, ok bool) {
 	name := strings.ToLower(baseOf(command))
 	if rule, runtime := runtimes[name]; runtime {
-		if why, bad := rule(args); bad {
-			return false, why, true
-		}
-		return true, "only its version is asked", true
+		return verdict(rule, args, "only its version is asked")
 	}
 	switch name {
 	case "git":
-		i, why := gitGlobalOptions(args)
-		if why != "" || i >= len(args) || args[i] != "fetch" {
-			return false, "", false
-		}
-		if why, bad := gitFetchRule(args[i+1:]); bad {
-			return false, why, true
-		}
-		return true, "git fetch only updates the remote-tracking references and objects, never the working tree", true
+		return gitFetchVerdict(args)
 	case "gh":
-		if why, bad := ghRule(args); bad {
-			return false, why, true
-		}
-		return true, "gh only reports here", true
+		return verdict(ghRule, args, "gh only reports here")
 	default:
 		return false, "", false
 	}
+}
+
+// verdict turns a rule's answer into PlanRead's: the rule's reason when it refuses, else allow.
+func verdict(rule func([]string) (string, bool), args []string, allow string) (bool, string, bool) {
+	if why, bad := rule(args); bad {
+		return false, why, true
+	}
+	return true, allow, true
+}
+
+// gitFetchVerdict decides `git fetch`; any other git command is not a plan-only read.
+func gitFetchVerdict(args []string) (bool, string, bool) {
+	i, why := gitGlobalOptions(args)
+	if why != "" || i >= len(args) || args[i] != "fetch" {
+		return false, "", false
+	}
+	return verdict(gitFetchRule, args[i+1:],
+		"git fetch only updates the remote-tracking references, never the working tree")
 }
 
 // baseOf is the file name of a program written with a path.
@@ -72,25 +77,31 @@ const gitFetchShorts = "apPtvqfnkj"
 // contain a colon and are refused, so a fetch can only update remote-tracking references.
 func gitFetchRule(rest []string) (string, bool) {
 	for _, a := range rest {
-		switch {
-		case a == "--":
+		if a == "--" {
 			return "", false
-		case strings.HasPrefix(a, "--"):
-			name, _, _ := strings.Cut(a, "=")
-			if resolveLong(name, gitFetchLong) == "" {
-				return fmt.Sprintf("git fetch %s is not an option read-only mode can check", name), true
-			}
-		case strings.HasPrefix(a, "-") && len(a) > 1:
-			if strings.Trim(a[1:], gitFetchShorts+"0123456789") != "" {
-				return fmt.Sprintf("git fetch %s is not an option read-only mode can check", a), true
-			}
-		case strings.Contains(a, ":"):
-			return fmt.Sprintf("git fetch %s names a local reference to write or a remote helper to run", a), true
-		default:
-			// A remote name, a URL without a colon in a path, or an option's separate value.
+		}
+		if why, bad := gitFetchArg(a); bad {
+			return why, true
 		}
 	}
 	return "", false
+}
+
+// gitFetchArg judges one argument of `git fetch`.
+func gitFetchArg(a string) (string, bool) {
+	unchecked := fmt.Sprintf("git fetch %s is not an option read-only mode can check", a)
+	switch {
+	case strings.HasPrefix(a, "--"):
+		name, _, _ := strings.Cut(a, "=")
+		return unchecked, resolveLong(name, gitFetchLong) == ""
+	case strings.HasPrefix(a, "-") && len(a) > 1:
+		return unchecked, strings.Trim(a[1:], gitFetchShorts+"0123456789") != ""
+	case strings.Contains(a, ":"):
+		return fmt.Sprintf("git fetch %s names a local reference to write or a remote helper to run", a), true
+	default:
+		// A remote name, or an option's separate value.
+		return "", false
+	}
 }
 
 // ghReading are the verbs of each `gh` command group that only report.
@@ -146,28 +157,36 @@ var ghAPIBody = map[string]bool{
 // ghAPIRule allows `gh api ENDPOINT` as a GET: no method other than GET, no body, no graphql.
 func ghAPIRule(args []string) (string, bool) {
 	for i, a := range args {
-		name, value, glued := strings.Cut(a, "=")
-		switch {
-		case ghAPIBody[name]:
-			return fmt.Sprintf("gh api %s sends a body", name), true
-		case len(a) > 2 && (strings.HasPrefix(a, "-f") || strings.HasPrefix(a, "-F")) && !strings.HasPrefix(a, "--"):
-			return fmt.Sprintf("gh api %s sends a body", a), true
-		case name == "--method" || name == "-X":
-			if !glued && i+1 < len(args) {
-				value = args[i+1]
-			}
-			if !strings.EqualFold(value, "GET") {
-				return fmt.Sprintf("gh api %s %s is not a read", name, value), true
-			}
-		case len(a) > 2 && strings.HasPrefix(a, "-X"):
-			if !strings.EqualFold(a[2:], "GET") {
-				return fmt.Sprintf("gh api %s is not a read", a), true
-			}
-		case strings.HasPrefix(a, "graphql"):
-			return "gh api graphql is a POST", true
-		default:
-			// The endpoint, or an option that formats what is read.
+		if why, bad := ghAPIArg(args, i); bad {
+			return why, true
 		}
+		if strings.HasPrefix(a, "graphql") {
+			return "gh api graphql is a POST", true
+		}
+	}
+	return "", false
+}
+
+// ghAPIArg judges the option at args[i] of `gh api`: a body, or a method that is not GET.
+func ghAPIArg(args []string, i int) (string, bool) {
+	a := args[i]
+	name, value, glued := strings.Cut(a, "=")
+	if ghAPIBody[name] || (len(a) > 2 && !strings.HasPrefix(a, "--") && strings.ContainsAny(a[:2], "fF") &&
+		a[0] == '-') {
+		return fmt.Sprintf("gh api %s sends a body", name), true
+	}
+	switch {
+	case name == "--method" || name == "-X":
+		if !glued && i+1 < len(args) {
+			value = args[i+1]
+		}
+	case len(a) > 2 && strings.HasPrefix(a, "-X"):
+		value = a[2:]
+	default:
+		return "", false
+	}
+	if !strings.EqualFold(value, "GET") {
+		return fmt.Sprintf("gh api %s %s is not a read", name, value), true
 	}
 	return "", false
 }

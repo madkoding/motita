@@ -75,7 +75,10 @@ func sortStrings(s []string) {
 }
 
 var (
-	npmReporting  = map[string]bool{"ls": true, "list": true, "ll": true, "la": true, "explain": true, "why": true, "root": true, "prefix": true, "bin": true}
+	npmReporting = map[string]bool{
+		"ls": true, "list": true, "ll": true, "la": true, "explain": true, "why": true,
+		"root": true, "prefix": true, "bin": true,
+	}
 	pnpmReporting = map[string]bool{"ls": true, "list": true, "why": true, "root": true, "bin": true}
 	yarnReporting = map[string]bool{"list": true, "ls": true, "why": true}
 	pipReporting  = map[string]bool{"list": true, "show": true, "freeze": true, "check": true}

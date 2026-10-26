@@ -24,67 +24,101 @@ type Step struct {
 //
 // A trailing `2>&1` is dropped from a step: the output of a command already carries its errors.
 func SplitChain(line string) ([]Step, error) {
-	var steps []Step
-	var cur strings.Builder
-	join := ""
-	var quote rune
-	escaped := false
-	runes := []rune(line)
-
-	flush := func(next string) error {
-		text := strings.TrimSpace(cur.String())
-		if text == "" {
-			return fmt.Errorf("there is no command before %q", next)
-		}
-		steps = append(steps, Step{Join: join, Command: text})
-		cur.Reset()
-		join = next
-		return nil
-	}
-
-	for i := 0; i < len(runes); i++ {
-		r := runes[i]
-		switch {
-		case escaped:
-			cur.WriteRune(r)
-			escaped = false
-		case r == '\\' && quote != '\'':
-			cur.WriteRune(r)
-			escaped = true
-		case quote != 0:
-			cur.WriteRune(r)
-			if r == quote {
-				quote = 0
-			}
-		case r == '\'' || r == '"':
-			cur.WriteRune(r)
-			quote = r
-		case r == ';' || r == '|' || (r == '&' && i+1 < len(runes) && runes[i+1] == '&'):
-			op := string(r)
-			if i+1 < len(runes) && (r == '&' || (r == '|' && runes[i+1] == '|')) {
-				op = string(r) + string(runes[i+1])
-				i++
-			}
-			if err := flush(op); err != nil {
-				return nil, err
-			}
-		case redirectErrToOut(runes, i):
-			i += len("2>&1") - 1
-		default:
-			cur.WriteRune(r)
+	c := &chainScan{runes: []rune(line)}
+	for c.i = 0; c.i < len(c.runes); c.i++ {
+		if err := c.next(); err != nil {
+			return nil, err
 		}
 	}
-	if err := flush(""); err != nil {
-		if join == "" {
+	if err := c.flush(""); err != nil {
+		if c.join == "" {
 			return nil, fmt.Errorf("there is no command to run")
 		}
-		return nil, fmt.Errorf("the line ends with %q and no command after it", join)
+		return nil, fmt.Errorf("the line ends with %q and no command after it", c.join)
 	}
-	if len(steps) > maxSteps {
+	if len(c.steps) > maxSteps {
 		return nil, fmt.Errorf("the line chains %d commands; read-only mode runs at most %d at a time",
-			len(steps), maxSteps)
+			len(c.steps), maxSteps)
 	}
-	return steps, nil
+	return c.steps, nil
+}
+
+// chainScan is the state of SplitChain: the steps read, the one being read, and the quote or
+// escape the scanner is inside.
+type chainScan struct {
+	runes   []rune
+	i       int
+	steps   []Step
+	cur     strings.Builder
+	join    string
+	quote   rune
+	escaped bool
+}
+
+// flush closes the step being read; next is how the following one is joined.
+func (c *chainScan) flush(next string) error {
+	text := strings.TrimSpace(c.cur.String())
+	if text == "" {
+		return fmt.Errorf("there is no command before %q", next)
+	}
+	c.steps = append(c.steps, Step{Join: c.join, Command: text})
+	c.cur.Reset()
+	c.join = next
+	return nil
+}
+
+// next reads the rune at c.i, moving c.i past anything longer than one rune.
+func (c *chainScan) next() error {
+	r := c.runes[c.i]
+	switch {
+	case c.escaped:
+		c.cur.WriteRune(r)
+		c.escaped = false
+	case r == '\\' && c.quote != '\'':
+		c.cur.WriteRune(r)
+		c.escaped = true
+	case c.quote != 0:
+		c.cur.WriteRune(r)
+		if r == c.quote {
+			c.quote = 0
+		}
+	case r == '\'' || r == '"':
+		c.cur.WriteRune(r)
+		c.quote = r
+	case c.operator() != "":
+		return c.closeAtOperator()
+	case redirectErrToOut(c.runes, c.i):
+		c.i += len("2>&1") - 1
+	default:
+		c.cur.WriteRune(r)
+	}
+	return nil
+}
+
+// operator is the joining operator that starts at c.i, or "" when none does. A lone `&` is not
+// one: it stays in the step, where the tokeniser refuses it.
+func (c *chainScan) operator() string {
+	r := c.runes[c.i]
+	double := c.i+1 < len(c.runes) && c.runes[c.i+1] == r
+	switch {
+	case r == ';':
+		return ";"
+	case r == '|' && double:
+		return "||"
+	case r == '|':
+		return "|"
+	case r == '&' && double:
+		return "&&"
+	default:
+		return ""
+	}
+}
+
+// closeAtOperator closes the step at the operator that starts at c.i and moves past it.
+func (c *chainScan) closeAtOperator() error {
+	op := c.operator()
+	c.i += len(op) - 1
+	return c.flush(op)
 }
 
 // redirectErrToOut reports whether runes[i:] is a standalone `2>&1` token.

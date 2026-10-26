@@ -91,8 +91,10 @@ func TestAReadOnlyLineIsRefusedAsAWholeBeforeAnythingRuns(t *testing.T) {
 	} {
 		r.ran = nil
 		out, exit, err := a.RunCommand(context.Background(), line)
-		if err == nil || exit != 1 || !strings.Contains(out, "[refused:") || !strings.Contains(out, want) || len(r.ran) != 0 {
-			t.Errorf("%q = %q, %d, %v (ran %v); want a refusal containing %q and nothing run", line, out, exit, err, r.ran, want)
+		refused := err != nil && exit == 1 && strings.Contains(out, "[refused:")
+		if !refused || !strings.Contains(out, want) || len(r.ran) != 0 {
+			t.Errorf("%q = %q, %d, %v (ran %v); want a refusal with %q and nothing run",
+				line, out, exit, err, r.ran, want)
 		}
 	}
 }

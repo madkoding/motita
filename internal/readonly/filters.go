@@ -128,58 +128,90 @@ func wcFilter(args []string) (Filter, error) {
 	}, nil
 }
 
-// grepFilter keeps the lines that match (-v: that do not). Patterns are Go regular expressions,
-// which is close to grep -E; -F makes the pattern literal.
-func grepFilter(args []string) (Filter, error) {
-	var ignoreCase, invert, count, number, literal bool
-	pattern, havePattern := "", false
-	for _, a := range args {
-		switch {
-		case a == "--":
-		case len(a) > 1 && a[0] == '-' && !havePattern:
-			for _, c := range a[1:] {
-				switch c {
-				case 'i':
-					ignoreCase = true
-				case 'v':
-					invert = true
-				case 'c':
-					count = true
-				case 'n':
-					number = true
-				case 'F':
-					literal = true
-				case 'E':
-				default:
-					return nil, fmt.Errorf("grep -%c is not supported after a pipe (use -i, -v, -c, -n, -E or -F)", c)
-				}
-			}
-		case !havePattern:
-			pattern, havePattern = a, true
-		default:
-			return nil, fmt.Errorf("grep after a pipe reads the pipe, not the file %q", a)
-		}
+// grepOptions are the flags and pattern of a grep after a pipe.
+type grepOptions struct {
+	ignoreCase, invert, count, number, literal bool
+	pattern                                    string
+	havePattern                                bool
+}
+
+// letter sets the flag a grep option letter names.
+func (g *grepOptions) letter(c rune) error {
+	flags := map[rune]*bool{'i': &g.ignoreCase, 'v': &g.invert, 'c': &g.count, 'n': &g.number, 'F': &g.literal}
+	if flag, ok := flags[c]; ok {
+		*flag = true
+		return nil
 	}
-	if !havePattern {
+	if c != 'E' {
+		return fmt.Errorf("grep -%c is not supported after a pipe (use -i, -v, -c, -n, -E or -F)", c)
+	}
+	return nil
+}
+
+// add reads one argument: a cluster of flags before the pattern, the pattern, or a file.
+func (g *grepOptions) add(a string) error {
+	switch {
+	case a == "--":
+		return nil
+	case len(a) > 1 && a[0] == '-' && !g.havePattern:
+		for _, c := range a[1:] {
+			if err := g.letter(c); err != nil {
+				return err
+			}
+		}
+		return nil
+	case !g.havePattern:
+		g.pattern, g.havePattern = a, true
+		return nil
+	default:
+		return fmt.Errorf("grep after a pipe reads the pipe, not the file %q", a)
+	}
+}
+
+// compile builds the matcher for the pattern and the flags.
+func (g *grepOptions) compile() (*regexp.Regexp, error) {
+	if !g.havePattern {
 		return nil, fmt.Errorf("grep after a pipe needs a pattern")
 	}
-	if literal {
+	pattern := g.pattern
+	if g.literal {
 		pattern = regexp.QuoteMeta(pattern)
 	}
-	if ignoreCase {
+	if g.ignoreCase {
 		pattern = "(?i)" + pattern
 	}
 	re, err := regexp.Compile(pattern)
 	if err != nil {
 		return nil, fmt.Errorf("the grep pattern %q is not valid: %v", pattern, err)
 	}
+	return re, nil
+}
+
+// grepFilter keeps the lines that match (-v: that do not). Patterns are Go regular expressions,
+// which is close to grep -E; -F makes the pattern literal.
+func grepFilter(args []string) (Filter, error) {
+	var g grepOptions
+	for _, a := range args {
+		if err := g.add(a); err != nil {
+			return nil, err
+		}
+	}
+	re, err := g.compile()
+	if err != nil {
+		return nil, err
+	}
+	return g.filter(re), nil
+}
+
+// filter applies the matcher to a text.
+func (g *grepOptions) filter(re *regexp.Regexp) Filter {
 	return func(in string) (string, int) {
 		var kept []string
 		for i, line := range splitLines(in) {
-			if re.MatchString(line) == invert {
+			if re.MatchString(line) == g.invert {
 				continue
 			}
-			if number {
+			if g.number {
 				line = fmt.Sprintf("%d:%s", i+1, line)
 			}
 			kept = append(kept, line)
@@ -188,9 +220,9 @@ func grepFilter(args []string) (Filter, error) {
 		if len(kept) == 0 {
 			exit = 1
 		}
-		if count {
+		if g.count {
 			return strconv.Itoa(len(kept)) + "\n", exit
 		}
 		return joinLines(kept), exit
-	}, nil
+	}
 }

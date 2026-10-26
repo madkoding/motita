@@ -20,7 +20,8 @@ func check(t *testing.T, line string) Decision {
 func TestPlanReadsAreAllowedAndTheirWritingFormsAreNot(t *testing.T) {
 	allowed := []string{
 		"git fetch", "git fetch origin", "git fetch --all --prune", "git fetch origin main",
-		"git fetch -p", "git fetch -pt origin", "git fetch -j4 --all", "git fetch --depth 1 origin", "git fetch --dep=1", "git fetch -- origin", "git -C sub fetch",
+		"git fetch -p", "git fetch -pt origin", "git fetch -j4 --all", "git fetch --depth 1 origin",
+		"git fetch --dep=1", "git fetch -- origin", "git -C sub fetch",
 		"gh pr view 12", "gh pr list --state open", "gh pr diff 3", "gh pr checks 3", "gh pr status",
 		"gh issue view 4", "gh run list", "gh run view 5 --log", "gh repo view", "gh release list",
 		"gh search code foo", "gh auth status", "gh label list", "gh workflow list",
@@ -112,7 +113,7 @@ func TestPlanReadDoesNotKnowOtherCommands(t *testing.T) {
 
 func TestVerbSetMessagesAreStable(t *testing.T) {
 	d := check(t, "npm install")
-	if !strings.Contains(d.Reason, "explain, list, ll, ls, prefix, root, why") && !strings.Contains(d.Reason, "bin, explain") {
+	if !strings.Contains(d.Reason, "bin, explain, la, list, ll, ls, prefix, root, why") {
 		t.Errorf("the reason should list the reporting verbs, got %q", d.Reason)
 	}
 	if got := joinKeys(map[string]bool{"b": true, "a": true, "c": true}); got != "a, b, c" {
