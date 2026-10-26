@@ -775,6 +775,7 @@ func (r *AppRunner) RunPlan(ctx context.Context, prompt string, progress func(st
 	planner := plan.New(engine, ag).
 		WithTimeout(planDefaultTimeout(cfg)).
 		WithLoops(planDefaultLoops(cfg)).
+		WithAttachments(cfg.Agent.WorkspaceDir).
 		WithTrace(progress).
 		WithStream(livePlanText(progress)).
 		WithSteps(planSteps(progress)).

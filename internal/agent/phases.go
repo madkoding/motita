@@ -167,6 +167,8 @@ func (a *Agent) ask(ctx context.Context, p config.Template, vars map[string]stri
 	if phase == "execute" {
 		shots = a.takeShot()
 	}
+	// The pictures the person attached are shown to every round that carries their message.
+	shots = append(shots, llm.AttachedImages(a.cfg.Agent.WorkspaceDir, user)...)
 	messages = append(messages, llm.Message{Role: "user", Content: user, Images: shots})
 
 	start := time.Now()

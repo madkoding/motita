@@ -8,7 +8,7 @@ import type { SlashCommand } from "./appTypes";
 import { TASK_INPUT_ID } from "./appConst";
 import { useLayoutEffect, useRef } from "preact/hooks";
 import { fitToContent } from "./autosize";
-import { filesOf, sizeLabel } from "./attachments";
+import { filesOf, sizeLabel, thumbOf } from "./attachments";
 
 // The colour of a command's name in the popup, by its group.
 const GROUP_COLOR: Record<string, string> = {
@@ -100,6 +100,13 @@ function AttachmentChips() {
           title={`${a.name} (${sizeLabel(a.size)})`}
           data-testid="attachment-chip"
         >
+          {thumbOf(a) && (
+            <img
+              class="w-5 h-5 rounded-sm object-cover flex-none"
+              src={thumbOf(a)}
+              alt=""
+            />
+          )}
           <span class="truncate">{a.name}</span>
           <button
             type="button"

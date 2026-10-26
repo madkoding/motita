@@ -49,7 +49,7 @@ test("sizes read the way a person says them", () => {
   assert.equal(A.sizeLabel(5 * 1024 * 1024), "5.0 MB");
 });
 
-test("the message names each file with a hint for its kind, and the conversation shows the names", () => {
+test("the message names each file with a hint for its kind, and ", () => {
   assert.equal(A.withAttachments("hi", []), "hi");
   const sent = A.withAttachments("what is this?", [
     shot,
@@ -71,8 +71,6 @@ test("the message names each file with a hint for its kind, and the conversation
   assert.match(sent, /pdftotext/);
   assert.match(sent, /a\.go \(file, 1 B\)\]$/);
   assert.match(A.withAttachments("", [shot]), /^Look at the attached files/);
-  assert.equal(A.shownWith("hi", [shot, demo]), "hi\n\n📎 shot.png, demo.mp4");
-  assert.equal(A.shownWith("", [shot]), "📎 shot.png");
 });
 
 test("a drag or a paste yields its files", () => {
@@ -161,20 +159,17 @@ test("attached files wait above the field and go out with the message", async ()
   await run((x) => x.handleSubmit({ preventDefault() {} }));
   assert.equal(calls[0][0], "submit");
   assert.match(calls[0][1], /^what is this\?\n\n\[The person attached/);
-  assert.equal(calls[0][2], undefined);
-  assert.equal(calls[0][3], "what is this?\n\n📎 shot.png");
   assert.deepEqual(c().attachments, [], "the composer is empty once sent");
 });
 
-test("a message can be only files, and a plain one carries no shown text", async () => {
+test("a message can be only files, and a plain one carries nothing extra", async () => {
   const { c, run, calls } = await composer();
   await run((x) => x.attachFiles([file("shot.png")]));
   await run((x) => x.sendQueued());
   assert.match(calls[0][1], /^Look at the attached files/);
-  assert.equal(calls[0][3], "📎 shot.png");
   await run((x) => x.onInput("plain"));
   await run((x) => x.sendQueued());
-  assert.deepEqual(calls[1], ["submit", "plain", undefined, undefined]);
+  assert.deepEqual(calls[1], ["submit", "plain"]);
   await run((x) => x.sendQueued());
   assert.equal(
     calls.length,
@@ -205,7 +200,6 @@ test("files go to the run in flight and open a conversation when there is none",
   assert.match(none.uploads.calls[0].path, /\/v1\/sessions\/new\/attachments/);
   await none.run((x) => x.sendQueued());
   assert.equal(none.calls[1][0], "submit");
-  assert.equal(none.calls[1][3], "📎 shot.png");
 });
 
 test("a file that fails says why, and the others still arrive", async () => {
@@ -363,4 +357,121 @@ test("dropping files attaches them, and pasting a file does too but pasting text
     ["attach", 1],
     ["attach", 1],
   ]);
+});
+
+test("a message's files are read back from its text, to be served by their session", () => {
+  const sent = A.withAttachments("what is this?", [
+    {
+      name: "my (1).png",
+      path: ".motita/uploads/s1/my (1).png",
+      size: 3,
+      kind: "image",
+    },
+    {
+      name: "a.pdf",
+      path: ".motita/uploads/s1/a.pdf",
+      size: 1,
+      kind: "document",
+    },
+  ]);
+  const { lead, files } = A.attachedIn(sent);
+  assert.equal(lead, "what is this?");
+  assert.deepEqual(files, [
+    {
+      name: "my (1).png",
+      kind: "image",
+      url: "/v1/sessions/s1/attachments/my%20(1).png",
+    },
+    {
+      name: "a.pdf",
+      kind: "document",
+      url: "/v1/sessions/s1/attachments/a.pdf",
+    },
+  ]);
+  assert.deepEqual(A.attachedIn("just text"), { lead: "just text", files: [] });
+  const odd =
+    "x\n\n[The person attached these files, saved in your workspace:\nnot a file line\n- elsewhere/a.png (image, 1 B)]";
+  assert.deepEqual(A.attachedIn(odd), { lead: "x", files: [] });
+});
+
+test("only a stored picture has a thumbnail", () => {
+  assert.equal(
+    A.thumbOf({
+      name: "a.png",
+      path: ".motita/uploads/s1/a.png",
+      size: 1,
+      kind: "image",
+    }),
+    "/v1/sessions/s1/attachments/a.png",
+  );
+  assert.equal(
+    A.thumbOf({
+      name: "a.pdf",
+      path: ".motita/uploads/s1/a.pdf",
+      size: 1,
+      kind: "document",
+    }),
+    "",
+  );
+  assert.equal(
+    A.thumbOf({
+      name: "a.png",
+      path: "elsewhere/a.png",
+      size: 1,
+      kind: "image",
+    }),
+    "",
+  );
+});
+
+test("a message of the user's with files draws its text, thumbnails and names", async () => {
+  const { UserText } = await load("ConversationParts.tsx");
+  const sent = A.withAttachments("look", [
+    { name: "a.png", path: ".motita/uploads/s1/a.png", size: 1, kind: "image" },
+    {
+      name: "a.pdf",
+      path: ".motita/uploads/s1/a.pdf",
+      size: 1,
+      kind: "document",
+    },
+  ]);
+  const m = await mount(
+    h(UserText, { m: { id: 1, role: "user", text: sent } }),
+  );
+  const img = m.root.querySelector("img.msg-thumb");
+  assert.equal(img.getAttribute("src"), "/v1/sessions/s1/attachments/a.png");
+  assert.equal(
+    img.closest("a").getAttribute("href"),
+    "/v1/sessions/s1/attachments/a.png",
+  );
+  assert.equal(text(m.root.querySelector(".msg-file")), "📎 a.pdf");
+  assert.match(text(m.root), /^look/);
+  const plain = await mount(
+    h(UserText, { m: { id: 2, role: "user", text: "hi" } }),
+  );
+  assert.equal(plain.root.querySelector(".msg-files"), null);
+});
+
+test("a picture's chip shows its thumbnail", async () => {
+  const c = await shown({ composer: { attachments: [shot, demo] } });
+  assert.equal(
+    c.m.root.querySelectorAll("[data-testid=attachment-chip] img").length,
+    0,
+  );
+  const pic = await shown({
+    composer: {
+      attachments: [
+        {
+          name: "a.png",
+          path: ".motita/uploads/s1/a.png",
+          size: 1,
+          kind: "image",
+        },
+      ],
+    },
+  });
+  assert.equal(
+    pic.q("[data-testid=attachment-chip] img").getAttribute("src"),
+    "/v1/sessions/s1/attachments/a.png",
+  );
 });

@@ -58,22 +58,54 @@ export function withAttachments(text: string, list: Attachment[]): string {
   return `${lead}\n\n[The person attached these files, saved in your workspace:\n${lines.join("\n")}]`;
 }
 
-// shownWith is what the conversation draws for that message: the typed text and the file names.
-export function shownWith(text: string, list: Attachment[]): string {
-  const names = "📎 " + list.map((a) => a.name).join(", ");
-  return choose(text, text + "\n\n" + names, names);
+// NOTE_PATTERN picks the files list out of a message that carries one, and FILE_PATTERN each
+// line of it: the folder is the session's own, so the line holds the id the file is served by.
+const NOTE_PATTERN =
+  /^([\s\S]*?)\n\n\[The person attached these files, saved in your workspace:\n([\s\S]*)\]$/;
+const FILE_PATTERN = /^- \.motita\/uploads\/([^/]+)\/(.+?) \((\w+), [^)]*\)/;
+
+// AttachedFile is one file a message names, with where it is served from.
+export interface AttachedFile {
+  name: string;
+  kind: string;
+  url: string;
 }
 
-// outgoing is a message with its files: what the agent receives names them, and what the
-// conversation draws (undefined for a message with none) is the typed text and their names.
-export function outgoing(
-  typed: string,
-  list: Attachment[],
-): { text: string; shown?: string } {
-  return {
-    text: withAttachments(typed, list),
-    shown: choose(list.length, shownWith(typed, list), undefined),
-  };
+// attachmentUrl is where the gateway serves a file attached to a session.
+export function attachmentUrl(sid: string, name: string): string {
+  return `${SESSIONS_PATH}${encodeURIComponent(sid)}/attachments/${encodeURIComponent(name)}`;
+}
+
+// fileOf reads one line of the files list, or nothing for a line that is not a file.
+function fileOf(line: string): AttachedFile | null {
+  const m = FILE_PATTERN.exec(line);
+  if (!m) {
+    return null;
+  }
+  return { name: m[2], kind: m[3], url: attachmentUrl(m[1], m[2]) };
+}
+
+// thumbOf is the picture to draw for a stored file, or "" when it is not a picture.
+export function thumbOf(a: Attachment): string {
+  const f = fileOf(`- ${a.path} (${a.kind}, 0 B)`);
+  return choose(f && a.kind === "image", f?.url, "") as string;
+}
+
+// attachedIn splits a message into what was typed and the files it names. A message with no list
+// of files comes back whole, with no files.
+export function attachedIn(text: string): {
+  lead: string;
+  files: AttachedFile[];
+} {
+  const m = NOTE_PATTERN.exec(text);
+  if (!m) {
+    return { lead: text, files: [] };
+  }
+  const files = m[2]
+    .split("\n")
+    .map(fileOf)
+    .filter((f): f is AttachedFile => f !== null);
+  return { lead: m[1], files };
 }
 
 // filesOf lists the files of a drag or a paste, ignoring anything that is not a file.

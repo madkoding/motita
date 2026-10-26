@@ -229,6 +229,7 @@ func (s *Server) shellRoutes(mux *http.ServeMux, scoped func(http.HandlerFunc) h
 	mux.Handle("POST /v1/sessions/{id}/shell", scoped(s.handleShell))
 	mux.Handle("GET /v1/sessions/{id}/terminal", scoped(s.handleTerminal))
 	mux.Handle("POST /v1/sessions/{id}/attachments", scoped(s.handleUploadAttachment))
+	mux.Handle("GET /v1/sessions/{id}/attachments/{name}", scoped(s.handleGetAttachment))
 }
 
 // terminalControl is a text frame from the client.

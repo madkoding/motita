@@ -10,7 +10,7 @@ import type { Stream } from "./useStream";
 import type { ActiveTag, SlashCommand } from "./appTypes";
 import { SLASH_POPUP_MAX, TASK_INPUT_ID } from "./appConst";
 import type { Api } from "./gitApi";
-import { outgoing } from "./attachments";
+import { withAttachments } from "./attachments";
 import { useAttachments } from "./useAttachments";
 
 // tagSeq numbers the tags as they are added, so removing one never renames the others.
@@ -169,13 +169,13 @@ export function useComposer({
   // sendInNewSession opens a conversation for a message typed with none on screen, then sends
   // it there: the first message IS the start of the conversation, with nothing to click first.
   // When no conversation could be opened the message goes back to the field, not lost.
-  const sendInNewSession = async (text: string, shown?: string) => {
+  const sendInNewSession = async (text: string) => {
     const id = await startSession();
     if (!id) {
       setInput(text);
       return;
     }
-    stream.submit(text, undefined, shown);
+    stream.submit(text);
   };
 
   // send does what the composer holds: /agents opens the agents drawer, a shell line runs in the
@@ -198,7 +198,7 @@ export function useComposer({
       void runShellLine(shellLine);
       return;
     }
-    const { text, shown } = outgoing(typed, attachments);
+    const text = withAttachments(typed, attachments);
     if (runningRef.current) {
       clear();
       stream.sendWhileRunning(text);
@@ -206,13 +206,13 @@ export function useComposer({
     }
     if (!sessionRef.current) {
       clear();
-      void sendInNewSession(text, shown);
+      void sendInNewSession(text);
       return;
     }
     // Remove placeholder messages (.kind) before the first real turn.
     rs.setMessages((prev) => prev.filter((m) => m.kind !== "kind"));
     clear();
-    stream.submit(text, undefined, shown);
+    stream.submit(text);
   };
 
   // handleSubmit is called when the form is submitted.

@@ -3,6 +3,7 @@ package gateway
 import (
 	"errors"
 	"io"
+	"mime"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -33,6 +34,12 @@ var attachmentKinds = map[string]string{
 	".mp3": "audio", ".wav": "audio", ".m4a": "audio", ".ogg": "audio", ".flac": "audio",
 	".pdf": "document", ".doc": "document", ".docx": "document", ".xls": "document", ".xlsx": "document",
 	".ppt": "document", ".pptx": "document", ".odt": "document", ".rtf": "document",
+}
+
+// attachmentTypes are the pictures a browser may be shown inline. Anything else is a download.
+var attachmentTypes = map[string]string{
+	".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg",
+	".gif": "image/gif", ".webp": "image/webp",
 }
 
 // attachmentKind classifies a file by its extension; anything else is "file".
@@ -103,6 +110,16 @@ func attachmentWorkspace(c *conversation) string {
 	return wd
 }
 
+// removeAttachments deletes the files a session's person attached, when the session goes. They
+// live in a folder of the session's own, so a workspace shared with other sessions keeps theirs.
+func removeAttachments(c *conversation) {
+	ws := c.workspaceDir()
+	if ws == "" || !validArtifactName(c.id) {
+		return
+	}
+	_ = os.RemoveAll(filepath.Join(ws, filepath.FromSlash(AttachmentDir), c.id))
+}
+
 // handleUploadAttachment (POST /v1/sessions/{id}/attachments?name=...) stores the raw body as a file in the
 // session's workspace and answers where. The message then names that path, and the agent reads
 // the file with the tools it already has.
@@ -118,8 +135,8 @@ func (s *Server) handleUploadAttachment(w http.ResponseWriter, r *http.Request) 
 		writeError(w, http.StatusNotImplemented, "this session has no workspace to keep the attachment in")
 		return
 	}
-	dir := filepath.Join(ws, filepath.FromSlash(AttachmentDir))
-	// #nosec G301 -- the workspace's own folder, like the artifacts one; the agent must read it.
+	dir := filepath.Join(ws, filepath.FromSlash(AttachmentDir), c.id)
+	// #nosec G301 G703 -- the workspace's own folder, like the artifacts one; the agent must read it.
 	if err := os.MkdirAll(dir, 0o755); err != nil || !insideWorkspace(ws, dir) {
 		writeError(w, http.StatusInternalServerError, "the attachments folder cannot be used")
 		return
@@ -152,8 +169,49 @@ func (s *Server) handleUploadAttachment(w http.ResponseWriter, r *http.Request) 
 	}
 	writeJSON(w, http.StatusCreated, attachmentView{
 		Name: saved,
-		Path: AttachmentDir + "/" + saved,
+		Path: AttachmentDir + "/" + c.id + "/" + saved,
 		Size: n,
 		Kind: attachmentKind(saved),
 	})
+}
+
+// handleGetAttachment (GET /v1/sessions/{id}/attachments/{name}) serves a file the person
+// attached, for the thumbnail the interface draws. It is content the person chose, but it is still
+// served with the artifact folder's caution: no sniffing, no scripts, and a type the browser can
+// only show when it is a picture.
+func (s *Server) handleGetAttachment(w http.ResponseWriter, r *http.Request) {
+	c := convOf(r)
+	name := r.PathValue("name")
+	ws := attachmentWorkspace(c)
+	if ws == "" || !validArtifactName(name) || !validArtifactName(c.id) {
+		writeError(w, http.StatusNotFound, "there is no attachment with that name")
+		return
+	}
+	root, err := os.OpenRoot(filepath.Join(ws, filepath.FromSlash(AttachmentDir), c.id))
+	if err != nil {
+		writeError(w, http.StatusNotFound, "there is no attachment with that name")
+		return
+	}
+	defer root.Close()
+	f, err := root.Open(name)
+	if err != nil {
+		writeError(w, http.StatusNotFound, "there is no attachment with that name")
+		return
+	}
+	defer f.Close()
+	info, err := f.Stat()
+	if err != nil || !info.Mode().IsRegular() {
+		writeError(w, http.StatusNotFound, "there is no attachment with that name")
+		return
+	}
+	h := w.Header()
+	typ, inline := attachmentTypes[strings.ToLower(filepath.Ext(name))]
+	if !inline {
+		typ = "application/octet-stream"
+		h.Set("Content-Disposition", mime.FormatMediaType("attachment", map[string]string{"filename": name}))
+	}
+	h.Set("Content-Type", typ)
+	h.Set("X-Content-Type-Options", "nosniff")
+	h.Set("Content-Security-Policy", "sandbox; default-src 'none'; img-src data:; frame-ancestors 'self'")
+	http.ServeContent(w, r, name, info.ModTime(), f)
 }
