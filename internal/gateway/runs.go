@@ -722,9 +722,26 @@ func (s *Server) approverFor(c *conversation, rn *run) agent.Approver {
 		rn.append(EventApproval, approvalEvent{ID: id, Command: req.Command, Reason: req.Reason, Rule: req.Rule})
 		s.pushUnwatched(c, rn, "approval", req.Command)
 
+		// Off unless agent.approval_timeout is set: a nil channel never fires.
+		var expired <-chan time.Time
+		if wait := c.svc.Config().Agent.ApprovalTimeout; wait > 0 {
+			timer := time.NewTimer(wait)
+			defer timer.Stop()
+			expired = timer.C
+		}
+
 		select {
 		case ok := <-p.ch:
 			return ok, nil
+		case <-expired:
+			err := fmt.Errorf("nobody answered within %s: the command was refused", c.svc.Config().Agent.ApprovalTimeout)
+			if rn.onDenied != nil {
+				rn.onDenied(req.Command)
+			}
+			rn.append(EventApprovalDenied, approvalDeniedEvent{
+				Command: req.Command, Reason: req.Reason, Rule: req.Rule, Error: err.Error(),
+			})
+			return false, err
 		case <-ctx.Done():
 			// The run was cancelled while the question was open.
 			return false, ctx.Err()

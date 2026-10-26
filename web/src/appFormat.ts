@@ -222,6 +222,7 @@ export function sessionTooltip(s: SessionInfo): string | undefined {
         "1 background agent running",
         "{n} background agents running",
       ),
+    !!s.awaiting_approval && t("Waiting for your approval"),
     !!s.changes && changesTitle(s.changes),
   ]);
 }

@@ -520,6 +520,8 @@ const first: Record<string, string> = {
   "{n} actions": "{n} acciones",
   "{n} agents": "{n} agentes",
   "{n} subagents": "{n} subagentes",
+  "Waiting for you": "Esperando tu respuesta",
+  "Waiting for your approval": "Esperando tu aprobación para un comando",
   "{n} background agents running": "{n} agentes en segundo plano trabajando",
   "{n} changes": "{n} cambios",
   "{n} commands": "{n} comandos",
