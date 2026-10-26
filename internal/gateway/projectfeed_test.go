@@ -136,3 +136,68 @@ func TestProjectEventsStream(t *testing.T) {
 		t.Errorf("no event in %q", rec.body())
 	}
 }
+
+// goneWriter accepts the first ok writes and refuses the rest, like a page that went away.
+type goneWriter struct {
+	header http.Header
+	ok     int
+}
+
+func (f *goneWriter) Header() http.Header { return f.header }
+func (f *goneWriter) WriteHeader(int)     {}
+func (f *goneWriter) Flush()              {}
+func (f *goneWriter) Write(b []byte) (int, error) {
+	if f.ok == 0 {
+		return 0, http.ErrHandlerTimeout
+	}
+	f.ok--
+	return len(b), nil
+}
+
+// A page that is gone ends the stream: at the first write, at an event, at a keepalive.
+func TestProjectEventsEndsWhenThePageIsGone(t *testing.T) {
+	srv := newTestServer(t, &fakeService{})
+	withProjectsAndFake(t, srv, t.TempDir())
+	req := httptest.NewRequest(http.MethodGet, "/v1/projects/events", nil)
+
+	srv.handleProjectEvents(&goneWriter{header: http.Header{}}, req) // the preamble
+
+	oldKeep, oldTick := projectFeedKeepalive, projectFeedInterval
+	t.Cleanup(func() { projectFeedKeepalive, projectFeedInterval = oldKeep, oldTick })
+	projectFeedKeepalive = 20 * time.Millisecond
+	srv.handleProjectEvents(&goneWriter{header: http.Header{}, ok: 1}, req) // the keepalive
+
+	projectFeedKeepalive = time.Hour
+	done := make(chan struct{})
+	go func() {
+		srv.handleProjectEvents(&goneWriter{header: http.Header{}, ok: 1}, req) // the event
+		close(done)
+	}()
+	time.Sleep(200 * time.Millisecond)
+	srv.remoteWatch.feed.broadcast()
+	select {
+	case <-done:
+	case <-time.After(5 * time.Second):
+		t.Fatal("the stream did not end")
+	}
+}
+
+// The look also runs on its own clock, not only when nudged.
+func TestProjectFeedLooksOnItsOwnClock(t *testing.T) {
+	srv := newTestServer(t, &fakeService{})
+	ws := t.TempDir()
+	withProjectsAndFake(t, srv, ws)
+	makeProject(t, srv, "clock")
+	old := projectFeedInterval
+	t.Cleanup(func() { projectFeedInterval = old })
+	projectFeedInterval = 20 * time.Millisecond
+	ch, off := srv.remoteWatch.feed.subscribe(srv)
+	defer off()
+	time.Sleep(100 * time.Millisecond)
+	if err := os.WriteFile(filepath.Join(ws, "clock", "a.txt"), []byte("x\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if !waitSignal(ch, 5*time.Second) {
+		t.Fatal("the clock did not notice the change")
+	}
+}

@@ -17,7 +17,10 @@ import (
 // last look, sends one "projects" event. The page answers by reading the projects again.
 
 // projectFeedInterval is how often the projects are compared while a page is listening.
-const projectFeedInterval = 5 * time.Second
+var projectFeedInterval = 5 * time.Second
+
+// projectFeedKeepalive is how often a quiet stream writes a comment, so proxies keep it open.
+var projectFeedKeepalive = 30 * time.Second
 
 // projectFeed is the pages listening and the one goroutine that looks for them.
 type projectFeed struct {
@@ -99,16 +102,10 @@ func (f *projectFeed) broadcast() {
 	}
 }
 
-// projectsSignature is a digest of what GET /v1/projects answers; "" when it cannot be read.
+// projectsSignature is a digest of what GET /v1/projects answers.
 func projectsSignature(s *Server) string {
-	all, err := s.projectViews()
-	if err != nil {
-		return ""
-	}
-	b, err := json.Marshal(all)
-	if err != nil {
-		return ""
-	}
+	all, _ := s.projectViews() // an unreadable store is "null": the next readable look differs
+	b, _ := json.Marshal(all)
 	sum := sha256.Sum256(b)
 	return string(sum[:])
 }
@@ -121,7 +118,7 @@ func (s *Server) handleProjectEvents(w http.ResponseWriter, r *http.Request) {
 	}
 	changed, unsubscribe := s.remoteWatch.feed.subscribe(s)
 	defer unsubscribe()
-	keepalive := time.NewTicker(30 * time.Second)
+	keepalive := time.NewTicker(projectFeedKeepalive)
 	defer keepalive.Stop()
 	for {
 		select {
