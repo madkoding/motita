@@ -31,7 +31,9 @@ func describeTools(sb config.Sandbox, home string) string {
 - Before installing anything, check it is not already there: command -v <tool>, ls %s.
 - To install a toolchain, unpack it to %s/<name>/ (its bin/ is on PATH automatically from the next command on), `+
 		`or put single binaries in %s; the user approves that command, an unapproved one cannot write there. `+
-		`Never install into the repository or system directories, use sudo only when it truly needs system privileges (the user is asked first and a command has no terminal for a password), and do not re-export PATH: `+
+		`Never install into the repository or system directories, use sudo only when it truly needs system privileges `+
+		`(the user is asked first and a command has no terminal for a password), `+
+		`and do not re-export PATH: `+
 		`it is already set.
 - Read the "installing-a-toolchain" procedure before installing one.
 - Temporary files: /tmp is NOT writable from a confined command. Use $TMPDIR (private to one command and deleted
