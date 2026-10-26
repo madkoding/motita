@@ -10,14 +10,11 @@ import (
 )
 
 // repoDirsIn lists the git repositories a session's folder holds: the folder itself when it is the
-// top of one, then each repository inside it, one or two folders down (see reposUnder). A project is
-// a plain folder and the repositories in it are whatever was cloned or copied there, so this is how
-// the gateway finds them instead of keeping a list.
+// top of a real one (not a container of repositories, see below), then each repository inside it, one
+// or two folders down (see reposUnder). A project is a plain folder and the repositories in it are
+// whatever was cloned or copied there, so this is how the gateway finds them instead of keeping a
+// list.
 func repoDirsIn(ctx context.Context, dir string) []string {
-	var out []string
-	if gitx.IsRepoRoot(ctx, dir) {
-		out = append(out, dir)
-	}
 	var subs []string
 	for _, rel := range reposUnder(dir, "", nestedRepoDepth) {
 		if sub := filepath.Join(dir, filepath.FromSlash(rel)); gitx.IsRepoRoot(ctx, sub) {
@@ -25,7 +22,13 @@ func repoDirsIn(ctx context.Context, dir string) []string {
 		}
 	}
 	sort.Strings(subs)
-	return append(out, subs...)
+	// A folder that holds repositories and has no origin is a container: a stray git init there
+	// (the agent used to make one) is not a repository a pull request could go to, so its loose
+	// files count for nothing.
+	if gitx.IsRepoRoot(ctx, dir) && (len(subs) == 0 || gitx.HasRemote(ctx, dir)) {
+		return append([]string{dir}, subs...)
+	}
+	return subs
 }
 
 // sessionRepoDir is the repository a session's git work (its pull request) is about: the one the

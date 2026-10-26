@@ -66,3 +66,36 @@ func TestPRReadyInTheStatusOfAPlainFolderSession(t *testing.T) {
 		t.Fatal("a merged session offers nothing")
 	}
 }
+
+// A folder that only holds repositories is not one, even with a stray git init: its loose files go
+// nowhere, so they must neither offer a pull request nor count as changes.
+func TestPRReadyIgnoresLooseFilesOfAContainerFolder(t *testing.T) {
+	ctx := context.Background()
+	box := t.TempDir()
+	gitInit(t, box)
+	repo := filepath.Join(box, "api")
+	if err := os.MkdirAll(repo, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	gitInit(t, repo)
+	if err := os.WriteFile(filepath.Join(box, "loose.txt"), []byte("x\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	c := &conversation{id: "s", workspace: box}
+	if c.hasProposableWork(ctx) || c.changesAcrossRepos(ctx) != 0 {
+		t.Fatal("loose files of a container are not work to propose")
+	}
+	if got := repoDirsIn(ctx, box); len(got) != 1 || got[0] != repo {
+		t.Fatalf("repos = %v, want only %s", got, repo)
+	}
+	if err := os.WriteFile(filepath.Join(repo, "w.txt"), []byte("x\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if !c.hasProposableWork(ctx) {
+		t.Fatal("a change inside a real repository is work to propose")
+	}
+	mustRun(t, "git", "-C", box, "remote", "add", "origin", "https://example.com/box.git")
+	if got := repoDirsIn(ctx, box); len(got) != 2 || got[0] != box {
+		t.Fatalf("a folder with an origin is a repository itself: %v", got)
+	}
+}
