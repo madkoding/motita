@@ -48,6 +48,7 @@ type nestedStatus struct {
 }
 
 func (s *Server) nestedRoutes(mux *http.ServeMux, plain func(http.HandlerFunc) http.Handler) {
+	mux.Handle("GET /v1/projects/events", plain(s.handleProjectEvents))
 	mux.Handle("GET /v1/projects/{id}/repo", plain(s.handleNestedStatus))
 	mux.Handle("POST /v1/projects/{id}/repo/{action}", plain(s.handleNestedAction))
 }

@@ -19,14 +19,23 @@ import (
 
 // handleListProjects answers every project this gateway knows about.
 func (s *Server) handleListProjects(w http.ResponseWriter, _ *http.Request) {
-	if s.projects == nil {
-		writeJSON(w, http.StatusOK, map[string]any{"projects": []Project{}})
-		return
-	}
-	all, err := s.projects.loadAll()
+	all, err := s.projectViews()
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"projects": all})
+}
+
+// projectViews is every project with the state read live from git: what GET /v1/projects answers
+// and what the change feed (projectfeed.go) compares to tell a page it is out of date.
+func (s *Server) projectViews() ([]Project, error) {
+	if s.projects == nil {
+		return []Project{}, nil
+	}
+	all, err := s.projects.loadAll()
+	if err != nil {
+		return nil, err
 	}
 	if all == nil {
 		all = []Project{}
@@ -73,7 +82,7 @@ func (s *Server) handleListProjects(w http.ResponseWriter, _ *http.Request) {
 			}
 		}
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"projects": all})
+	return all, nil
 }
 
 // liveSessionIDsFor collects the ids of the sessions the gateway holds for one
