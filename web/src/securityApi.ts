@@ -31,6 +31,9 @@ export interface SecurityView {
   // Whether every command the policy would ask about runs without asking. Missing from a gateway
   // older than the setting.
   approve_all_commands?: boolean;
+  // Minutes a question about a command waits for an answer before it is refused; 0 waits as long
+  // as it takes. Missing from a gateway older than the setting.
+  approval_timeout_minutes?: number;
   // Whether the agent may see this computer's screen and use its mouse, keyboard and windows,
   // asking before every step, and why there is no desktop here when there is none. Missing from a
   // gateway older than the setting.
@@ -118,6 +121,20 @@ export async function setApproveAllCommands(
     method: "PUT",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ approve_all_commands: on, confirm: on }),
+  });
+  return view(res);
+}
+
+// setApprovalTimeout saves how many minutes a question about a command waits for an answer before it
+// is refused; 0 waits as long as it takes. It only narrows what runs unasked, so it needs no confirm.
+export async function setApprovalTimeout(
+  api: Api,
+  minutes: number,
+): Promise<SecurityView> {
+  const res = await api(SECURITY_PATH, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ approval_timeout_minutes: minutes }),
   });
   return view(res);
 }

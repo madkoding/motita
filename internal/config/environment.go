@@ -128,6 +128,7 @@ func promptBindings(c *Config) []binding[string] {
 func durationBindings(c *Config) []binding[time.Duration] {
 	return []binding[time.Duration]{
 		{"MOTITA_TASK_SOURCE_INTERVAL", &c.TaskSource.Interval},
+		{"MOTITA_AGENT_APPROVAL_TIMEOUT", &c.Agent.ApprovalTimeout},
 		{"MOTITA_ANCHOR_TIMEOUT", &c.Anchor.Timeout},
 		{"MOTITA_SANDBOX_TIMEOUT", &c.Sandbox.Timeout},
 		{"MOTITA_SANDBOX_CHECK_TIMEOUT", &c.Sandbox.CheckTimeout},

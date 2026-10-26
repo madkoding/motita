@@ -124,6 +124,7 @@ test("a row shows the title, when it was used and its labelled facts", async () 
     title: "Fix the build",
     last_used: when,
     agents_running: 2,
+    awaiting_approval: true,
     branch: "motita/s1abcdefghij",
     worktree: "s9zzzzzzzzz",
     model: "gpt-x",
@@ -140,7 +141,7 @@ test("a row shows the title, when it was used and its labelled facts", async () 
   assert.match(root.querySelector(".truncate").className, /text-accent/);
   assert.equal(
     text(root.querySelector(".session-when")),
-    "06/05/2024 :: 07:08:09⧉ 2",
+    "06/05/2024 :: 07:08:09⧉ 2⏸ Waiting for you",
   );
   const facts = (r) =>
     [...r.querySelectorAll(".session-facts > span")].map((f) =>
@@ -151,7 +152,7 @@ test("a row shows the title, when it was used and its labelled facts", async () 
   assert.equal(hit.getAttribute("aria-label"), "Fix the build");
   assert.match(
     hit.getAttribute("title"),
-    /^Last used .*\n2 background agents running\n1 uncommitted change/,
+    /^Last used .*\n2 background agents running\nWaiting for your approval\n1 uncommitted change/,
   );
   await click(hit);
   assert.deepEqual(v.calls, [["switchSession", "s1abcdefghij"]]);
