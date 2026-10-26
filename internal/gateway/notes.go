@@ -219,6 +219,7 @@ func firstSnippetLine(s string) string {
 // notesRoutes is the table of the workspace notes: reading, writing, search, the map and the scan.
 func (s *Server) notesRoutes(mux *http.ServeMux, plain func(http.HandlerFunc) http.Handler) {
 	mux.Handle("GET /v1/pull-requests", plain(s.handleListPRs)) // the overview of prlist.go
+	mux.Handle("POST /v1/pull-requests/update", plain(s.handleUpdatePRBranch))
 	mux.Handle("GET /v1/notes", plain(s.handleListNotes))
 	mux.Handle("GET /v1/notes/note", plain(s.handleGetNote))
 	mux.Handle("PUT /v1/notes/note", plain(s.handlePutNote))

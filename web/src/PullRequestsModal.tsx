@@ -2,19 +2,23 @@
 // merge, and which session follows it, so a failing CI or a stale branch shows without opening
 // each session.
 import { useCallback, useEffect, useState } from "preact/hooks";
+import { PR_LIST_POLL_MS } from "./appConst";
 import { t, tf } from "./i18n";
 import { choose } from "./choose";
 import { useApp } from "./appStore";
 import { errorMessage } from "./errors";
+import type { Api } from "./prApi";
 import { mergeBlockedLabel } from "./appFormat";
 import { ModalBackdrop } from "./ModalBackdrop";
 import { IconClose, IconPullRequest, IconRefresh, IconSpinner } from "./icons";
 import { closePullRequests, usePullRequestsOpen } from "./pullRequestsOpen";
 import {
+  canUpdate,
   ciBadge,
   failingFirst,
   fetchPullRequests,
   mergeNote,
+  updatePRBranch,
   type PRItem,
   type PRList,
   type Tone,
@@ -43,7 +47,17 @@ function ciWord(state: string): string {
   return t("no checks");
 }
 
-function Row({ item }: { item: PRItem }) {
+const itemKey = (i: PRItem) => i.repo + "#" + i.pr.number;
+
+function Row({
+  item,
+  updating,
+  onUpdate,
+}: {
+  item: PRItem;
+  updating: boolean;
+  onUpdate: (item: PRItem) => void;
+}) {
   const ci = ciBadge(item);
   const note = mergeNote(item);
   return (
@@ -76,6 +90,18 @@ function Row({ item }: { item: PRItem }) {
             {mergeBlockedLabel(note)}
           </span>
         )}
+        {canUpdate(item) && (
+          <button
+            class={
+              TAG + " " + TONE.idle + " hover:bg-white/5 disabled:opacity-50"
+            }
+            data-testid="pr-update"
+            disabled={updating}
+            onClick={() => onUpdate(item)}
+          >
+            {choose(updating, t("Updating…"), t("Update branch"))}
+          </button>
+        )}
         {item.session && (
           <span class={TAG + " " + TONE.idle} data-testid="pr-follow">
             {choose(
@@ -90,7 +116,15 @@ function Row({ item }: { item: PRItem }) {
   );
 }
 
-function Body({ list }: { list: PRList }) {
+function Body({
+  list,
+  updating,
+  onUpdate,
+}: {
+  list: PRList;
+  updating: Set<string>;
+  onUpdate: (item: PRItem) => void;
+}) {
   const items = failingFirst(list.pull_requests);
   return (
     <>
@@ -101,7 +135,12 @@ function Body({ list }: { list: PRList }) {
       )}
       <ul class="space-y-2">
         {items.map((i) => (
-          <Row key={i.project_id + "#" + i.pr.number} item={i} />
+          <Row
+            key={itemKey(i)}
+            item={i}
+            updating={updating.has(itemKey(i))}
+            onUpdate={onUpdate}
+          />
         ))}
       </ul>
       {(list.problems ?? []).map((p) => (
@@ -123,6 +162,7 @@ export function PullRequestsModal() {
   const [list, setList] = useState<PRList | null>(null);
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
+  const [updating, setUpdating] = useState(new Set<string>());
   const load = useCallback(
     async (refresh: boolean) => {
       if (!api) {
@@ -141,10 +181,27 @@ export function PullRequestsModal() {
     [api],
   );
   useEffect(() => {
-    if (open) {
-      void load(false);
+    if (!open) {
+      return undefined;
     }
+    void load(false);
+    const id = setInterval(() => void load(false), PR_LIST_POLL_MS);
+    return () => clearInterval(id);
   }, [open, load]);
+  const update = async (item: PRItem) => {
+    setUpdating((u) => new Set(u).add(itemKey(item)));
+    try {
+      await updatePRBranch(api as Api, item);
+      await load(true);
+    } catch (e) {
+      setError(errorMessage(e));
+    }
+    setUpdating((u) => {
+      const next = new Set(u);
+      next.delete(itemKey(item));
+      return next;
+    });
+  };
   if (!open) {
     return null;
   }
@@ -184,7 +241,13 @@ export function PullRequestsModal() {
               {error}
             </p>
           )}
-          {list && <Body list={list} />}
+          {list && (
+            <Body
+              list={list}
+              updating={updating}
+              onUpdate={(i) => void update(i)}
+            />
+          )}
         </div>
       </div>
     </ModalBackdrop>

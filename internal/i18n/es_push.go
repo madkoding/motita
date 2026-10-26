@@ -34,6 +34,8 @@ var esPush = map[string]string{
 		"informe nuevo: míralo en las notas.",
 	"Draft pull request opened":                    "Pull request en borrador abierto",
 	"Motita opened a draft pull request in %s: %s": "Motita abrió un pull request en borrador en %s: %s",
+	"CI failing on a pull request":                 "El CI de un pull request está fallando",
+	"%s #%d: the CI is failing. %s":                "%s #%d: el CI está fallando. %s",
 	"New changes on origin":                        "Hay cambios nuevos en origin",
 	"%s has %d new commit(s) on origin. Update the main branch to bring them in, or review them first.": "%s tiene " +
 		"%d commit(s) nuevo(s) en origin. Actualiza la rama principal para traerlos, o revísalos antes.",

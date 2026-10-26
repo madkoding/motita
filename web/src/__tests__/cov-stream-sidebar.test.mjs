@@ -550,6 +550,11 @@ test("an empty sidebar says so in each section", async () => {
 
 test("with a gateway to ask, the bottom menu shows how much of each plan is used", async () => {
   const api = async (path) => {
+    if (path === "/v1/pull-requests") {
+      return new Response(JSON.stringify({ pull_requests: [], failing: 2 }), {
+        status: 200,
+      });
+    }
     assert.equal(path, "/v1/llm/usage");
     return new Response(
       JSON.stringify({
@@ -571,8 +576,14 @@ test("with a gateway to ask, the bottom menu shows how much of each plan is used
   const { root, done } = await mount(h(Sidebar), store({ api }));
   await act(() => new Promise((r) => setImmediate(r)));
   const shown = text(root.querySelector("[data-testid=provider-usage]"));
+  const badge = text(root.querySelector("[data-testid=pull-requests-failing]"));
   await done();
   assert.match(shown, /Provider usageOpenAI—/);
+  assert.equal(
+    badge,
+    "2",
+    "the badge counts the pull requests with a failing CI",
+  );
 });
 
 test("on a phone, picking a session in the sidebar closes it", async () => {

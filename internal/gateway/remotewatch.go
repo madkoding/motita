@@ -130,6 +130,7 @@ func (s *Server) lookForRemoteChanges(ctx context.Context) {
 		}
 		s.watchRemote(ctx, &p, asked)
 	}
+	s.announceRedPRs(ctx)
 }
 
 // remoteTarget is one repository of a project whose main branch is watched.

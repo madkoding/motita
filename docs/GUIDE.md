@@ -784,7 +784,11 @@ configuration file. Disconnecting a host deletes its file.
   requests of every project's repository (`GET /v1/pull-requests`): the CI of each (passed of
   total checks), whether the host would merge it (behind, conflict, blocked, draft) and the
   session that follows it. Failing ones come first. The gateway remembers the answer for 30 seconds;
-  the refresh button asks the hosts again.
+  the refresh button asks the hosts again, and an open list refreshes itself every 30 seconds. It
+  includes the other repositories of each project. A pull request that is behind its base has an
+  **Update branch** button (the host merges the base in; no rebase, no force-push; GitHub and
+  Gitea). The sidebar button shows how many have a failing CI, and a phone notification says when
+  one turns red (checked every 15 minutes).
 
 ### Background agents, side by side
 

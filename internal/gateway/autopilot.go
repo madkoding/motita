@@ -378,16 +378,22 @@ func (t forgeTarget) key() string { return t.api.Service.ID + ":" + t.remote.Pat
 
 // forgeOf resolves a project's repository on its host, or says why it has none.
 func (s *Server) forgeOf(ctx context.Context, p Project) (forgeTarget, error) {
+	return s.forgeOfRepo(ctx, p.Dir, p.GitURL)
+}
+
+// forgeOfRepo resolves the repository in dir on its host: gitURL when the project recorded one,
+// else the origin of the checkout.
+func (s *Server) forgeOfRepo(ctx context.Context, dir, gitURL string) (forgeTarget, error) {
 	st := s.gitStore()
 	if st == nil {
 		return forgeTarget{}, errors.New("this gateway has no directory to keep git logins in")
 	}
-	if gitx.Repo(ctx, p.Dir) != nil {
+	if gitx.Repo(ctx, dir) != nil {
 		return forgeTarget{}, errors.New("it is not a git repository")
 	}
-	url := strings.TrimSpace(p.GitURL)
+	url := strings.TrimSpace(gitURL)
 	if url == "" {
-		url = s.originOf(ctx, p.Dir)
+		url = s.originOf(ctx, dir)
 	}
 	if url == "" {
 		return forgeTarget{}, errors.New("it has no remote named origin")
