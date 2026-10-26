@@ -10,9 +10,10 @@ import (
 )
 
 // repoDirsIn lists the git repositories a session's folder holds: the folder itself when it is the
-// top of a real one (not a container of repositories, see below), then each repository inside it, one or two folders down (see reposUnder). A project is
-// a plain folder and the repositories in it are whatever was cloned or copied there, so this is how
-// the gateway finds them instead of keeping a list.
+// top of a real one (not a container of repositories, see below), then each repository inside it, one
+// or two folders down (see reposUnder). A project is a plain folder and the repositories in it are
+// whatever was cloned or copied there, so this is how the gateway finds them instead of keeping a
+// list.
 func repoDirsIn(ctx context.Context, dir string) []string {
 	var subs []string
 	for _, rel := range reposUnder(dir, "", nestedRepoDepth) {
