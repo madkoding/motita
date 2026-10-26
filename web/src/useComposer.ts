@@ -72,6 +72,12 @@ function keepsLine(e: KeyboardEvent): boolean {
   return e.shiftKey || e.ctrlKey || e.metaKey || e.altKey;
 }
 
+// takesSuggestion says whether an unmodified ArrowRight takes the hint of an empty field.
+function takesSuggestion(e: KeyboardEvent, canTake: unknown): boolean {
+  const plain = !e.shiftKey && !e.ctrlKey && !e.metaKey && !e.altKey;
+  return e.key === "ArrowRight" && plain && !!canTake;
+}
+
 interface Deps {
   api: Api;
   rs: RunState;
@@ -270,9 +276,8 @@ export function useComposer({
 
   // acceptSuggestion: ArrowRight on an empty field takes the hint as the text, ready to send or edit.
   const acceptSuggestion = (e: KeyboardEvent) => {
-    const plain = !e.shiftKey && !e.ctrlKey && !e.metaKey && !e.altKey;
     const canTake = input === "" && activeTags.length === 0 && nextSuggestion;
-    if (e.key !== "ArrowRight" || !plain || !canTake) {
+    if (!takesSuggestion(e, canTake)) {
       return false;
     }
     e.preventDefault();
@@ -304,10 +309,7 @@ export function useComposer({
       return;
     }
     // Coarse pointer = touch device; skip Enter-to-send there.
-    if (window.matchMedia("(pointer: coarse)").matches) {
-      return;
-    }
-    if (keepsLine(e)) {
+    if (window.matchMedia("(pointer: coarse)").matches || keepsLine(e)) {
       return;
     }
     e.preventDefault();

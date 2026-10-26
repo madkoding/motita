@@ -203,3 +203,27 @@ func TestAttachmentIsServedBackAsAPictureOrADownload(t *testing.T) {
 		t.Errorf("no upload folder = %d", w.Code)
 	}
 }
+
+func TestAttachmentStoreFailuresAreAnswered(t *testing.T) {
+	srv, c, ws, _ := artifactServer(t, nil)
+	c.workspace = ws
+	old := openAttachmentRoot
+	defer func() { openAttachmentRoot = old }()
+
+	openAttachmentRoot = func(string) (*os.Root, error) { return nil, os.ErrPermission }
+	if w := uploadCall(srv, c.id, "?name=a.txt", []byte("x")); w.Code != http.StatusInternalServerError {
+		t.Fatalf("root cannot be opened = %d", w.Code)
+	}
+
+	// A root that is already closed refuses every file, as a folder that cannot be written would.
+	openAttachmentRoot = func(dir string) (*os.Root, error) {
+		root, err := os.OpenRoot(dir)
+		if err == nil {
+			_ = root.Close()
+		}
+		return root, err
+	}
+	if w := uploadCall(srv, c.id, "?name=a.txt", []byte("x")); w.Code != http.StatusInternalServerError {
+		t.Fatalf("file cannot be created = %d", w.Code)
+	}
+}

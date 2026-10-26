@@ -100,14 +100,17 @@ func createAttachment(root *os.Root, name string) (*os.File, string, error) {
 	}
 }
 
+// openAttachmentRoot opens the folder a session's attachments are written through. A variable so a
+// test can make it fail for any user, root included.
+var openAttachmentRoot = os.OpenRoot
+
 // attachmentWorkspace is the folder the session's agent works in: its workspace, or the
 // process's own directory for a session with none.
 func attachmentWorkspace(c *conversation) string {
 	if ws := c.workspaceDir(); ws != "" {
 		return ws
 	}
-	wd, _ := os.Getwd()
-	return wd
+	return "."
 }
 
 // removeAttachments deletes the files a session's person attached, when the session goes. They
@@ -131,10 +134,6 @@ func (s *Server) handleUploadAttachment(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 	ws := attachmentWorkspace(c)
-	if ws == "" {
-		writeError(w, http.StatusNotImplemented, "this session has no workspace to keep the attachment in")
-		return
-	}
 	dir := filepath.Join(ws, filepath.FromSlash(AttachmentDir), c.id)
 	// #nosec G301 G703 -- the workspace's own folder, like the artifacts one; the agent must read it.
 	if err := os.MkdirAll(dir, 0o755); err != nil || !insideWorkspace(ws, dir) {
@@ -145,7 +144,7 @@ func (s *Server) handleUploadAttachment(w http.ResponseWriter, r *http.Request) 
 		writeError(w, http.StatusConflict, "this session already holds the most attachments it can")
 		return
 	}
-	root, err := os.OpenRoot(dir)
+	root, err := openAttachmentRoot(dir)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
@@ -183,7 +182,7 @@ func (s *Server) handleGetAttachment(w http.ResponseWriter, r *http.Request) {
 	c := convOf(r)
 	name := r.PathValue("name")
 	ws := attachmentWorkspace(c)
-	if ws == "" || !validArtifactName(name) || !validArtifactName(c.id) {
+	if !validArtifactName(name) || !validArtifactName(c.id) {
 		writeError(w, http.StatusNotFound, "there is no attachment with that name")
 		return
 	}
