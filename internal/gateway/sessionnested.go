@@ -66,6 +66,24 @@ func nestedSessionRepos(ctx context.Context, projectDir, workspace string) [][2]
 	return out
 }
 
+// nestedReposNote is what the agent is told when its folder is not a repository but holds some: the
+// folder is only a container, so it must not be turned into a repository (`git init`, `git add .`),
+// which would swallow the repositories inside as embedded ones. "" when the folder is a repository
+// itself, or holds none.
+func nestedReposNote(ctx context.Context, workspace string) string {
+	if workspace == "" || gitx.IsRepoRoot(ctx, workspace) {
+		return ""
+	}
+	repos := reposUnder(workspace, "", nestedRepoDepth)
+	if len(repos) == 0 {
+		return ""
+	}
+	return "\n\nYour working directory is NOT a git repository and must stay that way: it only holds " +
+		"repositories, each with its own history. Never run `git init`, and never run `git add`, `git commit` " +
+		"or `git status` at its top. Run git inside the repository you changed and commit each one on its own. " +
+		"The repositories are: " + strings.Join(repos, ", ") + "."
+}
+
 // linkLooseEntries links into the session's folder what the project's folder holds outside its
 // repositories (a README, an .env, a compose file), at the same place. Those files are in no
 // repository and have no branch to isolate them, so the session shares them with the project's
