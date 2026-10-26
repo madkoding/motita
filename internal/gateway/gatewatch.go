@@ -62,17 +62,18 @@ func (g *gateWatchState) record(id string, lost *TestsLost) (fresh bool) {
 func (s *Server) watchTests(p *Project) {
 	now := anchor.TestsIn(p.Dir)
 	var lost *TestsLost
-	switch {
-	case now > p.TestsFloor:
+	if now > p.TestsFloor {
 		_, _ = s.projects.update(p.ID, func(q *Project) { q.TestsFloor = now })
-	case now < p.TestsFloor:
+	}
+	if now < p.TestsFloor {
 		lost = &TestsLost{Was: p.TestsFloor, Now: now}
 	}
-	fresh := s.gateWatch.record(p.ID, lost)
+	fresh := s.remoteWatch.gate.record(p.ID, lost)
 	s.remoteWatch.feed.kick()
 	if fresh {
 		s.notifyAutopilot("motita-tests-"+p.ID, "Tests lost",
-			"%s had %d tests and now has %d. Look at what was deleted, or accept the lower count in the project's menu.",
+			"%s had %d tests and now has %d. Look at what was deleted, or accept the lower count in the "+
+				"project's menu.",
 			p.Title, lost.Was, lost.Now)
 	}
 }
@@ -91,7 +92,7 @@ func (s *Server) handleAcceptTests(w http.ResponseWriter, r *http.Request) {
 	case err != nil:
 		writeError(w, http.StatusInternalServerError, err.Error())
 	default:
-		s.gateWatch.record(p.ID, nil)
+		s.remoteWatch.gate.record(p.ID, nil)
 		s.remoteWatch.feed.kick()
 		writeJSON(w, http.StatusOK, map[string]int{"tests_floor": p.TestsFloor})
 	}

@@ -23,8 +23,8 @@ func TestGateWatchReportsLostTestsOnceUntilAccepted(t *testing.T) {
 
 	srv.lookForRemoteChanges(ctx)
 	srv.pushWG.Wait()
-	if p := srv.projectOf(pid); p.TestsFloor != 2 || srv.gateWatch.of(pid) != nil || tr.count() != 0 {
-		t.Fatalf("floor %d, lost %v, sent %d", p.TestsFloor, srv.gateWatch.of(pid), tr.count())
+	if p := srv.projectOf(pid); p.TestsFloor != 2 || srv.remoteWatch.gate.of(pid) != nil || tr.count() != 0 {
+		t.Fatalf("floor %d, lost %v, sent %d", p.TestsFloor, srv.remoteWatch.gate.of(pid), tr.count())
 	}
 
 	if err := os.Remove(filepath.Join(dir, "a_test.go")); err != nil {
@@ -32,7 +32,7 @@ func TestGateWatchReportsLostTestsOnceUntilAccepted(t *testing.T) {
 	}
 	srv.lookForRemoteChanges(ctx)
 	srv.pushWG.Wait()
-	if l := srv.gateWatch.of(pid); l == nil || l.Was != 2 || l.Now != 0 || tr.count() != 1 {
+	if l := srv.remoteWatch.gate.of(pid); l == nil || l.Was != 2 || l.Now != 0 || tr.count() != 1 {
 		t.Fatalf("lost %+v, sent %d", l, tr.count())
 	}
 	if body := get(t, srv, "/v1/projects", testToken).Body.String(); !strings.Contains(body, `"tests_lost"`) {
@@ -46,13 +46,13 @@ func TestGateWatchReportsLostTestsOnceUntilAccepted(t *testing.T) {
 	putFile(t, filepath.Join(dir, "b_test.go"), "package x\nfunc TestC(t *testing.T) {}\n")
 	srv.lookForRemoteChanges(ctx)
 	srv.pushWG.Wait()
-	if l := srv.gateWatch.of(pid); l == nil || l.Now != 1 || tr.count() != 2 {
+	if l := srv.remoteWatch.gate.of(pid); l == nil || l.Now != 1 || tr.count() != 2 {
 		t.Fatalf("a further change of the count is news: %+v, sent %d", l, tr.count())
 	}
 
 	post(t, srv, "/v1/projects/"+pid+"/tests/accept", "{}", testToken)
-	if p := srv.projectOf(pid); p.TestsFloor != 1 || srv.gateWatch.of(pid) != nil {
-		t.Fatalf("after accepting: floor %d, lost %v", p.TestsFloor, srv.gateWatch.of(pid))
+	if p := srv.projectOf(pid); p.TestsFloor != 1 || srv.remoteWatch.gate.of(pid) != nil {
+		t.Fatalf("after accepting: floor %d, lost %v", p.TestsFloor, srv.remoteWatch.gate.of(pid))
 	}
 	if r := post(t, srv, "/v1/projects/nope/tests/accept", "{}", testToken); r.Code != 404 {
 		t.Errorf("unknown project: %d", r.Code)

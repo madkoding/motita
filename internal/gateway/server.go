@@ -275,9 +275,7 @@ type Server struct {
 	mainRefresh mainRefreshState
 	// remoteWatch is what the periodic look at origin found; remoteWG tracks that goroutine. See remotewatch.go.
 	remoteWatch remoteWatchState
-	// gateWatch is the tests lost found by the same look. See gatewatch.go.
-	gateWatch gateWatchState
-	remoteWG  sync.WaitGroup
+	remoteWG    sync.WaitGroup
 
 	// scanJob is the progress of the notes scan running in the background, if any.
 	scanJob scanTracker
@@ -823,7 +821,6 @@ func (s *Server) projectRoutes(mux *http.ServeMux, plain func(http.HandlerFunc) 
 	mux.Handle("GET /v1/projects/{id}/branches", plain(s.handleProjectBranches))
 	mux.Handle("DELETE /v1/projects/{id}", plain(s.handleDeleteProject))
 	mux.Handle("POST /v1/projects/{id}/main/refresh", plain(s.handleRefreshProjectMain))
-	mux.Handle("POST /v1/projects/{id}/tests/accept", plain(s.handleAcceptTests))
 }
 
 // routes builds the endpoint table.

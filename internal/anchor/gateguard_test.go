@@ -241,7 +241,8 @@ func TestHasGateAndTestsInReadTheFolder(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(dir, "go.mod"), []byte("module x\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(dir, "a_test.go"), []byte("package x\nfunc TestA(t *testing.T) {}\n"), 0o644); err != nil {
+	test := []byte("package x\nfunc TestA(t *testing.T) {}\n")
+	if err := os.WriteFile(filepath.Join(dir, "a_test.go"), test, 0o644); err != nil {
 		t.Fatal(err)
 	}
 	if !HasGate(dir) || TestsIn(dir) != 1 {

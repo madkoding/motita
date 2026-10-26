@@ -52,6 +52,8 @@ type remoteWatchState struct {
 	alerted map[string]string
 	// feed tells open pages the projects changed (projectfeed.go).
 	feed projectFeed
+	// gate is the tests-lost half of the same look (gatewatch.go).
+	gate gateWatchState
 }
 
 // of is the changes of the project found by the last look.
