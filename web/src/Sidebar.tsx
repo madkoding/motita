@@ -200,7 +200,7 @@ function SidebarFoot() {
           {t("Pull requests")}
           {failingPRs > 0 && (
             <span
-              class="ml-auto min-w-5 px-1.5 rounded-full bg-danger/20 text-danger text-xs text-center"
+              class="ml-auto px-2 rounded-full bg-danger/20 text-danger text-xs text-center"
               data-testid="pull-requests-failing"
               title={t("Pull requests with a failing CI")}
             >
