@@ -167,12 +167,16 @@ func ghAPIRule(args []string) (string, bool) {
 	return "", false
 }
 
+// gluedBodyFlag reports a body option written with its value attached (`-fkey=value`).
+func gluedBodyFlag(a string) bool {
+	return len(a) > 2 && (strings.HasPrefix(a, "-f") || strings.HasPrefix(a, "-F"))
+}
+
 // ghAPIArg judges the option at args[i] of `gh api`: a body, or a method that is not GET.
 func ghAPIArg(args []string, i int) (string, bool) {
 	a := args[i]
 	name, value, glued := strings.Cut(a, "=")
-	if ghAPIBody[name] || (len(a) > 2 && !strings.HasPrefix(a, "--") && strings.ContainsAny(a[:2], "fF") &&
-		a[0] == '-') {
+	if ghAPIBody[name] || gluedBodyFlag(a) {
 		return fmt.Sprintf("gh api %s sends a body", name), true
 	}
 	switch {

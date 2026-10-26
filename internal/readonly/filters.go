@@ -148,18 +148,23 @@ func (g *grepOptions) letter(c rune) error {
 	return nil
 }
 
+// letters sets the flags of a cluster of option letters.
+func (g *grepOptions) letters(cluster string) error {
+	for _, c := range cluster {
+		if err := g.letter(c); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 // add reads one argument: a cluster of flags before the pattern, the pattern, or a file.
 func (g *grepOptions) add(a string) error {
 	switch {
 	case a == "--":
 		return nil
 	case len(a) > 1 && a[0] == '-' && !g.havePattern:
-		for _, c := range a[1:] {
-			if err := g.letter(c); err != nil {
-				return err
-			}
-		}
-		return nil
+		return g.letters(a[1:])
 	case !g.havePattern:
 		g.pattern, g.havePattern = a, true
 		return nil
