@@ -779,6 +779,11 @@ configuration file. Disconnecting a host deletes its file.
   (`auto_continue`), choose merge/squash/rebase, and set the attempts. Reads of the host are
   conditional (ETag), slow down while nothing moves and back off when the host limits them. A merge done on the host's own page is noticed too. To try it end to end against a
   real repository, see [docs/PR-CI-MANUAL-TEST.md](PR-CI-MANUAL-TEST.md).
+- **All the pull requests at a glance.** **Pull requests** in the sidebar lists the open pull
+  requests of every project's repository (`GET /v1/pull-requests`): the CI of each (passed of
+  total checks), whether the host would merge it (behind, conflict, blocked, draft) and the
+  session that follows it. Failing ones come first. The gateway remembers the answer for 30 seconds;
+  the refresh button asks the hosts again.
 
 ### Background agents, side by side
 
