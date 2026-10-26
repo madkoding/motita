@@ -73,6 +73,8 @@ export interface SessionInfo {
   // agents_running counts the background agents the session's run started that are still
   // working. Older gateways do not send it.
   agents_running?: number;
+  // awaiting_approval is set while the run is blocked on a question about a command.
+  awaiting_approval?: boolean;
   // provider and model are what this session's next turn runs with: each session keeps its own.
   // Older gateways do not send them.
   provider?: string;
