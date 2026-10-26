@@ -79,6 +79,9 @@ func createAttachment(dir, name string) (*os.File, string, error) {
 		if i > 1 {
 			candidate = stem + "-" + strconv.Itoa(i) + ext
 		}
+		if !validArtifactName(candidate) {
+			return nil, "", errors.New("the attachment name is not valid")
+		}
 		f, err := os.OpenFile(filepath.Join(dir, candidate), os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o644)
 		if err == nil {
 			return f, candidate, nil
@@ -131,7 +134,7 @@ func (s *Server) handleUploadAttachment(w http.ResponseWriter, r *http.Request) 
 	n, err := io.Copy(f, http.MaxBytesReader(w, r.Body, maxAttachmentBytes))
 	_ = f.Close()
 	if err != nil || n == 0 {
-		_ = os.Remove(filepath.Join(dir, saved))
+		_ = os.Remove(f.Name())
 		if n == 0 && err == nil {
 			writeError(w, http.StatusBadRequest, "the attachment is empty")
 			return

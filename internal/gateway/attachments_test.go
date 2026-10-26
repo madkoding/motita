@@ -120,3 +120,9 @@ func TestAttachmentFolderThatIsAFileIsRefused(t *testing.T) {
 		t.Fatalf("blocked folder = %d", w.Code)
 	}
 }
+
+func TestAttachmentNameThatIsNotAPlainNameIsRefused(t *testing.T) {
+	if _, _, err := createAttachment(t.TempDir(), "../x"); err == nil {
+		t.Fatal("a name with a separator was accepted")
+	}
+}
