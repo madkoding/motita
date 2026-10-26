@@ -160,6 +160,18 @@ func removeTree(dir string) error {
 // every <tools>/tools/<name>/bin that exists. It is read on every call, so a toolchain
 // unpacked in one round is on PATH in the next.
 func ToolPath(tools, path string) string {
+	return joinToolPath(tools, path, false)
+}
+
+// ToolPathLast is ToolPath with the tools directory's bin directories BEHIND path. The anchor uses
+// it: the directory is written by the agent, so a `make`, `go` or `npm` the agent dropped there must
+// not shadow the system's one - a shim that exits 0 would be a PASS nobody earned. A tool only the
+// tools directory has is still found, because it is only behind path, not gone.
+func ToolPathLast(tools, path string) string {
+	return joinToolPath(tools, path, true)
+}
+
+func joinToolPath(tools, path string, last bool) string {
 	if strings.TrimSpace(tools) == "" {
 		return path
 	}
@@ -176,7 +188,11 @@ func ToolPath(tools, path string) string {
 		}
 	}
 	if path != "" {
-		dirs = append(dirs, path)
+		if last {
+			dirs = append([]string{path}, dirs...)
+		} else {
+			dirs = append(dirs, path)
+		}
 	}
 	return strings.Join(dirs, string(os.PathListSeparator))
 }
@@ -185,6 +201,16 @@ func ToolPath(tools, path string) string {
 // directory's bin directories in front of its PATH. It is for the commands that run outside the
 // sandbox - the anchor without one - which inherit the environment instead of building it.
 func ToolEnvironment(tools string, env []string) []string {
+	return toolEnvironment(tools, env, false)
+}
+
+// ToolEnvironmentLast is ToolEnvironment with the tools directory behind the system PATH (see
+// ToolPathLast).
+func ToolEnvironmentLast(tools string, env []string) []string {
+	return toolEnvironment(tools, env, true)
+}
+
+func toolEnvironment(tools string, env []string, last bool) []string {
 	if env == nil {
 		env = os.Environ()
 	}
@@ -197,7 +223,7 @@ func ToolEnvironment(tools string, env []string) []string {
 		}
 		out = append(out, kv)
 	}
-	return append(out, "PATH="+ToolPath(tools, path))
+	return append(out, "PATH="+joinToolPath(tools, path, last))
 }
 
 // LookTool returns the absolute path of name in the tools directory's bin directories, or name
@@ -205,11 +231,22 @@ func ToolEnvironment(tools string, env []string) []string {
 // against the PARENT's PATH, not the one handed to the child, so a tool the agent installed would
 // not be found by name without this.
 func LookTool(tools, name string) string {
+	return lookTool(ToolPath(tools, ""), name)
+}
+
+// LookToolLast is LookTool for the anchor: the program is looked up on the process' own PATH
+// first and only then in the tools directory, so a shim there cannot replace a system tool.
+func LookToolLast(tools, name string) string {
+	return lookTool(ToolPathLast(tools, os.Getenv("PATH")), name)
+}
+
+func lookTool(path, name string) string {
 	if strings.ContainsRune(name, os.PathSeparator) {
 		return name
 	}
-	for _, dir := range filepath.SplitList(ToolPath(tools, "")) {
+	for _, dir := range filepath.SplitList(path) {
 		candidate := filepath.Join(dir, name)
+		// #nosec G703 -- a PATH lookup, read-only.
 		if info, err := os.Stat(candidate); err == nil && !info.IsDir() && info.Mode()&0o111 != 0 {
 			return candidate
 		}

@@ -440,7 +440,7 @@ func (a *Agent) newChild(place childPlace, role, tier string) *Agent {
 	child.research = place.branch == "" || !writes(role)
 	// The gate the main agent's task started with: a background agent cannot pass a gate it or
 	// the main agent rewrote any more than the main agent can.
-	child.gate = a.gate
+	child.gate, child.gateTests = a.gate, a.gateTests
 	child.fleet = a.fleet
 	child.Progress = func(format string, args ...any) { child.noteActivity(fmt.Sprintf(format, args...)) }
 	return child
@@ -715,6 +715,14 @@ func (a *Agent) gateFingerprint() string {
 	return anchor.New(a.cfg.Anchor, a.cfg.Agent.WorkspaceDir, nil).GateFingerprint()
 }
 
+// testCount is how many tests the project declares now (0 unless anchor kind is auto).
+func (a *Agent) testCount() int {
+	if !strings.EqualFold(a.cfg.Anchor.Kind, "auto") {
+		return 0
+	}
+	return anchor.New(a.cfg.Anchor, a.cfg.Agent.WorkspaceDir, nil).TestCount()
+}
+
 // guardGate refuses a PASS from a gate that changed during the task.
 //
 // With kind auto the gate is read from files the model can write: a run that rewrote its
@@ -726,8 +734,8 @@ func (a *Agent) guardGate(ctx context.Context, v anchor.Result) anchor.Result {
 	if !v.Pass || a.gate == "" {
 		return v
 	}
-	now := a.gateFingerprint()
-	if now == a.gate {
+	now, tests := a.gateFingerprint(), a.testCount()
+	if now == a.gate && tests >= a.gateTests {
 		return v
 	}
 	var lines []string
@@ -736,12 +744,12 @@ func (a *Agent) guardGate(ctx context.Context, v anchor.Result) anchor.Result {
 	}
 	gate := strings.Join(lines, " && ")
 	approved, err := a.approve(ctx, RequestPlan{
-		Reason: "the project's gate (.motita/anchor, Makefile or package.json scripts) changed during this run, " +
-			"and it passed; accept a PASS from the changed gate?",
+		Reason: "the project's gate (.motita/anchor, Makefile, the scripts and config it runs, or the tests " +
+			"themselves) changed during this run, and it passed; accept a PASS from the changed gate?",
 		Rule: GateRule,
 	}, "accept PASS from the changed gate: "+gate)
 	if err == nil && approved {
-		a.gate = now
+		a.gate, a.gateTests = now, tests
 		return v
 	}
 	why := "the user did not approve it"
@@ -749,7 +757,8 @@ func (a *Agent) guardGate(ctx context.Context, v anchor.Result) anchor.Result {
 		why = err.Error()
 	}
 	v.Pass = false
-	v.Reason = "the project's gate changed during this run (.motita/anchor, the Makefile or package.json scripts), " +
+	v.Reason = "the project's gate changed during this run (.motita/anchor, the Makefile, package.json scripts, " +
+		"the files they run, or fewer tests than the task started with), " +
 		"and a PASS from a gate the run itself rewrote is not accepted: " + why +
 		". Restore the gate as it was, or have the user approve the new one"
 	a.log.Warn("a PASS from a changed gate was refused", "gate", gate, "reason", why)

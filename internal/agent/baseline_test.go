@@ -411,3 +411,51 @@ func TestADirectoryWithNoGateEndsUnverifiedNotFailed(t *testing.T) {
 		t.Errorf("anchor.kind=none must still fail: %+v", got)
 	}
 }
+
+// TestARunCannotBuyAPassByDeletingTests: a PASS over fewer tests than the task started with is put
+// to the user like a changed gate, while adding tests is not. A configured anchor has no test floor.
+func TestARunCannotBuyAPassByDeletingTests(t *testing.T) {
+	e := mount(t, idleServer(t), config.Anchor{Kind: "auto", Timeout: 10 * time.Second}, nil)
+	a := e.agent
+	if err := os.MkdirAll(e.dir+"/.motita", 0o755); err != nil {
+		t.Fatal(err)
+	}
+	put := func(name, body string) {
+		t.Helper()
+		if err := os.WriteFile(e.dir+"/"+name, []byte(body), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	put(".motita/anchor", "true\n")
+	put("a_test.go", "func TestA() {}\nfunc TestB() {}\n")
+	a.gate, a.gateTests = a.gateFingerprint(), a.testCount()
+	if a.gateTests != 2 {
+		t.Fatalf("expected 2 tests, got %d", a.gateTests)
+	}
+	asked, answer := 0, false
+	a.SetApprover(func(_ context.Context, req ApprovalRequest) (bool, error) {
+		asked++
+		return answer, nil
+	})
+	ctx := context.Background()
+	put("b_test.go", "func TestC() {}\n")
+	if got := a.validateClaim(ctx, nil); !got.Pass || asked != 0 {
+		t.Fatalf("adding tests is not a finding: %+v, asked %d", got, asked)
+	}
+	put("a_test.go", "")
+	put("b_test.go", "")
+	if got := a.validateClaim(ctx, nil); got.Pass || asked != 1 || !strings.Contains(got.Reason, "fewer tests") {
+		t.Fatalf("emptied tests must be refused on a no: %+v, asked %d", got, asked)
+	}
+	answer = true
+	if got := a.validateClaim(ctx, nil); !got.Pass {
+		t.Fatalf("a yes accepts the lower floor: %+v", got)
+	}
+	if got := a.validateClaim(ctx, nil); !got.Pass || asked != 2 {
+		t.Fatalf("the approved floor is not asked again: %+v, asked %d", got, asked)
+	}
+	a.cfg.Anchor = config.Anchor{Kind: "command", Command: "true", Timeout: 5 * time.Second}
+	if a.testCount() != 0 {
+		t.Error("a configured anchor has no test floor")
+	}
+}

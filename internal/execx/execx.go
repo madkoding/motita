@@ -36,6 +36,10 @@ type Request struct {
 	// anywhere and is given git's logins, but still cannot read motita's configuration, stored
 	// keys and model logins: the user approved the command, not handing those to it.
 	Approved bool
+	// SystemToolsFirst puts the system's directories ahead of the tools directory on PATH. The
+	// anchor sets it: the tools directory is written by the agent, and the programs a gate runs
+	// (make, go, npm...) must be the system's, not a stand-in the run left there.
+	SystemToolsFirst bool
 }
 
 // limitedBuffer accumulates up to max bytes and marks whether anything was cut,

@@ -474,7 +474,7 @@ func (s *Sandbox) prepare(p execx.Request, extraEnv []string) (preparedRun, erro
 		Args:        append([]string(nil), p.Args...),
 		Dir:         workDir,
 		Limits:      s.runLimits(p),
-		Environment: withVariables(s.environmentWithTmp(tempDir, !confine || p.Approved), extraEnv),
+		Environment: withVariables(s.environmentWithTmp(tempDir, !confine || p.Approved, p.SystemToolsFirst), extraEnv),
 	}
 
 	switch {
@@ -898,10 +898,15 @@ func (s *Sandbox) newRunGroup() *runGroup {
 // where they live). Only a command the user approved, or one that is not
 // confined at all, gets them: the helper hands a token to whoever asks, and a
 // confined command is one nobody looked at.
-func (s *Sandbox) environmentWithTmp(tempDir string, logins bool) []string {
+func (s *Sandbox) environmentWithTmp(tempDir string, logins, systemFirst bool) []string {
 	path, home := s.commandPath(), s.base
 	if tools := s.toolsDir(); tools != "" {
-		path, home = ToolPath(tools, path), s.Home()
+		if systemFirst {
+			path = ToolPathLast(tools, path)
+		} else {
+			path = ToolPath(tools, path)
+		}
+		home = s.Home()
 	}
 	base := []string{
 		"PATH=" + path,
@@ -965,7 +970,7 @@ func windowsEnvironment(tempDir, home string) []string {
 // environment is the environment without a temporary directory of its own (for
 // the isolation process, which does not need TMPDIR nor git's logins).
 func (s *Sandbox) environment() []string {
-	return s.environmentWithTmp(s.base, false)
+	return s.environmentWithTmp(s.base, false, false)
 }
 
 // limitedBuffer accumulates up to max bytes and flags whether there was a cut.

@@ -14,6 +14,7 @@ import (
 	"strconv"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"github.com/madkoding/motita/internal/config"
 	"github.com/madkoding/motita/internal/execx"
@@ -77,11 +78,10 @@ type Anchor struct {
 // New builds an anchor. The sandbox is optional: when it is nil, the checks run
 // directly on the system.
 //
-// Design note: the anchor is the authority, so by default it runs its checks
-// OUTSIDE the agent's sandbox. If the sandbox had a flaw, the validator would
-// share it, and a validator that fails silently lets bad results through. When a
-// sandbox is passed in, it is because the caller decided to isolate validation
-// too (for instance with the sandbox in chroot mode).
+// Design note: with a nil sandbox the anchor runs its checks directly on the system.
+// The agent loop passes its sandbox (validateClaim), so in practice the checks run
+// confined like the agent's own commands; with sandbox.kind=none they run with the
+// process' full privileges. Either way the code under test is code the agent wrote.
 func New(cfg config.Anchor, dir string, box *sandbox.Sandbox) *Anchor {
 	return &Anchor{cfg: cfg, dir: dir, sandbox: box, log: logx.Global()}
 }
@@ -149,7 +149,7 @@ func (a *Anchor) Validate(ctx context.Context) Result {
 	}
 
 	if res.Pass {
-		res.Reason = fmt.Sprintf("%d check(s) passed", len(res.Checks))
+		a.describePass(&res, checks)
 	} else {
 		var failed []string
 		for _, c := range res.Checks {
@@ -170,6 +170,30 @@ func (a *Anchor) Validate(ctx context.Context) Result {
 		a.log.Warn("anchor validation", fields...)
 	}
 	return res
+}
+
+// describePass words a PASS. `go test ./...` over no test files exits 0: green, and nothing was
+// run, so that PASS is marked unverified.
+func (a *Anchor) describePass(res *Result, checks []config.Check) {
+	res.Reason = fmt.Sprintf("%d check(s) passed", len(res.Checks))
+	if a.vacuous(checks) {
+		res.Unverified = true
+		res.Reason += ", but the tree declares no tests, so nothing was actually verified"
+	}
+}
+
+// vacuous says whether a PASS from kind=auto proves nothing: every check is a bare toolchain test
+// command (the convention, not something the project wrote) and the tree has no tests for it to run.
+func (a *Anchor) vacuous(checks []config.Check) bool {
+	if !strings.EqualFold(a.cfg.Kind, "auto") {
+		return false
+	}
+	for _, c := range checks {
+		if c.Name != "go test" && c.Name != "cargo test" && c.Name != "pytest" {
+			return false
+		}
+	}
+	return a.TestCount() == 0
 }
 
 // Planned returns the checks Validate would run right now, without running them.
@@ -418,13 +442,15 @@ func (a *Anchor) runCheck(ctx context.Context, c config.Check) CheckLog {
 		Args:    c.Args,
 		Dir:     a.dir,
 		Timeout: timeout,
+		// The tools directory is written by the agent: its make/go/npm must not shadow the system's.
+		SystemToolsFirst: true,
 	}
 	if a.sandbox != nil {
 		output, truncated, exit, runErr = a.sandbox.Run(ctx, request)
 	} else {
 		if a.tools != "" {
-			request.Environment = sandbox.ToolEnvironment(a.tools, nil)
-			request.Command = sandbox.LookTool(a.tools, request.Command)
+			request.Environment = sandbox.ToolEnvironmentLast(a.tools, nil)
+			request.Command = sandbox.LookToolLast(a.tools, request.Command)
 		}
 		output, truncated, exit, runErr = runDirect(ctx, request)
 	}
@@ -479,6 +505,10 @@ func runDirect(ctx context.Context, r execx.Request) (string, bool, int, error) 
 func truncate(s string, max int) string {
 	if len(s) <= max {
 		return s
+	}
+	// Back off to a rune boundary: cutting inside a multi-byte character leaves invalid UTF-8.
+	for max > 0 && !utf8.RuneStart(s[max]) {
+		max--
 	}
 	return s[:max] + "..."
 }

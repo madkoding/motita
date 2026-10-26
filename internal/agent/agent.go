@@ -165,6 +165,9 @@ type Agent struct {
 	// gate is the fingerprint of the project's gate (anchor kind auto) as the task found it; a
 	// background agent inherits its main agent's. See guardGate.
 	gate string
+	// gateTests is how many tests the tree declared when the task started (see anchor.TestCount):
+	// a PASS over fewer is a PASS the run may have bought by deleting tests.
+	gateTests int
 }
 
 // SetObserver allows external callers (such as the TUI) to register a callback
