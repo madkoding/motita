@@ -11,7 +11,12 @@ import type { Api } from "./prApi";
 import { mergeBlockedLabel } from "./appFormat";
 import { ModalBackdrop } from "./ModalBackdrop";
 import { IconClose, IconPullRequest, IconRefresh, IconSpinner } from "./icons";
-import { closePullRequests, usePullRequestsOpen } from "./pullRequestsOpen";
+import {
+  closePullRequests,
+  reloadPullRequests,
+  usePullRequestsOpen,
+  usePullRequestsReloads,
+} from "./pullRequestsOpen";
 import {
   canUpdate,
   ciBadge,
@@ -49,15 +54,21 @@ function ciWord(state: string): string {
 
 const itemKey = (i: PRItem) => i.repo + "#" + i.pr.number;
 
-function Row({
-  item,
-  updating,
-  onUpdate,
-}: {
-  item: PRItem;
-  updating: boolean;
-  onUpdate: (item: PRItem) => void;
-}) {
+function Row({ item }: { item: PRItem }) {
+  const { api } = useApp();
+  const [updating, setUpdating] = useState(false);
+  const [failure, setFailure] = useState("");
+  const update = async () => {
+    setUpdating(true);
+    try {
+      await updatePRBranch(api as Api, item);
+      setFailure("");
+      reloadPullRequests();
+    } catch (e) {
+      setFailure(errorMessage(e));
+    }
+    setUpdating(false);
+  };
   const ci = ciBadge(item);
   const note = mergeNote(item);
   return (
@@ -84,6 +95,11 @@ function Row({
         {item.project} · {item.repo}
         {item.pr.head && " · " + item.pr.head + " → " + (item.pr.base ?? "")}
       </p>
+      {failure && (
+        <p class="text-xs text-danger mt-1" data-testid="pr-update-error">
+          {failure}
+        </p>
+      )}
       <div class="flex flex-wrap gap-1.5 mt-2 empty:hidden">
         {note && (
           <span class={TAG + " " + TONE.wait} data-testid="pr-merge">
@@ -97,7 +113,7 @@ function Row({
             }
             data-testid="pr-update"
             disabled={updating}
-            onClick={() => onUpdate(item)}
+            onClick={() => void update()}
           >
             {choose(updating, t("Updating…"), t("Update branch"))}
           </button>
@@ -116,15 +132,7 @@ function Row({
   );
 }
 
-function Body({
-  list,
-  updating,
-  onUpdate,
-}: {
-  list: PRList;
-  updating: Set<string>;
-  onUpdate: (item: PRItem) => void;
-}) {
+function Body({ list }: { list: PRList }) {
   const items = failingFirst(list.pull_requests);
   return (
     <>
@@ -135,12 +143,7 @@ function Body({
       )}
       <ul class="space-y-2">
         {items.map((i) => (
-          <Row
-            key={itemKey(i)}
-            item={i}
-            updating={updating.has(itemKey(i))}
-            onUpdate={onUpdate}
-          />
+          <Row key={itemKey(i)} item={i} />
         ))}
       </ul>
       {(list.problems ?? []).map((p) => (
@@ -162,7 +165,7 @@ export function PullRequestsModal() {
   const [list, setList] = useState<PRList | null>(null);
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
-  const [updating, setUpdating] = useState(new Set<string>());
+  const reloads = usePullRequestsReloads();
   const load = useCallback(
     async (refresh: boolean) => {
       if (!api) {
@@ -188,23 +191,11 @@ export function PullRequestsModal() {
     const id = setInterval(() => void load(false), PR_LIST_POLL_MS);
     return () => clearInterval(id);
   }, [open, load]);
-  const runUpdate = async (item: PRItem) => {
-    setUpdating((u) => new Set(u).add(itemKey(item)));
-    try {
-      await updatePRBranch(api as Api, item);
-      await load(true);
-    } catch (e) {
-      setError(errorMessage(e));
+  useEffect(() => {
+    if (open && reloads > 0) {
+      void load(true);
     }
-    setUpdating((u) => {
-      const next = new Set(u);
-      next.delete(itemKey(item));
-      return next;
-    });
-  };
-  function update(item: PRItem) {
-    void runUpdate(item);
-  }
+  }, [reloads]);
   if (!open) {
     return null;
   }
@@ -244,7 +235,7 @@ export function PullRequestsModal() {
               {error}
             </p>
           )}
-          {list && <Body list={list} updating={updating} onUpdate={update} />}
+          {list && <Body list={list} />}
         </div>
       </div>
     </ModalBackdrop>

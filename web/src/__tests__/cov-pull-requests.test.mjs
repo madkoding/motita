@@ -26,6 +26,7 @@ const {
   usePullRequestBadge,
   openPullRequests,
   closePullRequests,
+  reloadPullRequests,
 } = await bundle({
   "PullRequestsModal.tsx": ["PullRequestsModal"],
   "pullRequestsApi.ts": [
@@ -37,7 +38,11 @@ const {
     "updatePRBranch",
   ],
   "usePullRequestBadge.ts": ["usePullRequestBadge"],
-  "pullRequestsOpen.ts": ["openPullRequests", "closePullRequests"],
+  "pullRequestsOpen.ts": [
+    "openPullRequests",
+    "closePullRequests",
+    "reloadPullRequests",
+  ],
 });
 
 const item = (n, over = {}) => ({
@@ -248,7 +253,7 @@ test("the modal updates a branch that is behind and reads the list again", async
   await flush();
   await click(q("pr-update"));
   await flush();
-  assert.match(q("pr-error").textContent, /it conflicts/);
+  assert.match(q("pr-update-error").textContent, /it conflicts/);
   assert.equal(q("pr-update").disabled, false, "it can be tried again");
   await act(() => closePullRequests());
   await m.unmount();
@@ -317,4 +322,15 @@ test("an answer that comes after the badge is gone changes nothing", async () =>
   release();
   await flush();
   assert.equal(api.calls.length, 1, "it asked once and then went quiet");
+});
+
+test("a reload asked for while the overview is closed reads nothing", async () => {
+  const api = fakeApi({
+    "GET /v1/pull-requests": res(200, { pull_requests: [] }),
+  });
+  const m = await mount(AppCtx, { api }, h(PullRequestsModal));
+  await act(() => reloadPullRequests());
+  await flush();
+  assert.equal(api.calls.length, 0);
+  await m.unmount();
 });
