@@ -737,3 +737,25 @@ func TestWithSudoHint(t *testing.T) {
 		}
 	}
 }
+
+// TestWithSudoHintNoNewPrivs: when sudo is stopped by NO_NEW_PRIVS - sudo says so, or this process
+// has the flag - the hint names the cause and the fix and tells the model not to call it done.
+func TestWithSudoHintNoNewPrivs(t *testing.T) {
+	said := `sudo: The "no new privileges" flag is set, which prevents sudo from running as root.`
+	got := withSudoHint("sudo -n true", said, 1)
+	for _, want := range []string{"NoNewPrivileges=yes", "do not retry", "do not report the work as done"} {
+		if !strings.Contains(got, want) {
+			t.Errorf("hint lacks %q: %q", want, got)
+		}
+	}
+
+	old := noNewPrivs
+	t.Cleanup(func() { noNewPrivs = old })
+	noNewPrivs = func() bool { return true }
+	if got := withSudoHint("sudo ls", "sudo: a password is required", 1); !strings.Contains(got, "NoNewPrivileges=yes") {
+		t.Errorf("a gateway with the flag explains it: %q", got)
+	}
+	if got := withSudoHint("ls", "boom", 1); got != "boom" {
+		t.Errorf("a command that does not elevate is left alone: %q", got)
+	}
+}

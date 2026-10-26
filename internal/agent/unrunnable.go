@@ -23,7 +23,7 @@ var blockedPattern = regexp.MustCompile(`(?im)(command not found|executable file
 	`vendor/autoload\.php|Could not open input file|curl error \d+|Could not resolve host|` +
 	`Temporary failure in name resolution|getaddrinfo|ENOTFOUND|EAI_AGAIN|ECONNREFUSED|` +
 	`Network is unreachable|Connection timed out|dial tcp .*: (i/o timeout|no such host)|` +
-	`Unable to locate package|could not connect to server)`)
+	`Unable to locate package|could not connect to server|"no new privileges" flag is set)`)
 
 // installCommand is a dependency install, by package manager.
 var installCommand = regexp.MustCompile(`^(composer|npm|pnpm|yarn|bun|pip3?|poetry|uv|bundle)\s+` +
@@ -113,7 +113,10 @@ func blockedNote(blocked []verifRecord) string {
 		"allow it (no network, a tool that cannot be installed), STOP trying to get around it: report " +
 		"\"done\": true with \"notes\" that start with \"NOT VALIDATED:\", name the check and the cause, and " +
 		"say what you did verify another way, if anything. The result is then \"not validated\", and that " +
-		"is an honest result.")
+		"is an honest result. Never present it as resolved because the commands and patches are \"prepared\": " +
+		"if something must be changed outside this session (a service unit, a setting, a file you cannot " +
+		"write), the notes name that exact change and where to make it, and say plainly that the work is " +
+		"NOT applied.")
 	return b.String()
 }
 

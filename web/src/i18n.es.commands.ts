@@ -14,6 +14,8 @@ const commands: Record<string, string> = {
     "Se ejecutarán en tu computador comandos que nunca viste, uno tras otro, sin nadie que los detenga.",
   "A command shaped by instructions hidden in a web page or a repository would run before you see it.":
     "Un comando influido por instrucciones escondidas en una página web o en un repositorio se ejecutaría antes de que lo veas.",
+  "sudo cannot work here: Motita was started with NO_NEW_PRIVS (NoNewPrivs: 1), which no command can take off. To fix it, remove NoNewPrivileges=yes from Motita's systemd unit (or run the container without no-new-privileges) and restart it.":
+    "sudo no puede funcionar aquí: Motita se inició con NO_NEW_PRIVS (NoNewPrivs: 1), que ningún comando puede quitar. Para arreglarlo, quita NoNewPrivileges=yes de la unit de systemd de Motita (o ejecuta el contenedor sin no-new-privileges) y reinícialo.",
 };
 
 export default commands;

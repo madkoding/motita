@@ -62,6 +62,10 @@ type securityView struct {
 	// desktop for it here ("" when there is one).
 	DesktopControl bool   `json:"desktop_control"`
 	DesktopReason  string `json:"desktop_reason,omitempty"`
+	// NoNewPrivs says the gateway itself runs with NO_NEW_PRIVS, which every command inherits: sudo
+	// cannot work, approved or not. NoNewPrivsHint is the exact fix.
+	NoNewPrivs     bool   `json:"no_new_privs,omitempty"`
+	NoNewPrivsHint string `json:"no_new_privs_hint,omitempty"`
 }
 
 // securityChange is what PUT /v1/security takes: a disk access, the unconfined-runs choice, the
@@ -169,6 +173,8 @@ var (
 	networkAvailable     = sandbox.NetworkIsolationAvailable
 	networkReason        = sandbox.NetworkIsolationReason
 	networkHint          = sandbox.NetworkIsolationHint
+	noNewPrivs           = sandbox.NoNewPrivs
+	noNewPrivsHint       = sandbox.NoNewPrivsHint
 )
 
 // probeDesktop says why this computer has no desktop for the agent, or nil when it has one.
@@ -212,6 +218,9 @@ func (s *Server) writeSecurity(w http.ResponseWriter) {
 	}
 	if !view.NetworkEnforced {
 		view.NetworkReason, view.NetworkHint = networkReason(), networkHint()
+	}
+	if noNewPrivs() {
+		view.NoNewPrivs, view.NoNewPrivsHint = true, noNewPrivsHint
 	}
 	view.DesktopControl = cfg.Agent.DesktopControl
 	if err := desktopProbe(); err != nil {

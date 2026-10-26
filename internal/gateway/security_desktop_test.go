@@ -67,3 +67,29 @@ func TestDesktopControlThatCannotBeWritten(t *testing.T) {
 		t.Errorf("PUT = %d %s, want 500", w.Code, w.Body.String())
 	}
 }
+
+// withNoNewPrivs makes this gateway answer whether it runs with NO_NEW_PRIVS.
+func withNoNewPrivs(t *testing.T, on bool) {
+	t.Helper()
+	old := noNewPrivs
+	t.Cleanup(func() { noNewPrivs = old })
+	noNewPrivs = func() bool { return on }
+}
+
+// A gateway that has NO_NEW_PRIVS says so on the security page, with the fix; one that does not
+// leaves both out.
+func TestSecurityViewReportsNoNewPrivs(t *testing.T) {
+	withConfinement(t, false)
+	path := networkConfig(t, "sandbox:\n  kind: none\n")
+	srv := newTestServer(t, &fakeService{}, func(o *Options) { o.ConfigPath = path })
+
+	withNoNewPrivs(t, true)
+	v := decodeSecurity(t, get(t, srv, "/v1/security", testToken))
+	if !v.NoNewPrivs || !strings.Contains(v.NoNewPrivsHint, "NoNewPrivileges=yes") {
+		t.Fatalf("GET = %+v, want the flag and its fix", v)
+	}
+	withNoNewPrivs(t, false)
+	if v := decodeSecurity(t, get(t, srv, "/v1/security", testToken)); v.NoNewPrivs || v.NoNewPrivsHint != "" {
+		t.Fatalf("GET = %+v, want neither", v)
+	}
+}

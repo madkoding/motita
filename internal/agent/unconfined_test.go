@@ -89,9 +89,14 @@ func TestApproveAllCommandsReachesThePolicyMode(t *testing.T) {
 	if !a.policyMode().ApproveAll {
 		t.Fatal("the setting must reach the mode")
 	}
+	// sudo cannot gain privileges under the confinement (NO_NEW_PRIVS), so it runs as an approved
+	// line would; what does not elevate keeps the sandbox.
 	p := a.planRequest("sudo ls")
-	if p.Verdict != policy.Allow || p.Request.Unconfined {
-		t.Errorf("sudo ls: got %s, unconfined %v; want allow, still confined", p.Verdict, p.Request.Unconfined)
+	if p.Verdict != policy.Allow || !p.Request.Unconfined || !p.Request.Approved {
+		t.Errorf("sudo ls: got %s, %+v; want allow, approved and unconfined", p.Verdict, p.Request)
+	}
+	if p := a.planRequest("rm -rf build"); p.Request.Unconfined || p.Request.Approved {
+		t.Errorf("rm -rf build: %+v must keep its sandbox", p.Request)
 	}
 	if p := a.planRequest("mkfs.ext4 /dev/sda1"); p.Verdict != policy.Deny {
 		t.Errorf("the mandatory floor: got %s", p.Verdict)

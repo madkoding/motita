@@ -78,6 +78,10 @@ func (a *Agent) SetApprover(fn Approver) { a.approver = fn }
 // Landlock). A variable so the tests can stand on a platform without it.
 var confinementAvailable = sandbox.ConfinementAvailable
 
+// noNewPrivs says whether this process has NO_NEW_PRIVS set. A variable so the tests stand on a
+// machine that has it, or does not, whatever runs them.
+var noNewPrivs = sandbox.NoNewPrivs
+
 // policyMode is the operator's policy configuration, as the agent applies it.
 func (a *Agent) policyMode() policy.Mode {
 	shell := shellFor(a.cfg)
@@ -199,7 +203,7 @@ func (a *Agent) planRequest(command string) RequestPlan {
 	// let the second half run. The mandatory floor is applied inside, on the raw text,
 	// before anything is classified.
 	d := mode.DecideLine(command, dir)
-	return RequestPlan{
+	plan := RequestPlan{
 		// With the policy off nobody is confirming anything, and confining would be a second
 		// policy the operator switched off.
 		Request: execx.Request{Command: shell, Args: execx.ShellArgs(shell, command), Timeout: timeout,
@@ -209,6 +213,12 @@ func (a *Agent) planRequest(command string) RequestPlan {
 		Rule:      d.Rule,
 		Mandatory: d.Mandatory,
 	}
+	// "Allow all commands" is the person saying yes to every line beforehand, so a line that gains
+	// privileges runs as an approved one would: confined, NO_NEW_PRIVS would stop sudo cold.
+	if mode.ApproveAll && d.Verdict == policy.Allow && policy.Elevates(command) {
+		approveRequest(&plan.Request, command)
+	}
+	return plan
 }
 
 // approveRequest marks a request as one a person allowed by name. It writes anywhere and gets git's
@@ -233,6 +243,11 @@ func withSudoHint(command, output string, exit int) string {
 		return output
 	}
 	low := strings.ToLower(output)
+	if strings.Contains(low, "no new privileges") || noNewPrivs() {
+		return output + "\n[hint: the command was approved and ran unconfined, but " + sandbox.NoNewPrivsHint +
+			" Nothing in this session can change that: do not retry, and do not report the work as done. " +
+			"Tell the user this exact fix and what is still unapplied]\n"
+	}
 	for _, m := range sudoNoTerminal {
 		if strings.Contains(low, m) {
 			return output + "\n[hint: the command was approved and ran, but sudo needs a password and a " +

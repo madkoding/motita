@@ -105,6 +105,17 @@ export function ApproveAllSetting({
           ]}
         />
       </Row>
+      {view.no_new_privs && (
+        <p
+          class="settings-card-note text-xs text-danger"
+          role="alert"
+          data-testid="security-nnp"
+        >
+          {t(
+            "sudo cannot work here: Motita was started with NO_NEW_PRIVS (NoNewPrivs: 1), which no command can take off. To fix it, remove NoNewPrivileges=yes from Motita's systemd unit (or run the container without no-new-privileges) and restart it.",
+          )}
+        </p>
+      )}
       {asking && (
         <InlineConfirm
           id="settings-approve-all-confirm"
