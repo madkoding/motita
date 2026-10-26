@@ -316,4 +316,5 @@ test("an answer that comes after the badge is gone changes nothing", async () =>
   await m.unmount();
   release();
   await flush();
+  assert.equal(api.calls.length, 1, "it asked once and then went quiet");
 });

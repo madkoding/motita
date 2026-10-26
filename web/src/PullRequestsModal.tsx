@@ -188,7 +188,7 @@ export function PullRequestsModal() {
     const id = setInterval(() => void load(false), PR_LIST_POLL_MS);
     return () => clearInterval(id);
   }, [open, load]);
-  const update = async (item: PRItem) => {
+  const runUpdate = async (item: PRItem) => {
     setUpdating((u) => new Set(u).add(itemKey(item)));
     try {
       await updatePRBranch(api as Api, item);
@@ -201,6 +201,9 @@ export function PullRequestsModal() {
       next.delete(itemKey(item));
       return next;
     });
+  };
+  const update = (item: PRItem) => {
+    void runUpdate(item);
   };
   if (!open) {
     return null;
@@ -241,13 +244,7 @@ export function PullRequestsModal() {
               {error}
             </p>
           )}
-          {list && (
-            <Body
-              list={list}
-              updating={updating}
-              onUpdate={(i) => void update(i)}
-            />
-          )}
+          {list && <Body list={list} updating={updating} onUpdate={update} />}
         </div>
       </div>
     </ModalBackdrop>
