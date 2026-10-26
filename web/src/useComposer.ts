@@ -10,13 +10,8 @@ import type { Stream } from "./useStream";
 import type { ActiveTag, SlashCommand } from "./appTypes";
 import { SLASH_POPUP_MAX, TASK_INPUT_ID } from "./appConst";
 import type { Api } from "./gitApi";
-import {
-  type Attachment,
-  shownWith,
-  uploadAttachment,
-  withAttachments,
-} from "./attachments";
-import { errorMessage } from "./errors";
+import { outgoing } from "./attachments";
+import { useAttachments } from "./useAttachments";
 
 // tagSeq numbers the tags as they are added, so removing one never renames the others.
 let tagSeq = 0;
@@ -111,36 +106,8 @@ export function useComposer({
   // above the textarea. Multiple tags can be active at once.
   const [activeTags, setActiveTags] = useState<ActiveTag[]>([]);
 
-  // Files attached to the message being written: already stored in the session's workspace.
-  const [attachments, setAttachments] = useState<Attachment[]>([]);
-  const [uploading, setUploading] = useState(0);
-  const [attachError, setAttachError] = useState("");
-
-  // attachFiles stores files in the conversation's workspace (opening one when there is none) and
-  // lists them above the field. A file that fails says why and leaves the others alone.
-  const attachFiles = async (files: File[]) => {
-    if (files.length === 0) {
-      return;
-    }
-    setAttachError("");
-    const sid = sessionRef.current || (await startSession());
-    if (!sid) {
-      return;
-    }
-    setUploading((n) => n + files.length);
-    for (const file of files) {
-      try {
-        const saved = await uploadAttachment(api, sid, file);
-        setAttachments((prev) => [...prev, saved]);
-      } catch (e) {
-        setAttachError(errorMessage(e));
-      }
-      setUploading((n) => n - 1);
-    }
-  };
-
-  const removeAttachment = (path: string) =>
-    setAttachments((prev) => prev.filter((a) => a.path !== path));
+  const files = useAttachments(api, sessionRef, startSession);
+  const { attachments } = files;
 
   const isCommandBlocked = (cmdName: string) => blockedBy(activeTags, cmdName);
 
@@ -196,8 +163,7 @@ export function useComposer({
   const clear = () => {
     setInput("");
     setActiveTags([]);
-    setAttachments([]);
-    setAttachError("");
+    files.clearAttachments();
   };
 
   // sendInNewSession opens a conversation for a message typed with none on screen, then sends
@@ -232,14 +198,7 @@ export function useComposer({
       void runShellLine(shellLine);
       return;
     }
-    // What the agent receives names the files; what the conversation draws is the typed text and
-    // their names.
-    const text = withAttachments(typed, attachments);
-    const shown = choose(
-      attachments.length,
-      shownWith(typed, attachments),
-      undefined,
-    );
+    const { text, shown } = outgoing(typed, attachments);
     if (runningRef.current) {
       clear();
       stream.sendWhileRunning(text);
@@ -375,11 +334,7 @@ export function useComposer({
     sendQueued: send,
     shellMode,
     nextSuggestion,
-    attachments,
-    uploading,
-    attachError,
-    attachFiles,
-    removeAttachment,
+    ...files,
   };
 }
 

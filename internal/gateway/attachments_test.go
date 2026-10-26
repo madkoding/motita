@@ -3,6 +3,7 @@ package gateway
 import (
 	"bytes"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -12,7 +13,8 @@ import (
 )
 
 func uploadCall(srv *Server, id, query string, body []byte) *httptest.ResponseRecorder {
-	req, _ := http.NewRequest(http.MethodPost, srv.BaseURL()+"/v1/sessions/"+id+"/attachments"+query, bytes.NewReader(body))
+	url := srv.BaseURL() + "/v1/sessions/" + id + "/attachments" + query
+	req, _ := http.NewRequest(http.MethodPost, url, bytes.NewReader(body))
 	req.Header.Set("Authorization", "Bearer "+testToken)
 	w := httptest.NewRecorder()
 	srv.Handler().ServeHTTP(w, req)
@@ -59,7 +61,8 @@ func TestAttachmentRefusals(t *testing.T) {
 	}
 	dir := filepath.Join(ws, ".motita", "uploads")
 	for i := 0; i < maxAttachments; i++ {
-		_ = os.WriteFile(filepath.Join(dir, "f"+strings.Repeat("x", i%5)+string(rune('a'+i%26))+string(rune('a'+i/26))), []byte("x"), 0o644)
+		name := fmt.Sprintf("f%03d", i)
+		_ = os.WriteFile(filepath.Join(dir, name), []byte("x"), 0o644)
 	}
 	if w := uploadCall(srv, c.id, "?name=more.txt", []byte("x")); w.Code != http.StatusConflict {
 		t.Fatalf("full = %d", w.Code)

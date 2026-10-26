@@ -15,7 +15,9 @@ export interface Attachment {
 
 // MAX_ATTACHMENT_BYTES mirrors the gateway's ceiling, so a file that cannot be kept is refused
 // before its bytes travel.
-export const MAX_ATTACHMENT_BYTES = 200 * 1024 * 1024;
+const BYTES_PER_MB = 1024 * 1024;
+const MAX_ATTACHMENT_MB = 200;
+export const MAX_ATTACHMENT_BYTES = MAX_ATTACHMENT_MB * BYTES_PER_MB;
 
 // sizeLabel is a size a person reads.
 export function sizeLabel(bytes: number): string {
@@ -60,6 +62,18 @@ export function withAttachments(text: string, list: Attachment[]): string {
 export function shownWith(text: string, list: Attachment[]): string {
   const names = "📎 " + list.map((a) => a.name).join(", ");
   return choose(text, text + "\n\n" + names, names);
+}
+
+// outgoing is a message with its files: what the agent receives names them, and what the
+// conversation draws (undefined for a message with none) is the typed text and their names.
+export function outgoing(
+  typed: string,
+  list: Attachment[],
+): { text: string; shown?: string } {
+  return {
+    text: withAttachments(typed, list),
+    shown: choose(list.length, shownWith(typed, list), undefined),
+  };
 }
 
 // filesOf lists the files of a drag or a paste, ignoring anything that is not a file.

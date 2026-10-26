@@ -223,11 +223,12 @@ func (tc *termConn) pumpOutput(term sandbox.TerminalSession) {
 	}
 }
 
-// shellRoutes are the two ways a person types into a session's folder: one command at a time, and
-// the interactive terminal.
+// shellRoutes are the ways a person reaches into a session's folder: one command at a time, the
+// interactive terminal, and a file attached to a message.
 func (s *Server) shellRoutes(mux *http.ServeMux, scoped func(http.HandlerFunc) http.Handler) {
 	mux.Handle("POST /v1/sessions/{id}/shell", scoped(s.handleShell))
 	mux.Handle("GET /v1/sessions/{id}/terminal", scoped(s.handleTerminal))
+	mux.Handle("POST /v1/sessions/{id}/attachments", scoped(s.handleUploadAttachment))
 }
 
 // terminalControl is a text frame from the client.
