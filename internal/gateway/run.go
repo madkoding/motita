@@ -139,7 +139,7 @@ func (r *run) append(event string, payload any) uint64 {
 	if len(r.log) > maxLoggedEvents {
 		drop := len(r.log) - maxLoggedEvents
 		r.log = r.log[drop:]
-		r.dropped += uint64(drop)
+		r.dropped += uint64(drop) // #nosec G115 -- drop is positive: the branch runs only above the ceiling
 	}
 
 	// The delivery is done from the SAME locked section, so an event cannot be handed out before

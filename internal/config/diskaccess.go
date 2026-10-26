@@ -5,6 +5,7 @@ import (
 	"os"
 	"strconv"
 	"strings"
+	"time"
 )
 
 // HOW MUCH OF THE DISK THE AGENT REACHES.
@@ -110,6 +111,13 @@ func SetApproveAllCommands(path string, on bool) error {
 func (t Tx) SetApproveAllCommands(on bool) error {
 	return setBlockKey(t.path, "agent", "approve_all_commands", strconv.FormatBool(on),
 		func(cfg Config) bool { return cfg.Agent.ApproveAllCommands == on })
+}
+
+// SetApprovalTimeout is agent.approval_timeout inside a transaction, with the same checks as
+// SetDiskAccess.
+func (t Tx) SetApprovalTimeout(d time.Duration) error {
+	return setBlockKey(t.path, "agent", "approval_timeout", d.String(),
+		func(cfg Config) bool { return cfg.Agent.ApprovalTimeout == d })
 }
 
 // SetDesktopControl is agent.desktop_control inside a transaction, with the same checks as

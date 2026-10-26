@@ -724,7 +724,8 @@ func (s *Server) approverFor(c *conversation, rn *run) agent.Approver {
 
 		// Off unless agent.approval_timeout is set: a nil channel never fires.
 		var expired <-chan time.Time
-		if wait := c.svc.Config().Agent.ApprovalTimeout; wait > 0 {
+		wait := s.approvalTimeout(c)
+		if wait > 0 {
 			timer := time.NewTimer(wait)
 			defer timer.Stop()
 			expired = timer.C
@@ -734,7 +735,7 @@ func (s *Server) approverFor(c *conversation, rn *run) agent.Approver {
 		case ok := <-p.ch:
 			return ok, nil
 		case <-expired:
-			err := fmt.Errorf("nobody answered within %s: the command was refused", c.svc.Config().Agent.ApprovalTimeout)
+			err := fmt.Errorf("nobody answered within %s: the command was refused", wait)
 			if rn.onDenied != nil {
 				rn.onDenied(req.Command)
 			}
@@ -747,6 +748,18 @@ func (s *Server) approverFor(c *conversation, rn *run) agent.Approver {
 			return false, ctx.Err()
 		}
 	}
+}
+
+// approvalTimeout is how long a question of c waits for its answer, 0 for as long as it takes. The
+// settings page changes it in the file, so the file is asked first: a run already in flight
+// follows the change at its next question.
+func (s *Server) approvalTimeout(c *conversation) time.Duration {
+	if s.opts.ConfigPath != "" {
+		if cfg, err := loadConfig(s.opts.ConfigPath); err == nil {
+			return cfg.Agent.ApprovalTimeout
+		}
+	}
+	return c.svc.Config().Agent.ApprovalTimeout
 }
 
 // handleApproval answers the question of the run in progress IN THIS conversation.

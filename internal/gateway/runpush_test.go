@@ -16,8 +16,9 @@ func TestRunMessageSaysWhatTheRunNeeds(t *testing.T) {
 	for _, kind := range []string{"approval", "done", "error"} {
 		for _, lang := range []i18n.Lang{i18n.EN, i18n.ES} {
 			m := runMessage(lang, kind, "make test", "Login page", "s 1")
-			if !strings.HasSuffix(m.Title, " — Login page") || m.Body == "" || m.Tag != "motita-run-s 1" ||
-				m.URL != "/?session=s+1" || strings.Contains(m.Body, "%") {
+			wrongHead := !strings.HasSuffix(m.Title, " — Login page") || m.Body == ""
+			wrongLink := m.Tag != "motita-run-s 1" || m.URL != "/?session=s+1"
+			if wrongHead || wrongLink || strings.Contains(m.Body, "%") {
 				t.Errorf("%s/%s = %+v", kind, lang, m)
 			}
 		}
@@ -103,5 +104,32 @@ func TestAnApprovalNobodyAnswersIsRefusedAfterTheTimeout(t *testing.T) {
 	}
 	if !denied {
 		t.Error("the refusal was not written to the run's log")
+	}
+}
+
+// TestTheApprovalTimeoutIsSavedFromTheSettings: it is read back as minutes, needs no confirmation
+// (it only narrows what waits), a nonsense value is refused, and a run in flight follows the file.
+func TestTheApprovalTimeoutIsSavedFromTheSettings(t *testing.T) {
+	withConfinement(t, true)
+	path := networkConfig(t, "sandbox:\n  kind: none\n")
+	srv := newTestServer(t, &fakeService{}, func(o *Options) { o.ConfigPath = path })
+	if v := decodeSecurity(t, get(t, srv, "/v1/security", testToken)); v.ApprovalTimeoutMinutes != 0 {
+		t.Fatalf("GET = %+v, want waiting for ever", v)
+	}
+	v := decodeSecurity(t, sendNetwork(t, srv, http.MethodPut, "/v1/security", `{"approval_timeout_minutes":15}`))
+	if v.ApprovalTimeoutMinutes != 15 || mustLoad(t, path).Agent.ApprovalTimeout != 15*time.Minute {
+		t.Fatalf("PUT = %+v", v)
+	}
+	if got := srv.approvalTimeout(srv.sessions[DefaultSession]); got != 15*time.Minute {
+		t.Errorf("a run asks the file: %s", got)
+	}
+	for _, bad := range []string{`{"approval_timeout_minutes":-1}`, `{"approval_timeout_minutes":99999}`} {
+		if w := sendNetwork(t, srv, http.MethodPut, "/v1/security", bad); w.Code != http.StatusBadRequest {
+			t.Errorf("%s = %d, want 400", bad, w.Code)
+		}
+	}
+	v = decodeSecurity(t, sendNetwork(t, srv, http.MethodPut, "/v1/security", `{"approval_timeout_minutes":0}`))
+	if v.ApprovalTimeoutMinutes != 0 {
+		t.Fatalf("back to waiting: %+v", v)
 	}
 }

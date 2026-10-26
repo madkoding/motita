@@ -1,8 +1,10 @@
 package gateway
 
 import (
+	"fmt"
 	"net/http"
 	"strings"
+	"time"
 
 	"github.com/madkoding/motita/internal/config"
 	"github.com/madkoding/motita/internal/desktop"
@@ -53,6 +55,9 @@ type securityView struct {
 	// ApproveAllCommands says the commands the policy would ask about run without asking
 	// (agent.approve_all_commands).
 	ApproveAllCommands bool `json:"approve_all_commands"`
+	// ApprovalTimeoutMinutes is how long a question about a command waits for an answer before it
+	// is refused (agent.approval_timeout); 0 waits as long as it takes.
+	ApprovalTimeoutMinutes int `json:"approval_timeout_minutes"`
 	// NetworkReason says why it cannot, and NetworkHint what would make it possible, when there is
 	// one (Ubuntu 24.04: the AppArmor profile motita installs). Both are empty where it can.
 	NetworkReason string `json:"network_reason,omitempty"`
@@ -68,6 +73,9 @@ type securityView struct {
 	NoNewPrivsHint string `json:"no_new_privs_hint,omitempty"`
 }
 
+// maxApprovalMinutes is the longest approval timeout the settings take: a day.
+const maxApprovalMinutes = 24 * 60
+
 // securityChange is what PUT /v1/security takes: a disk access, the unconfined-runs choice, the
 // network isolation, any of them together, and the confirmation that widening any needs.
 type securityChange struct {
@@ -78,6 +86,9 @@ type securityChange struct {
 	AutoApplySuggestions *bool `json:"auto_apply_suggestions"`
 	// ApproveAllCommands turns on running every command without asking.
 	ApproveAllCommands *bool `json:"approve_all_commands"`
+	// ApprovalTimeoutMinutes sets how long an unanswered question waits; 0 waits for ever. It only
+	// narrows what the agent does unasked, so it needs no confirm.
+	ApprovalTimeoutMinutes *int `json:"approval_timeout_minutes"`
 	// DesktopControl turns on the agent's control of this computer's desktop.
 	DesktopControl *bool `json:"desktop_control"`
 	Confirm        bool  `json:"confirm"`
@@ -99,7 +110,7 @@ func (c securityChange) empty(mode string) bool {
 			return false
 		}
 	}
-	return mode == ""
+	return mode == "" && c.ApprovalTimeoutMinutes == nil
 }
 
 // isTrue and isFalse say a choice was sent and which way.
@@ -113,7 +124,9 @@ func (c securityChange) refusal(mode string) string {
 	switch {
 	case c.empty(mode):
 		return "send disk_access (workspace or full), ask_unconfined_runs, isolate_network, " +
-			"auto_apply_suggestions, approve_all_commands, desktop_control, or several"
+			"auto_apply_suggestions, approve_all_commands, approval_timeout_minutes, desktop_control, or several"
+	case c.ApprovalTimeoutMinutes != nil && (*c.ApprovalTimeoutMinutes < 0 || *c.ApprovalTimeoutMinutes > maxApprovalMinutes):
+		return fmt.Sprintf("approval_timeout_minutes must be between 0 and %d", maxApprovalMinutes)
 	case mode != "" && !config.ValidDiskAccess(mode):
 		return "disk_access must be workspace or full"
 	case mode == config.DiskFull && !c.Confirm:
@@ -167,6 +180,7 @@ var (
 	setIsolateNetwork    = config.Tx.SetIsolateNetwork
 	setAutoApply         = config.Tx.SetAutoApplySuggestions
 	setApproveAll        = config.Tx.SetApproveAllCommands
+	setApprovalTimeout   = config.Tx.SetApprovalTimeout
 	setDesktopControl    = config.Tx.SetDesktopControl
 	desktopProbe         = probeDesktop
 	confinementAvailable = sandbox.ConfinementAvailable
@@ -215,6 +229,8 @@ func (s *Server) writeSecurity(w http.ResponseWriter) {
 
 		AutoApplySuggestions: cfg.Agent.AutoApplySuggestions,
 		ApproveAllCommands:   cfg.Agent.ApproveAllCommands,
+
+		ApprovalTimeoutMinutes: int(cfg.Agent.ApprovalTimeout / time.Minute),
 	}
 	if !view.NetworkEnforced {
 		view.NetworkReason, view.NetworkHint = networkReason(), networkHint()
@@ -325,6 +341,9 @@ func writeSecurityKeys(tx config.Tx, mode string, change securityChange) error {
 		if err := t.write(tx, *t.on); err != nil {
 			return err
 		}
+	}
+	if m := change.ApprovalTimeoutMinutes; m != nil {
+		return setApprovalTimeout(tx, time.Duration(*m)*time.Minute)
 	}
 	return nil
 }

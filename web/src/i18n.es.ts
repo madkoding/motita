@@ -520,6 +520,13 @@ const first: Record<string, string> = {
   "{n} actions": "{n} acciones",
   "{n} agents": "{n} agentes",
   "{n} subagents": "{n} subagentes",
+  "Waiting for an answer": "Esperar la respuesta",
+  "If nobody answers": "Si nadie responde",
+  "A question about a command waits until you answer it. A run you left alone stays stopped until you come back.":
+    "Una pregunta sobre un comando espera hasta que la respondas. Una tarea que dejaste sola queda detenida hasta que vuelvas.",
+  "A question nobody answers within {minutes} minutes is refused and the run goes on without that command.":
+    "Una pregunta que nadie responde en {minutes} minutos se rechaza y la tarea sigue sin ese comando.",
+  "{n} min": "{n} min",
   "Waiting for you": "Esperando tu respuesta",
   "Waiting for your approval": "Esperando tu aprobación para un comando",
   "{n} background agents running": "{n} agentes en segundo plano trabajando",
