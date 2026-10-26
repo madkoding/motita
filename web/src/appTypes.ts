@@ -158,6 +158,8 @@ export interface ProjectInfo {
   pr_max_fixes?: number;
   // auto_merge merges a pull request by itself once its CI passes.
   auto_merge?: boolean;
+  // auto_update_pr brings a pull request up to date by itself when its base branch moved on.
+  auto_update_pr?: boolean;
   // auto_continue opens a new session from the updated branch when a pull request is merged.
   auto_continue?: boolean;
   changes?: number;
@@ -358,6 +360,7 @@ export interface EditProjectDraft {
   mergeMethod: string;
   prMaxFixes: number;
   autoMerge: boolean;
+  autoUpdatePR: boolean;
   autoContinue: boolean;
   // The folder the project is anchored to, and the one picked to move it to ("" keeps it).
   dir: string;

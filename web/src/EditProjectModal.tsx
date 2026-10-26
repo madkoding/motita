@@ -142,6 +142,25 @@ function PullRequestFields({
       <label class="flex items-start gap-2.5 text-sm text-[#e8e8ea] cursor-pointer">
         <input
           type="checkbox"
+          data-testid="edit-project-autoupdate"
+          class="mt-1"
+          checked={p.autoUpdatePR}
+          onChange={(e) =>
+            patch({ autoUpdatePR: (e.target as HTMLInputElement).checked })
+          }
+        />
+        <span>
+          {t("Update the branch when its base moves on")}
+          <span class="block text-xs text-[#7a7a8c]">
+            {t(
+              "The host merges the base into the pull request's branch; nothing is rebased or force-pushed. A conflict is handed to the agent to resolve.",
+            )}
+          </span>
+        </span>
+      </label>
+      <label class="flex items-start gap-2.5 text-sm text-[#e8e8ea] cursor-pointer">
+        <input
+          type="checkbox"
           data-testid="edit-project-autocontinue"
           class="mt-1"
           checked={p.autoContinue}

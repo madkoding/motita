@@ -105,6 +105,8 @@ type prWatchState struct {
 	// matched it: a CI that has not moved is asked about less often.
 	sig  string
 	same int
+	// updatedAt is when the host was last asked to bring the branch up to date with its base.
+	updatedAt time.Time
 	// talk remembers which comments and conflicts were already handed to the agent; its first
 	// reading is the baseline, so what was said before the watch began is not news.
 	talk gitforge.Tracker
@@ -396,8 +398,11 @@ func (s *Server) pollTalk(
 		}
 		s.rememberTalk(c, w)
 	}
-	if m, err := t.api.MergeState(ctx, t.remote, pr.Number); err == nil && w.talk.Conflict(m) && task == "" {
-		task, status = conflictTask(t.branch, pr), prResolving
+	if m, err := t.api.MergeState(ctx, t.remote, pr.Number); err == nil {
+		s.updateBase(ctx, c, w, t, pr, m)
+		if w.talk.Conflict(m) && task == "" {
+			task, status = conflictTask(t.branch, pr), prResolving
+		}
 	}
 	if task == "" {
 		return false

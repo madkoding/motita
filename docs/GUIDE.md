@@ -776,7 +776,8 @@ configuration file. Disconnecting a host deletes its file.
   when the same checks also fail on the base branch, or when there is no CI. A toast (and a
   browser or terminal notification) tells you; **Merge** appears once the host would accept it,
   and a project can merge by itself (`auto_merge`), open the next session by itself
-  (`auto_continue`), choose merge/squash/rebase, and set the attempts. Reads of the host are
+  (`auto_continue`), have the host merge the base into the branch when the base moves on
+  (`auto_update_pr`, never a rebase or force-push; a conflict goes to the agent), choose merge/squash/rebase, and set the attempts. Reads of the host are
   conditional (ETag), slow down while nothing moves and back off when the host limits them. A merge done on the host's own page is noticed too. To try it end to end against a
   real repository, see [docs/PR-CI-MANUAL-TEST.md](PR-CI-MANUAL-TEST.md).
 - **All the pull requests at a glance.** **Pull requests** in the sidebar lists the open pull

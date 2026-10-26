@@ -200,6 +200,7 @@ const DRAFT = {
   mergeMethod: "squash",
   prMaxFixes: 3,
   autoMerge: true,
+  autoUpdatePR: false,
   autoContinue: false,
 };
 
@@ -260,6 +261,7 @@ test("each field of the edit dialog patches the draft", async () => {
     await type(fixes, v);
   }
   await change(m.q("[data-testid=edit-project-automerge]"), false);
+  await change(m.q("[data-testid=edit-project-autoupdate]"), true);
   await change(m.q("[data-testid=edit-project-autocontinue]"), true);
   assert.deepEqual(
     s.log.map((e) => e[1]),
@@ -274,6 +276,7 @@ test("each field of the edit dialog patches the draft", async () => {
       { prMaxFixes: 0 },
       { prMaxFixes: 0 },
       { autoMerge: false },
+      { autoUpdatePR: true },
       { autoContinue: true },
     ],
   );

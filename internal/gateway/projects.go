@@ -326,6 +326,7 @@ type projectUpdate struct {
 	MergeMethod      *string `json:"merge_method"`
 	PRMaxFixes       *int    `json:"pr_max_fixes"`
 	AutoMerge        *bool   `json:"auto_merge"`
+	AutoUpdatePR     *bool   `json:"auto_update_pr"`
 	AutoContinue     *bool   `json:"auto_continue"`
 }
 
@@ -351,6 +352,9 @@ func (u projectUpdate) copyTo(dst, src *Project) {
 	}
 	if u.AutoMerge != nil {
 		dst.AutoMerge = src.AutoMerge
+	}
+	if u.AutoUpdatePR != nil {
+		dst.AutoUpdatePR = src.AutoUpdatePR
 	}
 	if u.AutoContinue != nil {
 		dst.AutoContinue = src.AutoContinue
@@ -378,6 +382,9 @@ func (u projectUpdate) applyPR(w http.ResponseWriter, p *Project) bool {
 	}
 	if u.AutoMerge != nil {
 		p.AutoMerge = *u.AutoMerge
+	}
+	if u.AutoUpdatePR != nil {
+		p.AutoUpdatePR = *u.AutoUpdatePR
 	}
 	if u.AutoContinue != nil {
 		p.AutoContinue = *u.AutoContinue
