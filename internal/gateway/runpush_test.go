@@ -2,6 +2,7 @@ package gateway
 
 import (
 	"context"
+	"errors"
 	"time"
 
 	"github.com/madkoding/motita/internal/agent"
@@ -50,10 +51,21 @@ func TestAnUnwatchedRunReachesThePhoneAndAWatchedOneDoesNot(t *testing.T) {
 		t.Fatalf("watched sent %d, want none more", tr.count())
 	}
 
+	tr.err = errors.New("offline")
+	srv.pushUnwatched(c, newRun("r2", srv.baseCtx, func() {}, ""), "error", "boom") // a refusing push service is logged
+	srv.pushWG.Wait()
+	tr.err = nil
+	c.setTitle("Login page")
+	srv.pushUnwatched(c, newRun("r3", srv.baseCtx, func() {}, ""), "done", "") // a real title is kept in the head
+	srv.pushWG.Wait()
+	if tr.count() != 3 {
+		t.Fatalf("sent %d, want 3", tr.count())
+	}
+
 	srv.unattendedApprover("job")(rn)
 	srv.pushUnwatched(c, rn, "done", "")
 	srv.pushWG.Wait()
-	if tr.count() != 1 || !rn.quiet {
+	if tr.count() != 3 || !rn.quiet {
 		t.Fatalf("a scheduled run sent %d", tr.count())
 	}
 }
@@ -68,6 +80,8 @@ func TestAnApprovalNobodyAnswersIsRefusedAfterTheTimeout(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	rn := newRun("r-timeout", ctx, cancel, "")
+	var friction []string
+	rn.onDenied = func(command string) { friction = append(friction, command) }
 
 	type answer struct {
 		ok  bool
@@ -96,6 +110,9 @@ func TestAnApprovalNobodyAnswersIsRefusedAfterTheTimeout(t *testing.T) {
 	}
 	if conv.status().AwaitingApproval {
 		t.Error("the session still says it waits after the question was refused")
+	}
+	if len(friction) != 1 || friction[0] != "make deploy" {
+		t.Errorf("the refusal was not recorded as friction: %v", friction)
 	}
 	events, _ := rn.since(0)
 	var denied bool
