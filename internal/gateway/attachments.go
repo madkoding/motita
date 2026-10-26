@@ -82,6 +82,7 @@ func createAttachment(root *os.Root, name string) (*os.File, string, error) {
 		if candidate != filepath.Base(candidate) || strings.Contains(candidate, "..") || !validArtifactName(candidate) {
 			return nil, "", errors.New("the attachment name is not valid")
 		}
+		// #nosec G302 G304 G703 -- candidate is a plain name checked above, opened through os.Root, which cannot leave dir.
 		f, err := root.OpenFile(candidate, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o644)
 		if err == nil {
 			return f, candidate, nil
@@ -118,6 +119,7 @@ func (s *Server) handleUploadAttachment(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 	dir := filepath.Join(ws, filepath.FromSlash(AttachmentDir))
+	// #nosec G301 -- the workspace's own folder, like the artifacts one; the agent must read it.
 	if err := os.MkdirAll(dir, 0o755); err != nil || !insideWorkspace(ws, dir) {
 		writeError(w, http.StatusInternalServerError, "the attachments folder cannot be used")
 		return
@@ -140,7 +142,7 @@ func (s *Server) handleUploadAttachment(w http.ResponseWriter, r *http.Request) 
 	n, err := io.Copy(f, http.MaxBytesReader(w, r.Body, maxAttachmentBytes))
 	_ = f.Close()
 	if err != nil || n == 0 {
-		_ = root.Remove(saved)
+		_ = root.Remove(saved) // #nosec G703 -- removed through os.Root, by the name just created.
 		if n == 0 && err == nil {
 			writeError(w, http.StatusBadRequest, "the attachment is empty")
 			return
