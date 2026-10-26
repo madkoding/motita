@@ -382,7 +382,7 @@ type Server struct {
 	// prWatching holds the sessions whose pull request is being followed. See prwatch.go.
 	prMu       sync.Mutex
 	prWatching map[string]bool
-	baseCI     map[string]baseCIEntry
+	prCaches
 	// etags makes the reads of the git hosts conditional; see gitforge.ETagCache.
 	etags gitforge.ETagCache
 	// hosts are the host names, lower-cased, a request's Host header may carry besides an IP
