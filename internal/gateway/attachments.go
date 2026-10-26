@@ -69,9 +69,9 @@ func safeAttachmentName(raw string) string {
 	return name
 }
 
-// createAttachment opens a new file in dir under name, adding -2, -3... before the extension
+// createAttachment opens a new file in root under name, adding -2, -3... before the extension
 // when the name is taken: two screenshots both called image.png must both survive.
-func createAttachment(dir, name string) (*os.File, string, error) {
+func createAttachment(root *os.Root, name string) (*os.File, string, error) {
 	ext := filepath.Ext(name)
 	stem := strings.TrimSuffix(name, ext)
 	for i := 1; ; i++ {
@@ -79,10 +79,10 @@ func createAttachment(dir, name string) (*os.File, string, error) {
 		if i > 1 {
 			candidate = stem + "-" + strconv.Itoa(i) + ext
 		}
-		if !validArtifactName(candidate) {
+		if candidate != filepath.Base(candidate) || strings.Contains(candidate, "..") || !validArtifactName(candidate) {
 			return nil, "", errors.New("the attachment name is not valid")
 		}
-		f, err := os.OpenFile(filepath.Join(dir, candidate), os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o644)
+		f, err := root.OpenFile(candidate, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o644)
 		if err == nil {
 			return f, candidate, nil
 		}
@@ -126,7 +126,13 @@ func (s *Server) handleUploadAttachment(w http.ResponseWriter, r *http.Request) 
 		writeError(w, http.StatusConflict, "this session already holds the most attachments it can")
 		return
 	}
-	f, saved, err := createAttachment(dir, name)
+	root, err := os.OpenRoot(dir)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	defer root.Close()
+	f, saved, err := createAttachment(root, name)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
@@ -134,7 +140,7 @@ func (s *Server) handleUploadAttachment(w http.ResponseWriter, r *http.Request) 
 	n, err := io.Copy(f, http.MaxBytesReader(w, r.Body, maxAttachmentBytes))
 	_ = f.Close()
 	if err != nil || n == 0 {
-		_ = os.Remove(f.Name())
+		_ = root.Remove(saved)
 		if n == 0 && err == nil {
 			writeError(w, http.StatusBadRequest, "the attachment is empty")
 			return

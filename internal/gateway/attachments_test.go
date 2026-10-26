@@ -122,7 +122,12 @@ func TestAttachmentFolderThatIsAFileIsRefused(t *testing.T) {
 }
 
 func TestAttachmentNameThatIsNotAPlainNameIsRefused(t *testing.T) {
-	if _, _, err := createAttachment(t.TempDir(), "../x"); err == nil {
+	root, err := os.OpenRoot(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer root.Close()
+	if _, _, err := createAttachment(root, "../x"); err == nil {
 		t.Fatal("a name with a separator was accepted")
 	}
 }
