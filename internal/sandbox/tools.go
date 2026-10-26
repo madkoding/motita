@@ -246,7 +246,8 @@ func lookTool(path, name string) string {
 	}
 	for _, dir := range filepath.SplitList(path) {
 		candidate := filepath.Join(dir, name)
-		if info, err := os.Stat(candidate); err == nil && !info.IsDir() && info.Mode()&0o111 != 0 { // #nosec G703 -- a PATH lookup, read-only.
+		// #nosec G703 -- a PATH lookup, read-only.
+		if info, err := os.Stat(candidate); err == nil && !info.IsDir() && info.Mode()&0o111 != 0 {
 			return candidate
 		}
 	}
