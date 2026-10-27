@@ -231,10 +231,7 @@ func projectFolderName(w http.ResponseWriter, raw string) (string, bool) {
 		writeError(w, http.StatusBadRequest, "the folder name cannot be empty")
 		return "", false
 	}
-	// A dot inside a name is fine ("my.app"); a path, "..", or a hidden folder is not.
-	if strings.ContainsAny(dirName, "/\\") || strings.HasPrefix(dirName, ".") || strings.HasSuffix(dirName, ".") ||
-		strings.Contains(dirName, "..") ||
-		!filepath.IsLocal(dirName) {
+	if !validProjectFolderName(dirName) {
 		writeError(w, http.StatusBadRequest, "the folder name must be a simple name, not a path")
 		return "", false
 	}
@@ -244,6 +241,15 @@ func projectFolderName(w http.ResponseWriter, raw string) (string, bool) {
 		return "", false
 	}
 	return dirName, true
+}
+
+// validProjectFolderName reports whether name is one folder and not a path: a dot inside it is fine
+// ("my.app"); separators, "..", a hidden folder or a trailing dot (which Windows drops) are not.
+func validProjectFolderName(name string) bool {
+	if strings.ContainsAny(name, "/\\") || strings.Contains(name, "..") {
+		return false
+	}
+	return !strings.HasPrefix(name, ".") && !strings.HasSuffix(name, ".") && filepath.IsLocal(name)
 }
 
 // reservedFolders are the workspace's own folders, which hold the worktrees and folders of every
