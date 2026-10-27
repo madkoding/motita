@@ -734,3 +734,58 @@ func TestPRWaitsForTheChecksTheBaseRuns(t *testing.T) {
 		t.Fatalf("a job the push does not run: %v", ci)
 	}
 }
+
+// TestCreatingAPRMovesOnToTheNextRepositoryWithWork: in a project that holds several repositories,
+// the one that already has its pull request is not offered again while another has work to propose.
+func TestCreatingAPRMovesOnToTheNextRepositoryWithWork(t *testing.T) {
+	srv, host, ss := prSession(t, "https://github.com/o/r.git")
+	connectGitHub(t, srv)
+	branch := sessionBranch(ss.ID)
+	open := func(repo string) string {
+		return `[{"number":7,"html_url":"https://github.com/o/` + repo + `/pull/7","title":"x","head":{"ref":"` +
+			branch + `"},"base":{"ref":"main"}}]`
+	}
+	nested := func(name, origin string, work bool) string {
+		dir := filepath.Join(ss.Workspace, name)
+		gitInit(t, dir)
+		if origin != "" {
+			mustRun(t, "git", "-C", dir, "remote", "add", "origin", origin)
+		}
+		if work {
+			writeIn(t, dir, "new.txt")
+		}
+		return dir
+	}
+	nested("idle", "https://github.com/o/idle.git", false)
+	nested("noremote", "", true)
+	nested("done", "https://github.com/o/done.git", true)
+	web := nested("web", "https://github.com/o/web.git", true)
+	writeIn(t, ss.Workspace, "root.txt")
+	host.set("GET https://api.github.com/repos/o/r/pulls?state=open", open("r"))
+	host.set("GET https://api.github.com/repos/o/done/pulls?state=open", open("done"))
+	host.set("GET https://api.github.com/repos/o/web/pulls?state=open", `[]`)
+	c := srv.conversationOf(ss.ID)
+	ctx := context.Background()
+
+	if _, ok := srv.nextRepoWithoutPR(ctx, c, "done", ss.Workspace); ok {
+		t.Error("a repository the caller named is the answer as it is")
+	}
+	got, ok := srv.nextRepoWithoutPR(ctx, c, "", ss.Workspace)
+	if !ok || got.dir != web {
+		t.Fatalf("next = %q (%v), want web: idle has no work, noremote no origin, done its PR", got.dir, ok)
+	}
+	// With the session's folder itself free of a pull request, it is the one left.
+	// Creating the pull request answers with the next repository, not with the one that has its own.
+	host.set("GET https://api.github.com/repos/o/r/pulls?state=open", open("r"))
+	if w := postJSON(t, srv, sessionPath(srv, ss.ID, "/pr"), testToken, `{}`); w.Code == http.StatusConflict {
+		t.Errorf("creating the pull request of web: %d %s", w.Code, w.Body.String())
+	}
+	host.set("GET https://api.github.com/repos/o/r/pulls?state=open", `[]`)
+	if got, ok := srv.nextRepoWithoutPR(ctx, c, "", web); !ok || got.dir != ss.Workspace {
+		t.Errorf("next = %q (%v), want the session's folder", got.dir, ok)
+	}
+	host.set("GET https://api.github.com/repos/o/web/pulls?state=open", open("web"))
+	if _, ok := srv.nextRepoWithoutPR(ctx, c, "", ss.Workspace); ok {
+		t.Error("every repository with work has its pull request: nothing is left")
+	}
+}

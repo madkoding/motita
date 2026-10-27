@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"net/http"
 	"os/exec"
-	"path/filepath"
 	"strings"
 	"time"
 
@@ -120,6 +119,12 @@ func (s *Server) prTargetOf(ctx context.Context, c *conversation, repo string) (
 		return prTarget{}, &prError{status: http.StatusConflict, code: errPRNoRemote,
 			msg: "there is no git repository in this project's folder, so there is nothing to propose"}
 	}
+	return s.prTargetAt(ctx, c, dir)
+}
+
+// prTargetAt is prTargetOf for the repository at dir.
+func (s *Server) prTargetAt(ctx context.Context, c *conversation, dir string) (prTarget, *prError) {
+	st := s.gitStore()
 	url := s.repoRemote(ctx, c, dir)
 	if url == "" {
 		return prTarget{}, &prError{status: http.StatusConflict, code: errPRNoRemote,
@@ -271,12 +276,8 @@ func (s *Server) nextRepoWithoutPR(ctx context.Context, c *conversation, named, 
 		if dir == current || !repoHasWork(ctx, dir) {
 			continue
 		}
-		name := filepath.Base(dir)
-		if dir == c.workspace {
-			name = "."
-		}
-		t, perr := s.prTargetOf(ctx, c, name)
-		if perr != nil || t.dir != dir {
+		t, perr := s.prTargetAt(ctx, c, dir)
+		if perr != nil {
 			continue
 		}
 		if _, found, err := t.api.FindPR(ctx, t.remote, t.branch); err == nil && !found {
