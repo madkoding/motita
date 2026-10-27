@@ -406,6 +406,27 @@ function useProjectAdmin(
     [fetchProjects],
   );
 
+  // acceptTests takes the project's current number of tests as the one to measure from: the
+  // person looked at the drop and the lower count is meant.
+  const acceptTests = useCallback(
+    async (id: string) => {
+      try {
+        const res = await api(PROJECTS_PATH + id + "/tests/accept", {
+          method: "POST",
+        });
+        if (!res.ok) {
+          const err = await res.json().catch(() => ({}));
+          setState(err.error || "could not accept the tests", true);
+          return;
+        }
+        await fetchProjects();
+      } catch {
+        setState("could not accept the tests", true);
+      }
+    },
+    [api, setState, fetchProjects],
+  );
+
   // rescanNotes writes the notes of one project again in the background, with the model options
   // of the last scan; the sidebar shows how far it got.
   const rescanNotes = useCallback(
@@ -466,7 +487,7 @@ function useProjectAdmin(
     [fetchProjects, fetchSessions],
   );
 
-  return { refreshProjectMain, rescanNotes, deleteProject };
+  return { refreshProjectMain, acceptTests, rescanNotes, deleteProject };
 }
 
 export function useProjects({ api, lists, setState, setToast }: Deps) {
@@ -511,6 +532,7 @@ export function useProjects({ api, lists, setState, setToast }: Deps) {
     ...edit,
     ...git,
     refreshProjectMain: admin.refreshProjectMain,
+    acceptTests: admin.acceptTests,
     rescanNotes: admin.rescanNotes,
     creatingProject: form.creatingProject,
     createProject,

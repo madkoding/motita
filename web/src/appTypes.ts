@@ -152,6 +152,12 @@ export interface ProjectInfo {
   // remote_changes is what origin has that the project's branches do not, as of the gateway's last
   // look; absent when it is up to date.
   remote_changes?: RemoteChange[];
+  // tests_lost is how far the project's tests fell below the most it has had, as of the gateway's
+  // last look; absent when they did not.
+  tests_lost?: { was: number; now: number };
+  // no_gate marks a folder that declares no gate for the anchor to run: its sessions finish
+  // unverified.
+  no_gate?: boolean;
   // nested_repos are the git repositories inside the folder of a project that is not one itself.
   nested_repos?: NestedRepo[];
   // merge_method is how its pull requests are merged from here: merge, squash or rebase.

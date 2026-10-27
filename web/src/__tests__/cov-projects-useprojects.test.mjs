@@ -530,3 +530,32 @@ test("deleting a project reads the lists again, or says why it was refused", asy
   assert.deepEqual(s.counts, { projects: 2, sessions: 2 });
   await s.m.unmount();
 });
+
+test("accepting the lower test count reads the projects again, or says why it could not", async () => {
+  let n = 0;
+  const s = await setup({
+    "POST /v1/projects/p1/tests/accept": () => {
+      n++;
+      if (n === 1) {
+        return res(200, { tests_floor: 3 });
+      }
+      if (n === 2) {
+        return res(404, { error: "no such project" });
+      }
+      if (n === 3) {
+        return res(500, new Error("not json"));
+      }
+      throw new Error("down");
+    },
+  });
+  for (let i = 0; i < 4; i++) {
+    await run(() => s.p.acceptTests("p1"));
+  }
+  assert.equal(s.counts.projects, 1);
+  assert.deepEqual(s.states, [
+    ["no such project", true],
+    ["could not accept the tests", true],
+    ["could not accept the tests", true],
+  ]);
+  await s.m.unmount();
+});
