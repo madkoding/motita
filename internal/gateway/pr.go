@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"net/http"
 	"os/exec"
-	"path/filepath"
 	"strings"
 	"time"
 
@@ -82,11 +81,14 @@ func (s *Server) writePRError(w http.ResponseWriter, e *prError) {
 // project knows nothing about (one cloned by hand into the folder) answers with its origin.
 func (s *Server) repoRemote(ctx context.Context, c *conversation, dir string) string {
 	if p := s.projectOf(c.projectID); p != nil {
-		if gitx.SamePath(dir, p.Dir) && strings.TrimSpace(p.GitURL) != "" {
+		// The session's own worktree of a repository stands where the project's folder has it, inside
+		// the session's folder: both are the same repository.
+		if (gitx.SamePath(dir, p.Dir) || gitx.SamePath(dir, c.workspace)) && strings.TrimSpace(p.GitURL) != "" {
 			return strings.TrimSpace(p.GitURL)
 		}
 		for _, repo := range p.Repos {
-			if gitx.SamePath(dir, p.repoPath(repo)) && strings.TrimSpace(repo.GitURL) != "" {
+			if (gitx.SamePath(dir, p.repoPath(repo)) || gitx.SamePath(dir, sessionRepoPath(c.workspace, p, repo))) &&
+				strings.TrimSpace(repo.GitURL) != "" {
 				return strings.TrimSpace(repo.GitURL)
 			}
 		}
@@ -319,10 +321,7 @@ func (s *Server) prRepoViews(ctx context.Context, c *conversation) []prRepoView 
 	}
 	var out []prRepoView
 	for _, dir := range dirs {
-		v := prRepoView{Name: filepath.Base(dir), State: "none"}
-		if dir == c.workspace {
-			v.Name = "."
-		}
+		v := prRepoView{Name: c.repoName(dir), State: "none"}
 		if t, perr := s.prTargetAt(ctx, c, dir); perr == nil {
 			if pr, found, err := t.api.FindPR(ctx, t.remote, t.branch); err == nil && found {
 				v.State, v.PR = "open", &pr

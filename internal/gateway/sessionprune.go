@@ -92,6 +92,10 @@ func (s *Server) pruneSessionBranches(known map[string]bool) {
 		for _, repo := range p.Repos {
 			dirs = append(dirs, repo.Dir)
 		}
+		// A plain folder's sessions branched in each repository it holds.
+		for _, f := range foundRepos(s.baseCtx, &p) {
+			dirs = append(dirs, f.dir)
+		}
 	}
 	s.mainRefresh.wg.Add(1)
 	go func() {

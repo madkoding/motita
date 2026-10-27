@@ -231,7 +231,10 @@ func projectFolderName(w http.ResponseWriter, raw string) (string, bool) {
 		writeError(w, http.StatusBadRequest, "the folder name cannot be empty")
 		return "", false
 	}
-	if strings.ContainsAny(dirName, "/\\..") || !filepath.IsLocal(dirName) {
+	// A dot inside a name is fine ("my.app"); a path, "..", or a hidden folder is not.
+	if strings.ContainsAny(dirName, "/\\") || strings.HasPrefix(dirName, ".") || strings.HasSuffix(dirName, ".") ||
+		strings.Contains(dirName, "..") ||
+		!filepath.IsLocal(dirName) {
 		writeError(w, http.StatusBadRequest, "the folder name must be a simple name, not a path")
 		return "", false
 	}
