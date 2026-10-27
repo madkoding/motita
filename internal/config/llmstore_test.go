@@ -26,8 +26,8 @@ func clearKeyEnv(t *testing.T) {
 
 func TestProviderStoreAndBaseURLVariables(t *testing.T) {
 	for provider, want := range map[string]string{
-		"openai": "OPENAI_API_KEY", "codex": "OPENAI_API_KEY", "anthropic": "ANTHROPIC_API_KEY",
-		"ollama": "OLLAMA_API_KEY", "claude-code": "",
+		"openai": "OPENAI_API_KEY", "codex": "CODEX_API_KEY", "anthropic": "ANTHROPIC_API_KEY",
+		"ollama": "MOTITA_OLLAMA_API_KEY", "ollama-cloud": "OLLAMA_API_KEY", "claude-code": "",
 	} {
 		if got := ProviderStoreVariable(provider); got != want {
 			t.Errorf("%s: store variable %q, want %q", provider, got, want)
@@ -131,8 +131,11 @@ func TestStoredValuesComeFromTheGatewayFileThenTheHome(t *testing.T) {
 	if got := homeCredentialKey("anthropic"); got != "home-key" {
 		t.Errorf("home key = %q", got)
 	}
-	if got := ProviderKeyFromEnv("codex"); got != "home-openai" {
-		t.Errorf("the OpenAI pair reads OPENAI_API_KEY from the file: %q", got)
+	if got := ProviderKeyFromEnv("openai"); got != "home-openai" {
+		t.Errorf("openai reads OPENAI_API_KEY from the file: %q", got)
+	}
+	if got := ProviderKeyFromEnv("codex"); got != "" {
+		t.Errorf("codex must not read OpenAI's key from the file: %q", got)
 	}
 	if homeCredentialKey("claude-code") != "" {
 		t.Error("claude-code takes no key")
@@ -214,7 +217,10 @@ func TestKeySourceNamesWhereTheKeyComesFrom(t *testing.T) {
 	check("openai", KeyEnv)
 	check("codex", KeyMissing)
 	t.Setenv("OPENAI_API_KEY", "env-openai")
+	check("codex", KeyMissing)
+	t.Setenv("CODEX_API_KEY", "env-codex")
 	check("codex", KeyEnv)
+	os.Unsetenv("CODEX_API_KEY")
 	os.Unsetenv("MOTITA_LLM_API_KEY")
 	os.Unsetenv("OPENAI_API_KEY")
 
@@ -380,5 +386,50 @@ func TestProviderKeyFollowsTheOrderKeySourceDoes(t *testing.T) {
 	}
 	if got := ProviderKey("", LLM{}, "gemini"); got != "" {
 		t.Errorf("no key: %q", got)
+	}
+}
+
+// A setup made before Codex and Ollama had keys of their own keeps working for the provider the
+// configuration names, and is never lent to the other one.
+func TestLegacySharedKeysServeOnlyTheConfiguredProvider(t *testing.T) {
+	clearKeyEnv(t)
+	cfg := filepath.Join(t.TempDir(), "motita.yaml")
+	if err := os.WriteFile(cfg, []byte("llm:\n  provider: codex\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := SetCredential(cfg, "OPENAI_API_KEY", "sk-old"); err != nil {
+		t.Fatal(err)
+	}
+	if err := SetCredential(cfg, "OLLAMA_API_KEY", "ol-old"); err != nil {
+		t.Fatal(err)
+	}
+	if got := credentialKey(cfg, "codex"); got != "sk-old" {
+		t.Errorf("configured codex = %q, want the legacy key", got)
+	}
+	if got := credentialKey(cfg, "ollama"); got != "ol-old" {
+		t.Errorf("configured ollama = %q, want the legacy key", got)
+	}
+	if got := storedKey(cfg, "codex", true); got != "sk-old" {
+		t.Errorf("stored codex = %q", got)
+	}
+	if got := storedKey(cfg, "codex", false); got != "" {
+		t.Errorf("a codex that is not configured must not read OpenAI's key: %q", got)
+	}
+	if got := storedKey(cfg, "ollama", false); got != "" {
+		t.Errorf("a local ollama that is not configured must not read the cloud's key: %q", got)
+	}
+	if got := storedKey(cfg, "ollama-cloud", false); got != "ol-old" {
+		t.Errorf("ollama-cloud keeps OLLAMA_API_KEY: %q", got)
+	}
+	t.Setenv("OPENAI_API_KEY", "sk-env")
+	t.Setenv("OLLAMA_API_KEY", "ol-env")
+	if envKey("codex", true) != "sk-env" || envKey("codex", false) != "" {
+		t.Error("codex reads OPENAI_API_KEY only as the configured provider")
+	}
+	if envKey("ollama", true) != "ol-env" || envKey("ollama", false) != "" {
+		t.Error("ollama reads OLLAMA_API_KEY only as the configured provider")
+	}
+	if legacyKeyVariable("openai") != "" {
+		t.Error("openai has no legacy variable")
 	}
 }

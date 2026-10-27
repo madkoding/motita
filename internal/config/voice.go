@@ -55,7 +55,7 @@ func defaultVoice() Voice {
 
 // voiceInherits reports whether the voice endpoint is the language model's own.
 func (c Config) voiceInherits() bool {
-	return strings.TrimSpace(c.Voice.BaseURL) == "" && speaksOpenAIKey(c.LLM.Provider)
+	return strings.TrimSpace(c.Voice.BaseURL) == "" && speaksOpenAIAPI(c.LLM.Provider)
 }
 
 // VoiceBaseURL is the transcription endpoint's base, resolved: the voice block's own, or the

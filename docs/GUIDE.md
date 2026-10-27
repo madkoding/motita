@@ -255,9 +255,9 @@ the command ends as before.
 | Provider (`llm.provider`) | API key (variable)                            | Account login                                                | Protocol                                                 |
 | ------------------------- | --------------------------------------------- | ------------------------------------------------------------ | -------------------------------------------------------- |
 | `openai`                  | `OPENAI_API_KEY` / `MOTITA_LLM_API_KEY`       | —                                                            | `/chat/completions` (any OpenAI-compatible host)         |
-| `codex`                   | `OPENAI_API_KEY` / `MOTITA_LLM_API_KEY`       | **Sign in with ChatGPT** (PKCE; Plus/Pro/Business plans)     | `/responses`                                             |
+| `codex`                   | `CODEX_API_KEY` (an older `OPENAI_API_KEY` still works while Codex is the default) | **Sign in with ChatGPT** (PKCE; Plus/Pro/Business plans)     | `/responses`                                             |
 | `copilot`                 | `GITHUB_COPILOT_TOKEN` (a GitHub OAuth token) | **GitHub device code** (active Copilot subscription)         | `/chat/completions`, session token renewed every ~30 min |
-| `ollama`                  | `OLLAMA_API_KEY` (Ollama Cloud only)          | — (a local server needs nothing)                             | `/chat/completions`                                      |
+| `ollama`                  | `MOTITA_OLLAMA_API_KEY` (rarely needed; a local server takes none; `ollama-cloud` uses `OLLAMA_API_KEY`) | — (a local server needs nothing)                             | `/chat/completions`                                      |
 | `anthropic`               | `ANTHROPIC_API_KEY`                           | — (see `claude-code`)                                        | `/v1/messages`                                           |
 | `claude-code`             | —                                             | `claude auth login` (Anthropic's own CLI holds it)           | the `claude` CLI                                         |
 | `gemini`                  | `GEMINI_API_KEY`                              | **Google login** with your own OAuth client, or gcloud's ADC | `generateContent`                                        |

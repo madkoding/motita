@@ -76,8 +76,8 @@ func storedValue(name string) string {
 }
 
 // ProviderStoreVariable is the variable a provider's key is stored under: its own one, and
-// OPENAI_API_KEY for the two OpenAI providers, whose own one is the generic variable. Empty for a
-// provider that takes no key.
+// OPENAI_API_KEY for OpenAI, whose own one is the generic variable. Codex, Ollama and Ollama Cloud
+// each have one of their own. Empty for a provider that takes no key.
 func ProviderStoreVariable(provider string) string {
 	switch {
 	case !ProviderNeedsKey(provider):
@@ -151,6 +151,9 @@ func envKey(provider string, configured bool) string {
 	if speaksOpenAIKey(provider) {
 		return strings.TrimSpace(os.Getenv("OPENAI_API_KEY"))
 	}
+	if legacy := legacyKeyVariable(provider); legacy != "" && configured {
+		return strings.TrimSpace(os.Getenv(legacy))
+	}
 	return ""
 }
 
@@ -165,6 +168,11 @@ func storedKey(configPath, provider string, configured bool) string {
 		variable := ProviderKeyVariable(provider)
 		if v := creds[variable]; v != "" && (configured || variable != genericKeyVariable) {
 			return v
+		}
+		if legacy := legacyKeyVariable(provider); legacy != "" && configured {
+			if v := creds[legacy]; v != "" {
+				return v
+			}
 		}
 	}
 	return homeCredentialKey(provider)

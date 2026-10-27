@@ -302,8 +302,8 @@ func (s *Server) providerView(cfg config.LLM, p onboard.Provider) llmProviderVie
 		}
 	}
 	if pv.Key == config.KeyEnv {
-		// The generic variable is read only for the default provider; the OpenAI pair's other one
-		// is OPENAI_API_KEY.
+		// The generic variable is read only for the default provider; OpenAI's other one is
+		// OPENAI_API_KEY.
 		pv.KeyVariable = config.ProviderKeyVariable(p.ID)
 		if pv.KeyVariable == genericKey && (!pv.Default || os.Getenv(genericKey) == "") {
 			pv.KeyVariable = "OPENAI_API_KEY"

@@ -198,8 +198,12 @@ func TestProviderKeyFromEnvFallsBackToTheHomeCredentials(t *testing.T) {
 		t.Errorf("openai = %q: the generic variable must not travel to a switch", got)
 	}
 	t.Setenv("OPENAI_API_KEY", "sk-env")
-	if got := ProviderKeyFromEnv("codex"); got != "sk-env" {
-		t.Errorf("codex = %q, want OPENAI_API_KEY", got)
+	if got := ProviderKeyFromEnv("codex"); got != "" {
+		t.Errorf("codex = %q: OpenAI's key must not travel to Codex", got)
+	}
+	t.Setenv("CODEX_API_KEY", "sk-codex")
+	if got := ProviderKeyFromEnv("codex"); got != "sk-codex" {
+		t.Errorf("codex = %q, want CODEX_API_KEY", got)
 	}
 	t.Setenv("HOME", "")
 	if got := ProviderKeyFromEnv("gemini"); got != "" {

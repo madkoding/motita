@@ -100,8 +100,8 @@ func (s *Server) handleLLMUsage(w http.ResponseWriter, r *http.Request) {
 }
 
 // hasUsageKey says whether a provider is set up enough to be followed before it has made a call.
-// The "ollama" entry shares OLLAMA_API_KEY with Ollama Cloud, so that key alone does not make it
-// followed: only a legacy configuration that names it and reaches Ollama Cloud does.
+// The "ollama" entry has no key of Ollama Cloud's, and an older configuration may still reach
+// the cloud through it: only that one is followed, never a self-hosted server.
 func hasUsageKey(configPath string, cfg config.LLM, id string) bool {
 	if id == "ollama" && (cfg.Provider != id || config.IsSelfHostedOllama(cfg)) {
 		return false

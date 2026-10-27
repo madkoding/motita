@@ -277,8 +277,8 @@ func TestLLMKeyVariableOfTheOpenAIPair(t *testing.T) {
 	if p := providerOf(v, "openai"); p.KeyVariable != "OPENAI_API_KEY" {
 		t.Errorf("openai = %+v", p)
 	}
-	if p := providerOf(v, "codex"); p.KeyVariable != "OPENAI_API_KEY" {
-		t.Errorf("codex = %+v", p)
+	if p := providerOf(v, "codex"); p.Key != config.KeyMissing {
+		t.Errorf("codex must not borrow OpenAI's key: %+v", p)
 	}
 }
 

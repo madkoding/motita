@@ -1424,7 +1424,7 @@ the provider and model new conversations start with is chosen in the **Models** 
 Conversations already open keep their own.
 
 A key is written to the credentials file beside the configuration (`motita.env`, owner-only),
-under the provider's own variable (`ANTHROPIC_API_KEY`, `OPENAI_API_KEY` for OpenAI and Codex,
+under the provider's own variable (`ANTHROPIC_API_KEY`, `OPENAI_API_KEY` for OpenAI, `CODEX_API_KEY` for Codex,
 …), and an endpoint under `MOTITA_<PROVIDER>_BASE_URL`. A key is never sent back to the
 browser: the list says only where it comes from. An exported variable still wins over the
 file, and the settings say so instead of offering to replace it. The default provider and model
