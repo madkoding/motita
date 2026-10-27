@@ -20,6 +20,7 @@ import {
   type Api,
   type Notice,
   type PRView,
+  type PRRepo,
   type PRWatch,
   type ToastType,
 } from "./prApi";
@@ -245,6 +246,8 @@ export function usePullRequest(store: Store, api: Api) {
   // The reason the host cannot be asked (no remote, a host motita does not speak): the bar is
   // not drawn rather than offering something that cannot work.
   const [prBlocked, setPrBlocked] = useState(false);
+  // The repositories with work when the session's folder holds several; empty otherwise.
+  const [prRepos, setPrRepos] = useState<PRRepo[]>([]);
   const [prMergeArmed, setPrMergeArmed] = useState(false);
   const [prBusy, setPrBusy] = useState(false);
   const prSessionId = choose(
@@ -264,6 +267,7 @@ export function usePullRequest(store: Store, api: Api) {
       }
       setPrBlocked(false);
       setPrView(v);
+      setPrRepos(v.repos ?? []);
     } catch (e) {
       if (sid !== sessionRef.current) {
         return;
@@ -283,6 +287,7 @@ export function usePullRequest(store: Store, api: Api) {
   // pushed or opened the pull request) and whenever the gateway's watch moves.
   useEffect(() => {
     setPrView(null);
+    setPrRepos([]);
     setPrBlocked(false);
     setPrMergeArmed(false);
   }, [prSessionId]);
@@ -321,7 +326,7 @@ export function usePullRequest(store: Store, api: Api) {
 
   usePRToasts(store);
 
-  const createPR = async () => {
+  const createPR = async (repo = "") => {
     const sid = sessionRef.current;
     askDesktopPermission();
     // Asked before the agent is, so a host that is not connected is a dialog and not a turn spent.
@@ -341,7 +346,10 @@ export function usePullRequest(store: Store, api: Api) {
     }
     await stream.submit(
       t("Create PR"),
-      SESSIONS_PATH + encodeURIComponent(sid) + "/pr",
+      SESSIONS_PATH +
+        encodeURIComponent(sid) +
+        "/pr" +
+        choose(repo, "?repo=" + encodeURIComponent(repo), ""),
     );
   };
 
@@ -401,6 +409,7 @@ export function usePullRequest(store: Store, api: Api) {
 
   return {
     prView,
+    prRepos,
     prBlocked,
     prMergeArmed,
     prBusy,
@@ -426,7 +435,9 @@ function showsBar(pr: PullRequest, s: SessionInfo | undefined): boolean {
   if (pr.prBlocked) {
     return false;
   }
-  return merged || pr.prView?.state === "open" || !!s?.mergeable || !!s?.pr_ready;
+  return (
+    merged || pr.prView?.state === "open" || !!s?.mergeable || !!s?.pr_ready
+  );
 }
 
 const BAR_BUTTON = "px-3 min-h-[32px] rounded-lg font-semibold";
@@ -635,6 +646,40 @@ function CreateButton({ pr }: { pr: PullRequest }) {
   );
 }
 
+// RepoRow is one repository of a folder that holds several: its pull request and CI, or the
+// button that opens it.
+function RepoRow({ pr, repo }: { pr: PullRequest; repo: PRRepo }) {
+  return (
+    <span class="inline-flex items-center gap-1.5">
+      <span class="font-semibold">
+        {choose(repo.name === ".", t("Project folder"), repo.name)}
+      </span>
+      {!!repo.pr && (
+        <a
+          href={repo.pr.url}
+          target="_blank"
+          rel="noopener noreferrer"
+          class="text-accent underline"
+        >
+          {"#" + repo.pr.number + choose(repo.ci, " · " + repo.ci, "")}
+        </a>
+      )}
+      {!repo.pr && (
+        <button
+          type="button"
+          class="px-2 min-h-[28px] rounded-lg bg-accent text-white font-semibold disabled:opacity-50"
+          disabled={pr.prRunning}
+          onClick={() => {
+            void pr.createPR(repo.name);
+          }}
+        >
+          {t("Create PR")}
+        </button>
+      )}
+    </span>
+  );
+}
+
 // openLinkOf is the pull request the bar links to, while it is open.
 function openLinkOf(view: PRView | null) {
   if (view?.state !== "open") {
@@ -660,6 +705,15 @@ function PRBarBody({
         offer={mergedOffer(watch, session)}
         session={session}
       />
+    );
+  }
+  if (pr.prRepos.length > 1) {
+    return (
+      <span class="flex flex-wrap items-center gap-x-4 gap-y-1">
+        {pr.prRepos.map((repo) => (
+          <RepoRow key={repo.name} pr={pr} repo={repo} />
+        ))}
+      </span>
     );
   }
   const link = openLinkOf(pr.prView);

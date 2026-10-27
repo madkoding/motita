@@ -789,3 +789,50 @@ func TestCreatingAPRMovesOnToTheNextRepositoryWithWork(t *testing.T) {
 		t.Error("every repository with work has its pull request: nothing is left")
 	}
 }
+
+// TestPRReposTellWhereEachRepositoryStands: with work in two or more repositories the bar lists each
+// one with its pull request and CI, and a request can name the one it means in the query.
+func TestPRReposTellWhereEachRepositoryStands(t *testing.T) {
+	srv, host, ss := prSession(t, "https://github.com/o/r.git")
+	connectGitHub(t, srv)
+	host.set("GET https://api.github.com/repos/o/r/pulls?state=open", `[]`)
+	list := func() []any {
+		repos, _ := decode(t, get(t, srv, sessionPath(srv, ss.ID, "/pr"), testToken))["repos"].([]any)
+		return repos
+	}
+	writeIn(t, ss.Workspace, "root.txt")
+	if got := list(); len(got) != 0 {
+		t.Fatalf("work in one repository needs no list: %v", got)
+	}
+
+	web := filepath.Join(ss.Workspace, "web")
+	gitInit(t, web)
+	mustRun(t, "git", "-C", web, "remote", "add", "origin", "https://github.com/o/web.git")
+	writeIn(t, web, "new.txt")
+	noremote := filepath.Join(ss.Workspace, "noremote")
+	gitInit(t, noremote)
+	writeIn(t, noremote, "new.txt")
+	prHost(host, sessionBranch(ss.ID), "success", "clean")
+	host.set("GET https://api.github.com/repos/o/web/pulls?state=open", `[]`)
+	got := list()
+	if len(got) != 3 {
+		t.Fatalf("repos = %v, want the folder, noremote and web", got)
+	}
+	by := map[string]map[string]any{}
+	for _, v := range got {
+		m := v.(map[string]any)
+		by[m["name"].(string)] = m
+	}
+	if by["."]["state"] != "open" || by["."]["ci"] != "success" || by["web"]["state"] != "none" ||
+		by["noremote"]["state"] != "none" {
+		t.Errorf("states = %v", by)
+	}
+
+	// The query names the repository a request is about.
+	if m := decode(t, get(t, srv, sessionPath(srv, ss.ID, "/pr?repo=web"), testToken)); m["state"] != "none" {
+		t.Errorf("web has no pull request: %v", m)
+	}
+	if w := postJSON(t, srv, sessionPath(srv, ss.ID, "/pr?repo=web"), testToken, ``); w.Code == http.StatusConflict {
+		t.Errorf("creating the pull request of web: %d %s", w.Code, w.Body.String())
+	}
+}

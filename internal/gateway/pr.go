@@ -1,11 +1,13 @@
 package gateway
 
 import (
+	"cmp"
 	"context"
 	"errors"
 	"fmt"
 	"net/http"
 	"os/exec"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -38,6 +40,9 @@ type prView struct {
 	Merge *gitforge.MergeState `json:"merge,omitempty"`
 	// Watch is what the gateway is doing about the pull request, absent when nothing.
 	Watch *PRWatchView `json:"watch,omitempty"`
+	// Repos lists the repositories with work to propose, each with its pull request, when the
+	// session's folder has work in two or more; absent otherwise.
+	Repos []prRepoView `json:"repos,omitempty"`
 }
 
 // prTarget is the repository a session's pull request lives in.
@@ -165,7 +170,7 @@ func prHostError(svc gitforge.Service, err error) *prError {
 // if so, the state of its CI.
 func (s *Server) handleGetPR(w http.ResponseWriter, r *http.Request) {
 	c := convOf(r)
-	t, perr := s.prTargetOf(r.Context(), c, "")
+	t, perr := s.prTargetOf(r.Context(), c, r.URL.Query().Get("repo"))
 	if perr != nil {
 		s.writePRError(w, perr)
 		return
@@ -196,6 +201,7 @@ func (s *Server) handleGetPR(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	view.Watch = c.prWatchView()
+	view.Repos = s.prRepoViews(r.Context(), c)
 	writeJSON(w, http.StatusOK, view)
 }
 
@@ -214,6 +220,7 @@ func (s *Server) handleCreatePR(w http.ResponseWriter, r *http.Request) {
 	if r.ContentLength > 0 && !s.decodeBody(w, r, &body) {
 		return
 	}
+	body.Repo = cmp.Or(body.Repo, r.URL.Query().Get("repo"))
 	t, perr := s.prTargetOf(r.Context(), c, body.Repo)
 	if perr != nil {
 		s.writePRError(w, perr)
@@ -285,6 +292,47 @@ func (s *Server) nextRepoWithoutPR(ctx context.Context, c *conversation, named, 
 		}
 	}
 	return prTarget{}, false
+}
+
+// prRepoView is one repository of the session's folder that has work to propose, with the state of
+// its pull request.
+type prRepoView struct {
+	// Name is what a request names the repository by ("." for the session's folder itself).
+	Name  string                `json:"name"`
+	State string                `json:"state"`
+	PR    *gitforge.PullRequest `json:"pr,omitempty"`
+	CI    string                `json:"ci,omitempty"`
+}
+
+// prRepoViews lists the repositories of the session's folder with work to propose and where each
+// one's pull request stands. nil unless there are two or more: with one the bar needs nothing but
+// the view itself.
+func (s *Server) prRepoViews(ctx context.Context, c *conversation) []prRepoView {
+	var dirs []string
+	for _, dir := range c.sessionRepoDirs(ctx, repoDirsIn(ctx, c.workspace)) {
+		if repoHasWork(ctx, dir) {
+			dirs = append(dirs, dir)
+		}
+	}
+	if len(dirs) < 2 {
+		return nil
+	}
+	var out []prRepoView
+	for _, dir := range dirs {
+		v := prRepoView{Name: filepath.Base(dir), State: "none"}
+		if dir == c.workspace {
+			v.Name = "."
+		}
+		if t, perr := s.prTargetAt(ctx, c, dir); perr == nil {
+			if pr, found, err := t.api.FindPR(ctx, t.remote, t.branch); err == nil && found {
+				v.State, v.PR = "open", &pr
+				ci, _ := t.api.CI(ctx, t.remote, pr.Number)
+				v.CI = ci.State
+			}
+		}
+		out = append(out, v)
+	}
+	return out
 }
 
 // ciFixTask is what the agent is told when the CI of the session's pull request

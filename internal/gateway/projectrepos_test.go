@@ -254,7 +254,7 @@ func TestARepositoryClonedUnderTheOldFolderKeepsItsPlace(t *testing.T) {
 		t.Errorf("a session finds the old clone at %q", got)
 	}
 	note := projectReposNote(p)
-	for _, line := range []string{"- .motita-repos/old (", "- new (", "- stray ("} {
+	for _, line := range []string{"- .motita-repos/old (", "- new (", "- stray (", "one pull request per repository"} {
 		if !strings.Contains(note, line) {
 			t.Errorf("the note must say %q: %q", line, note)
 		}

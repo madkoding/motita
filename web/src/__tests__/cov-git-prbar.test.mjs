@@ -283,6 +283,44 @@ test("Create PR on a host that is not connected opens the connect dialog instead
   await m.done();
 });
 
+test("a folder with work in several repositories lists each one: its pull request or its own Create PR", async () => {
+  const repos = [
+    {
+      name: ".",
+      state: "open",
+      pr: { number: 3, url: "https://h/3" },
+      ci: "success",
+    },
+    { name: "web", state: "none" },
+    { name: "api", state: "open", pr: { number: 9, url: "https://h/9" } },
+  ];
+  const m = await mount(
+    {
+      "GET /v1/sessions/": json(200, { state: "none", branch: "b", repos }),
+    },
+    { session: sess({ mergeable: true }) },
+  );
+  assert.deepEqual(
+    [...m.root.querySelectorAll("a")].map((a) => text(a)),
+    ["#3 · success", "#9"],
+  );
+  assert.match(text(m.root), /Project folder/);
+  await click(button(m.root, "Create PR"));
+  assert.deepEqual(m.log.submits, [
+    ["Create PR", "/v1/sessions/s1/pr?repo=web"],
+  ]);
+  await m.done();
+
+  // Without the list the bar is the single-PR one.
+  const one = await mount(
+    { "GET /v1/sessions/": json(200, { state: "none", branch: "b" }) },
+    { session: sess({ mergeable: true }) },
+  );
+  assert.deepEqual(pr.prRepos, []);
+  assert.ok(button(one.root, "Create PR"));
+  await one.done();
+});
+
 // ── an open pull request ─────────────────────────────────────────────────────
 
 test("an open pull request links to it and says how its CI is going", async () => {

@@ -486,7 +486,9 @@ func projectReposNote(p *Project) string {
 		}
 	}
 	b.WriteString("\nRun git inside the repository you changed, and commit each one on its own. " +
-		"The project's own repository ignores these folders.")
+		"The project's own repository ignores these folders. A change that spans repositories goes in one pull " +
+		"request per repository, each on this session's branch: name the other pull requests in each description " +
+		"and say in which order to merge them.")
 	return b.String()
 }
 
