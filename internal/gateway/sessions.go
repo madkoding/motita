@@ -80,6 +80,9 @@ type conversation struct {
 	prFixedKey string // the push whose failure was last handed to the agent
 	// prSeen is the comment IDs the watch has already taken in (see prWatchRecord.Seen).
 	prSeen []string
+	// prRepoWatches are the watches of the pull requests of the session's other repositories, by the
+	// name a request gives the repository (see repoName); prWatch is the first one's. Not saved.
+	prRepoWatches map[string]*PRWatchView
 	// ciRev is the push whose CI was last read, and ciRevAt when it was first seen (see awaitedCI).
 	ciRev   string
 	ciRevAt time.Time
@@ -614,7 +617,7 @@ func (c *conversation) ownWorktreeName(ctx context.Context) string {
 // branchAhead reports whether the session's branch exists and has commits base does not.
 func (c *conversation) branchAhead(ctx context.Context, base string) bool {
 	branch := sessionBranch(c.id)
-	if c.projectDir != "" && gitx.Repo(ctx, c.projectDir) != nil {
+	if c.projectDir != "" && !projectIsRepo(ctx, c.projectDir) {
 		// A plain project folder: ahead in any of its repositories, against the branch each has out.
 		return len(nestedWork(ctx, c.projectDir, c.workspace, branch)) > 0
 	}
@@ -661,7 +664,7 @@ func (s *Server) sessionWorktree(ctx context.Context, repoDir, sessionID string)
 	path := filepath.Join(s.opts.WorkspaceDir, "worktrees", sessionID)
 	branch := sessionBranch(sessionID)
 	// A plain folder holding repositories: a worktree of each one (see sessionnested.go).
-	if gitx.Repo(ctx, repoDir) != nil {
+	if !projectIsRepo(ctx, repoDir) {
 		return nestedSessionWorktree(ctx, repoDir, path, branch)
 	}
 	// Already ours: a LIVE worktree of this repository at this path is the

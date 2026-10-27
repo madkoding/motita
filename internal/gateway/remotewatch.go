@@ -141,14 +141,20 @@ func (s *Server) lookForRemoteChanges(ctx context.Context) {
 // remoteTarget is one repository of a project whose main branch is watched.
 type remoteTarget struct{ repo, dir, branch string }
 
-// remoteTargets are the project's own main branch and its other repositories' main branches.
+// remoteTargets are the project's own main branch, its other repositories' main branches and those
+// of the repositories its plain folder holds.
 func remoteTargets(ctx context.Context, p *Project) []remoteTarget {
 	var targets []remoteTarget
-	if main := mainBranchOf(ctx, p); main != "" && gitx.Repo(ctx, p.Dir) == nil {
+	if main := mainBranchOf(ctx, p); main != "" && projectIsRepo(ctx, p.Dir) {
 		targets = append(targets, remoteTarget{"", p.Dir, main})
 	}
 	for _, repo := range p.Repos {
 		targets = append(targets, remoteTarget{repo.Name, repo.Dir, cmp.Or(repo.MainBranch, defaultMainBranch)})
+	}
+	for _, f := range foundRepos(ctx, p) {
+		if main := mainBranchOf(ctx, &Project{Dir: f.dir}); main != "" {
+			targets = append(targets, remoteTarget{f.rel, f.dir, main})
+		}
 	}
 	return targets
 }

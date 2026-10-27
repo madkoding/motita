@@ -90,6 +90,8 @@ export interface PRRepo {
   state: "none" | "open";
   pr?: PRRef;
   ci?: CIState;
+  // What the gateway is doing about this repository's pull request, absent when nothing.
+  watch?: PRWatch;
 }
 
 // retryFix sends the agent to fix the CI now and has the gateway follow it again from the start:
@@ -98,8 +100,9 @@ export interface PRRepo {
 export async function retryFix(
   api: Api,
   sid: string,
+  repo = "",
 ): Promise<{ started: boolean }> {
-  const res = await api(base(sid) + "/fix", {
+  const res = await api(base(sid) + "/fix" + repoQuery(repo), {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: "{}",
@@ -111,9 +114,18 @@ export async function retryFix(
   return { started: body.started === true };
 }
 
-// mergePR merges the pull request. The gateway refuses unless its CI has passed.
-export async function mergePR(api: Api, sid: string): Promise<void> {
-  const res = await api(base(sid) + "/merge", {
+// repoQuery names the repository of the session's folder a request is about ("" the default one).
+function repoQuery(repo: string): string {
+  if (!repo) {
+    return "";
+  }
+  return "?repo=" + encodeURIComponent(repo);
+}
+
+// mergePR merges the pull request (of repo, when the folder holds several). The gateway refuses
+// unless its CI has passed.
+export async function mergePR(api: Api, sid: string, repo = ""): Promise<void> {
+  const res = await api(base(sid) + "/merge" + repoQuery(repo), {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: "{}",

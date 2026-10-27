@@ -231,7 +231,7 @@ func projectFolderName(w http.ResponseWriter, raw string) (string, bool) {
 		writeError(w, http.StatusBadRequest, "the folder name cannot be empty")
 		return "", false
 	}
-	if strings.ContainsAny(dirName, "/\\..") || !filepath.IsLocal(dirName) {
+	if !validProjectFolderName(dirName) {
 		writeError(w, http.StatusBadRequest, "the folder name must be a simple name, not a path")
 		return "", false
 	}
@@ -241,6 +241,15 @@ func projectFolderName(w http.ResponseWriter, raw string) (string, bool) {
 		return "", false
 	}
 	return dirName, true
+}
+
+// validProjectFolderName reports whether name is one folder and not a path: a dot inside it is fine
+// ("my.app"); separators, "..", a hidden folder or a trailing dot (which Windows drops) are not.
+func validProjectFolderName(name string) bool {
+	if strings.ContainsAny(name, "/\\") || strings.Contains(name, "..") {
+		return false
+	}
+	return !strings.HasPrefix(name, ".") && !strings.HasSuffix(name, ".") && filepath.IsLocal(name)
 }
 
 // reservedFolders are the workspace's own folders, which hold the worktrees and folders of every
@@ -465,7 +474,7 @@ func (u projectUpdate) applyMainBranch(w http.ResponseWriter, r *http.Request, p
 	// In a repository the branch has to be one it has (or the one an empty repository is
 	// on): the project goes back to it, and a name git cannot check out would leave it
 	// stranded. A folder that is not a repository only remembers the name.
-	if gitx.Repo(r.Context(), p.Dir) == nil && !branchAvailable(r.Context(), p.Dir, branch) {
+	if projectIsRepo(r.Context(), p.Dir) && !branchAvailable(r.Context(), p.Dir, branch) {
 		writeError(w, http.StatusBadRequest, "this project has no branch named "+branch)
 		return false
 	}
@@ -482,7 +491,7 @@ func (s *Server) handleProjectBranches(w http.ResponseWriter, r *http.Request) {
 	}
 	ctx := r.Context()
 	branches := []string{}
-	if gitx.Repo(ctx, p.Dir) == nil {
+	if projectIsRepo(ctx, p.Dir) {
 		if list, err := gitx.Branches(ctx, p.Dir); err == nil {
 			branches = list
 		}
@@ -549,7 +558,7 @@ func mainBranchOf(ctx context.Context, p *Project) string {
 	if p.MainBranch != "" {
 		return p.MainBranch
 	}
-	if gitx.Repo(ctx, p.Dir) != nil {
+	if !projectIsRepo(ctx, p.Dir) {
 		return ""
 	}
 	list, _ := gitx.Branches(ctx, p.Dir)
@@ -573,7 +582,7 @@ func (s *Server) returnToMain(p *Project) {
 	}
 	ctx := context.Background()
 	main := mainBranchOf(ctx, p)
-	if main == "" || gitx.Repo(ctx, p.Dir) != nil || gitx.Display(ctx, p.Dir) == main {
+	if main == "" || !projectIsRepo(ctx, p.Dir) || gitx.Display(ctx, p.Dir) == main {
 		return
 	}
 	if dirty, err := gitx.Dirty(ctx, p.Dir); err != nil || dirty {

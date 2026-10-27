@@ -13,7 +13,7 @@ import (
 func (s *Server) cloneIntoNewProject(
 	w http.ResponseWriter, r *http.Request, p Project, gitURL, name string, madeFolder bool,
 ) (Project, string, bool) {
-	repo, err := s.placeRepo(r.Context(), &p, name, gitURL, filepath.Join(p.Dir, name), false)
+	repo, err := s.placeRepo(r.Context(), name, gitURL, filepath.Join(p.Dir, name))
 	if err != nil {
 		_ = s.projects.delete(p.ID)
 		if madeFolder {

@@ -356,10 +356,6 @@ type Server struct {
 	// to the catalog, what deletes its clone and what takes it out of a project do not run at once
 	// on the same one, while a clone of one repository no longer holds up the others.
 	catalogLocks sync.Map
-	// cloningMu guards cloning, the folders of the catalog a clone is being made in, so two clones
-	// do not pick the same folder and a deletion does not take one half made.
-	cloningMu sync.Mutex
-	cloning   map[string]bool
 	// schedules persists the tasks that fire on their own. nil when no directory was
 	// configured, which means scheduling is off.
 	schedules *schedule.Store
@@ -807,20 +803,6 @@ func (s *Server) skillRoutes(mux *http.ServeMux, prefix string, wrap func(http.H
 	mux.Handle("POST "+prefix+"/skills/{name}/disable", wrap(s.handleDisableSkill))
 	mux.Handle("DELETE "+prefix+"/skills/{name}", wrap(s.handleDeleteSkill))
 	mux.Handle("POST "+prefix+"/skills/{name}/restore", wrap(s.handleRestoreSkill))
-}
-
-// projectRoutes is the table of projects and their repositories; the notes have their own.
-func (s *Server) projectRoutes(mux *http.ServeMux, plain func(http.HandlerFunc) http.Handler) {
-	mux.Handle("GET /v1/projects", plain(s.handleListProjects))
-	s.notesRoutes(mux, plain)
-	s.nestedRoutes(mux, plain)
-	mux.Handle("GET /v1/projects/{id}/code-index", plain(s.handleProjectCodeIndex))
-	mux.Handle("POST /v1/projects/{id}/code-index", plain(s.handleBuildProjectCodeIndex))
-	mux.Handle("POST /v1/projects", plain(s.handleCreateProject))
-	mux.Handle("PATCH /v1/projects/{id}", plain(s.handleUpdateProject))
-	mux.Handle("GET /v1/projects/{id}/branches", plain(s.handleProjectBranches))
-	mux.Handle("DELETE /v1/projects/{id}", plain(s.handleDeleteProject))
-	mux.Handle("POST /v1/projects/{id}/main/refresh", plain(s.handleRefreshProjectMain))
 }
 
 // routes builds the endpoint table.

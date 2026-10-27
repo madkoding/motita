@@ -79,21 +79,40 @@ func (c *conversation) knownRepoName(ctx context.Context, name string) string {
 	}
 	for _, dir := range repoDirsIn(ctx, c.workspace) {
 		if c.namedRepo([]string{dir}, name) == dir {
-			if dir == c.workspace {
-				return "."
-			}
-			return filepath.Base(dir)
+			return c.repoName(dir)
 		}
 	}
 	return "?"
 }
 
+// repoName is what a request calls the repository at dir: "." for the session's folder itself, else
+// its path in that folder. Two repositories in different groups can share a folder name
+// (`web/api`, `mobile/api`), so the name alone would not tell them apart.
+func (c *conversation) repoName(dir string) string {
+	if dir == c.workspace {
+		return "."
+	}
+	if rel, err := filepath.Rel(c.workspace, dir); err == nil && filepath.IsLocal(rel) {
+		return filepath.ToSlash(rel)
+	}
+	return filepath.Base(dir)
+}
+
 // namedRepo is the repository called name among repos ("." is the session's folder itself), or "".
+// A bare folder name still finds the repository when only one has it.
 func (c *conversation) namedRepo(repos []string, name string) string {
+	byBase := ""
+	matches := 0
 	for _, dir := range repos {
-		if (name == "." && dir == c.workspace) || filepath.Base(dir) == name {
+		if c.repoName(dir) == name {
 			return dir
 		}
+		if filepath.Base(dir) == name && dir != c.workspace {
+			byBase, matches = dir, matches+1
+		}
+	}
+	if matches == 1 {
+		return byBase
 	}
 	return ""
 }

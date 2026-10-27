@@ -39,7 +39,7 @@ func (s *Server) protectedFolder(p *Project) string {
 // throws away. A folder that is not a repository, or cannot be read, has none to list; the
 // confirmation of the deletion covers it.
 func (s *Server) folderChanges(ctx context.Context, p *Project) []gitx.Change {
-	if p == nil || p.Dir == "" || gitx.Repo(ctx, p.Dir) != nil {
+	if p == nil || p.Dir == "" || !projectIsRepo(ctx, p.Dir) {
 		return []gitx.Change{}
 	}
 	changes, _ := worktreeInspectList(ctx, p.Dir)

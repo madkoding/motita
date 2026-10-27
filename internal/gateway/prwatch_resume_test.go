@@ -64,7 +64,7 @@ func TestAResumedReviewingWatchAnswersTheCommentsOfTheDowntime(t *testing.T) {
 	saved.Status = prReviewing
 	srv.resumePRWatch(sessionRecord{ID: ss.ID, PRWatch: saved})
 	srv.prMu.Lock()
-	watching := srv.prWatching[ss.ID]
+	watching := srv.watchingAny(ss.ID)
 	srv.prMu.Unlock()
 	if !watching {
 		t.Fatal("a watch in reviewing was not resumed")

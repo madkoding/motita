@@ -80,11 +80,19 @@ func (s *Server) handleListPRs(w http.ResponseWriter, r *http.Request) {
 // prRepo is one repository of a project whose pull requests are listed.
 type prRepo struct{ name, dir, url string }
 
-// prReposOf are the project's own repository and the other repositories added to it.
-func prReposOf(p Project) []prRepo {
-	repos := []prRepo{{"", p.Dir, p.GitURL}}
+// prReposOf are the project's own repository, the other repositories added to it and the ones its
+// plain folder holds. A plain folder is no repository to read: only what it holds is.
+func prReposOf(ctx context.Context, p Project) []prRepo {
+	var repos []prRepo
+	found := foundRepos(ctx, &p)
+	if len(found) == 0 {
+		repos = append(repos, prRepo{"", p.Dir, p.GitURL})
+	}
 	for _, r := range p.Repos {
 		repos = append(repos, prRepo{r.Name, r.Dir, r.GitURL})
+	}
+	for _, f := range found {
+		repos = append(repos, prRepo{f.rel, f.dir, ""})
 	}
 	return repos
 }
@@ -95,7 +103,7 @@ func (s *Server) listPRs(ctx context.Context) PRList {
 	out := PRList{PullRequests: []PRListItem{}}
 	seen := map[string]bool{}
 	for _, p := range s.allProjects() {
-		for _, r := range prReposOf(p) {
+		for _, r := range prReposOf(ctx, p) {
 			t, err := s.forgeOfRepo(ctx, r.dir, r.url)
 			if err == nil && !seen[t.key()] {
 				seen[t.key()] = true
@@ -187,7 +195,7 @@ func (s *Server) handleUpdatePRBranch(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusNotFound, "there is no such project or pull request")
 		return
 	}
-	for _, repo := range prReposOf(*p) {
+	for _, repo := range prReposOf(r.Context(), *p) {
 		t, err := s.forgeOfRepo(r.Context(), repo.dir, repo.url)
 		if err != nil || t.remote.Path != body.Repo {
 			continue

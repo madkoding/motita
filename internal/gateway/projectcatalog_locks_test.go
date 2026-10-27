@@ -1,7 +1,6 @@
 package gateway
 
 import (
-	"path/filepath"
 	"testing"
 	"time"
 )
@@ -38,21 +37,5 @@ func TestTheCatalogLocksOneRepositoryAtATime(t *testing.T) {
 	case <-same:
 	case <-time.After(3 * time.Second):
 		t.Fatal("the lock was not released")
-	}
-}
-
-// Two clones of different repositories with the same name do not get the same folder, and a folder
-// is offered again once its clone is over.
-func TestTwoClonesDoNotPickTheSameFolder(t *testing.T) {
-	srv := &Server{}
-	base := filepath.Join(t.TempDir(), "app")
-	first := srv.reserveCloneDir(base, "https://example.com/a/app", nil)
-	second := srv.reserveCloneDir(base, "https://example.org/b/app", nil)
-	if first != base || second != base+"-2" {
-		t.Fatalf("folders = %q, %q", first, second)
-	}
-	srv.releaseCloneDir(first)
-	if again := srv.reserveCloneDir(base, "https://example.net/c/app", nil); again != base {
-		t.Errorf("a released folder must be offered again, got %q", again)
 	}
 }

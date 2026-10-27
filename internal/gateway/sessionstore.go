@@ -76,6 +76,8 @@ type sessionRecord struct {
 	// PRWatch is what the gateway was doing about the session's pull request, so a restart picks
 	// the CI up where it was and does not forget a pull request it was following.
 	PRWatch *prWatchRecord `json:"pr_watch,omitempty"`
+	// PRRepoWatches are the watches of the pull requests of the session's other repositories.
+	PRRepoWatches []prWatchRecord `json:"pr_repo_watches,omitempty"`
 
 	// Queue is the messages sent while a run was in flight and not started yet, oldest first. Kept
 	// only in memory they were lost by every restart, although the person had been told they
@@ -141,9 +143,11 @@ func (st *sessionStore) write(c *conversation, ended bool) error {
 	if c.prWatch != nil {
 		rec.PRWatch = &prWatchRecord{
 			Status: c.prWatch.Status, Attempts: c.prWatch.Attempts, Number: c.prWatch.Number, FixedKey: c.prFixedKey,
+			Repo: c.prWatch.Repo,
 			Seen: c.prSeen,
 		}
 	}
+	rec.PRRepoWatches = repoWatchRecords(c.prRepoWatches)
 	c.stateMu.Unlock()
 
 	// The transcript and config come from the service, which has its own

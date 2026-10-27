@@ -249,6 +249,8 @@ export function usePullRequest(store: Store, api: Api) {
   // The repositories with work when the session's folder holds several; empty otherwise.
   const [prRepos, setPrRepos] = useState<PRRepo[]>([]);
   const [prMergeArmed, setPrMergeArmed] = useState(false);
+  // The repository whose merge was asked once, when the folder holds several; "" when none.
+  const [prRepoArmed, setPrRepoArmed] = useState("");
   const [prBusy, setPrBusy] = useState(false);
   const prSessionId = choose(
     selectedSession?.project_id && !selectedSession.merged,
@@ -290,6 +292,7 @@ export function usePullRequest(store: Store, api: Api) {
     setPrRepos([]);
     setPrBlocked(false);
     setPrMergeArmed(false);
+    setPrRepoArmed("");
   }, [prSessionId]);
   const wasRunningRef = useRef(false);
   // loadedForRef is the session the bar last asked about. It is what says a session was just
@@ -355,11 +358,11 @@ export function usePullRequest(store: Store, api: Api) {
 
   // tryAgain is what the user does after the gateway gave up: the agent is sent again and the
   // count starts over.
-  const tryAgain = async () => {
+  const tryAgain = async (repo = "") => {
     const sid = sessionRef.current;
     setPrBusy(true);
     try {
-      const { started } = await retryFix(api, sid);
+      const { started } = await retryFix(api, sid, repo);
       if (started && sid === sessionRef.current) {
         // The run is one this tab did not start: attach to it like a reconnection does.
         rs.runSessionRef.current = sid;
@@ -387,11 +390,25 @@ export function usePullRequest(store: Store, api: Api) {
       setPrMergeArmed(true);
       return;
     }
-    const sid = sessionRef.current;
     setPrMergeArmed(false);
+    await mergeIn("");
+  };
+
+  // mergeRepo is mergeNow for one repository of a folder that holds several.
+  const mergeRepo = async (repo: string) => {
+    if (prRepoArmed !== repo) {
+      setPrRepoArmed(repo);
+      return;
+    }
+    setPrRepoArmed("");
+    await mergeIn(repo);
+  };
+
+  const mergeIn = async (repo: string) => {
+    const sid = sessionRef.current;
     setPrBusy(true);
     try {
-      await mergePR(api, sid);
+      await mergePR(api, sid, repo);
       void refreshPR(sid);
       void lists.fetchSessions();
     } catch (e) {
@@ -405,13 +422,17 @@ export function usePullRequest(store: Store, api: Api) {
     }
   };
 
-  const disarmMerge = useCallback(() => setPrMergeArmed(false), []);
+  const disarmMerge = useCallback(() => {
+    setPrMergeArmed(false);
+    setPrRepoArmed("");
+  }, []);
 
   return {
     prView,
     prRepos,
     prBlocked,
     prMergeArmed,
+    prRepoArmed,
     prBusy,
     prSessionId,
     prRunning,
@@ -419,6 +440,7 @@ export function usePullRequest(store: Store, api: Api) {
     createPR,
     tryAgain,
     mergeNow,
+    mergeRepo,
     disarmMerge,
   };
 }
@@ -664,6 +686,7 @@ function RepoRow({ pr, repo }: { pr: PullRequest; repo: PRRepo }) {
           {"#" + repo.pr.number + choose(repo.ci, " · " + repo.ci, "")}
         </a>
       )}
+      {!!repo.pr && <RepoActions pr={pr} repo={repo} />}
       {!repo.pr && (
         <button
           type="button"
@@ -677,6 +700,48 @@ function RepoRow({ pr, repo }: { pr: PullRequest; repo: PRRepo }) {
         </button>
       )}
     </span>
+  );
+}
+
+// RepoActions is what one repository's open pull request offers: a red CI says what Motita does about
+// it (and "Try again" once it gave up), a green one the merge, asked twice.
+function RepoActions({ pr, repo }: { pr: PullRequest; repo: PRRepo }) {
+  if (repo.ci === "failure") {
+    return (
+      <>
+        <span class="text-[#f87171]">{ciFailedLabel(repo.watch)}</span>
+        {repo.watch?.status === "gave_up" && (
+          <button
+            type="button"
+            class={`${BAR_BUTTON} border border-accent/40 text-accent disabled:opacity-50`}
+            disabled={pr.prBusy || pr.prRunning}
+            onClick={() => {
+              void pr.tryAgain(repo.name);
+            }}
+          >
+            {t("Try again")}
+          </button>
+        )}
+      </>
+    );
+  }
+  if (repo.ci !== "success") {
+    return null;
+  }
+  const armed = pr.prRepoArmed === repo.name;
+  return (
+    <button
+      type="button"
+      class={`${BAR_BUTTON} disabled:opacity-50 ${choose(armed, "bg-[#4ade80] text-black", "border border-[#4ade80]/50 text-[#4ade80]")}`}
+      disabled={pr.prBusy}
+      title={t("Merge this pull request on the host")}
+      onBlur={pr.disarmMerge}
+      onClick={() => {
+        void pr.mergeRepo(repo.name);
+      }}
+    >
+      {choose(armed, t("Click again to merge"), t("Merge"))}
+    </button>
   );
 }
 
