@@ -67,6 +67,7 @@ func textBindings(c *Config) []binding[string] {
 		{"MOTITA_MODELS_SUMMARY", &c.Models.Summary},
 		{"MOTITA_MODELS_CHEAP", &c.Models.Cheap},
 		{"MOTITA_MODELS_STRONG", &c.Models.Strong},
+		{"MOTITA_CUSTOM_MODEL_MODEL", &c.CustomModel.Model},
 		{"MOTITA_THINKING_PLAN", &c.Thinking.Plan},
 		{"MOTITA_THINKING_CODE", &c.Thinking.Code},
 		{"MOTITA_THINKING_REVIEW", &c.Thinking.Review},
@@ -155,6 +156,8 @@ func integerBindings(c *Config) []binding[int] {
 		{"MOTITA_GATEWAY_MAX_SESSIONS", &c.Gateway.MaxSessions},
 		{"MOTITA_GATEWAY_ARTIFACT_DAYS", &c.Gateway.ArtifactDays},
 		{"MOTITA_LLM_MAX_TOKENS", &c.LLM.MaxTokens},
+		{"MOTITA_CUSTOM_MODEL_MAX_TOKENS", &c.CustomModel.MaxTokens},
+		{"MOTITA_CUSTOM_MODEL_CONTEXT_WINDOW", &c.CustomModel.ContextWindow},
 		{"MOTITA_LLM_SESSION_CONTEXT_WINDOW", &c.LLM.Session.ContextWindow},
 		{"MOTITA_LLM_SESSION_RESERVE", &c.LLM.Session.Reserve},
 		{"MOTITA_LLM_SESSION_KEEP_RECENT", &c.LLM.Session.KeepRecent},
@@ -299,9 +302,14 @@ func applyLLMEnvironment(c *Config) error {
 	// The two floating-point settings have their own variables because they are the
 	// only non-integer numbers in the configuration.
 	temperature := c.LLM.TemperatureOr(0)
+	customTemperature := 0.0
+	if c.CustomModel.Temperature != nil {
+		customTemperature = *c.CustomModel.Temperature
+	}
 	for _, b := range []binding[float64]{
 		{"MOTITA_LLM_SESSION_COMPACT_AT", &c.LLM.Session.CompactAt},
 		{"MOTITA_LLM_TEMPERATURE", &temperature},
+		{"MOTITA_CUSTOM_MODEL_TEMPERATURE", &customTemperature},
 	} {
 		if v := os.Getenv(b.key); v != "" {
 			f, err := strconv.ParseFloat(strings.TrimSpace(v), 64)
@@ -309,8 +317,11 @@ func applyLLMEnvironment(c *Config) error {
 				return fmt.Errorf("%s: %q is not a number", b.key, v)
 			}
 			*b.dst = f
-			if b.key == "MOTITA_LLM_TEMPERATURE" {
+			switch b.key {
+			case "MOTITA_LLM_TEMPERATURE":
 				c.LLM.Temperature = &temperature
+			case "MOTITA_CUSTOM_MODEL_TEMPERATURE":
+				c.CustomModel.Temperature = &customTemperature
 			}
 		}
 	}
@@ -487,6 +498,7 @@ var providerKeyAliases = map[string]string{
 	"anthropic":    "ANTHROPIC_API_KEY",
 	"gemini":       "GEMINI_API_KEY",
 	"qwen":         "DASHSCOPE_API_KEY",
+	ProviderCustom: "MOTITA_CUSTOM_API_KEY",
 }
 
 // speaksOpenAIKey reports whether OPENAI_API_KEY is a key for this provider.

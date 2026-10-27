@@ -787,7 +787,7 @@ func (r *AppRunner) RunPlan(ctx context.Context, prompt string, progress func(st
 		// is the amnesia this feature exists to remove.
 		WithSessionPolicy(
 			cfg.LLM.Model,
-			cfg.LLM.Session.ContextWindow,
+			cfg.LLM.WindowOverride(),
 			cfg.LLM.Session.Reserve,
 			cfg.LLM.Session.CompactAt,
 			cfg.LLM.Session.KeepRecent,
@@ -873,7 +873,7 @@ func (r *AppRunner) conversation(cfg config.Config, engine session.Summariser) *
 	r.sessionMu.Lock()
 	defer r.sessionMu.Unlock()
 	if r.session == nil {
-		s := session.New(cfg.LLM.Model, r.soul(), cfg.LLM.Session.ContextWindow)
+		s := session.New(cfg.LLM.Model, r.soul(), cfg.LLM.WindowOverride())
 		// The configuration wins where it says anything, so an operator who knows their
 		// server is configured lower is obeyed. A zero means "unset" and keeps the default.
 		if cfg.LLM.Session.Reserve > 0 {

@@ -50,6 +50,9 @@ type Provider struct {
 	// provider needs no key of motita's, so the wizard asks for no endpoint and no
 	// key, writes no credentials file, and tells the user to run this instead.
 	Login string
+	// WebOnly, when true, keeps the provider out of the wizard: it is set up in the browser's
+	// settings, where the model and its limits can be typed beside the endpoint and the token.
+	WebOnly bool
 }
 
 // Model is a model the wizard can offer.
@@ -84,6 +87,7 @@ func Providers() []Provider {
 		geminiProvider(),
 		qwenProvider(),
 		ollamaCloudProvider(),
+		customProvider(),
 	}
 	for _, p := range list {
 		for i, m := range p.Models {
@@ -243,6 +247,21 @@ func ollamaCloudProvider() Provider {
 	}
 }
 
+// customProvider is the entry for any host that speaks the OpenAI chat protocol: the user brings
+// the endpoint and the token, and the model, so the catalogue lists none.
+func customProvider() Provider {
+	return Provider{
+		ID:          "custom",
+		Name:        "Custom (OpenAI-compatible)",
+		Short:       "Custom",
+		Access:      "Your own endpoint: URL and token",
+		EnvKey:      "MOTITA_CUSTOM_API_KEY",
+		AskBaseURL:  true,
+		FetchModels: true,
+		WebOnly:     true,
+	}
+}
+
 // anthropicProvider is the anthropic entry of the catalogue.
 func anthropicProvider() Provider {
 	return Provider{
@@ -338,6 +357,17 @@ func qwenProvider() Provider {
 	}
 }
 
+// WizardProviders are the providers the wizard offers: the catalogue without the web-only ones.
+func WizardProviders() []Provider {
+	var out []Provider
+	for _, p := range Providers() {
+		if !p.WebOnly {
+			out = append(out, p)
+		}
+	}
+	return out
+}
+
 // Lookup finds a provider by its ID (case-insensitive).
 func Lookup(id string) (Provider, bool) {
 	for _, p := range Providers() {
@@ -352,7 +382,7 @@ func Lookup(id string) (Provider, bool) {
 // accepted instead of only what is wrong.
 func Names() string {
 	ids := make([]string, 0, len(Providers()))
-	for _, p := range Providers() {
+	for _, p := range WizardProviders() {
 		ids = append(ids, p.ID)
 	}
 	sort.Strings(ids)

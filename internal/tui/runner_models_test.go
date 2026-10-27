@@ -310,3 +310,18 @@ func TestEngineForAppliesTheThinkingLevelOfTheKind(t *testing.T) {
 		t.Error("a new set drops the engines built from the old one")
 	}
 }
+
+// A new custom model reaches the session: its limits are carried by every copy of the LLM block
+// and the engines are rebuilt from them.
+func TestSetCustomModelRebuildsTheEngines(t *testing.T) {
+	r, own := modelsRunner(t, config.Models{})
+	temperature := 0.9
+	r.SetCustomModel(config.CustomModel{Model: "mine", Temperature: &temperature, MaxTokens: 2048, ContextWindow: 64000})
+	cfg, e, err := r.engine()
+	if err != nil || e == own {
+		t.Fatalf("the session's engine is built again: %v", err)
+	}
+	if cfg.CustomModel.Model != "mine" || cfg.LLM.Custom.MaxTokens != 2048 || cfg.LLM.Custom.ContextWindow != 64000 {
+		t.Errorf("custom model: %+v %+v", cfg.CustomModel, cfg.LLM.Custom)
+	}
+}

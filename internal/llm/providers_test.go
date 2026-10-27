@@ -654,3 +654,35 @@ func TestListModelsUsesEachProvidersOwnAuthentication(t *testing.T) {
 		}
 	}
 }
+
+// A custom model's temperature and answer limit are sent as typed, even for an id that looks like
+// a reasoning model; another model of the same provider keeps the general limits.
+func TestCustomModelLimitsAreSent(t *testing.T) {
+	withLogin(t, oauth.Credential{})
+	var bodies []map[string]any
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var b map[string]any
+		_ = json.NewDecoder(r.Body).Decode(&b)
+		bodies = append(bodies, b)
+		fmt.Fprint(w, `{"choices":[{"message":{"content":"ok"},"finish_reason":"stop"}]}`)
+	}))
+	defer srv.Close()
+	custom := config.CustomModel{Model: "gpt-5-mine", Temperature: ptr(0.7), MaxTokens: 777}
+	for _, model := range []string{"gpt-5-mine", "other"} {
+		c, err := New(config.LLM{Provider: "custom", Model: model, APIKey: "k", BaseURL: srv.URL,
+			MaxTokens: 50, MaxAttempts: 1, Custom: custom}, nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := c.Complete(context.Background(), []Message{{Role: "user", Content: "x"}}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if bodies[0]["temperature"] != 0.7 || bodies[0]["max_completion_tokens"] != float64(777) &&
+		bodies[0]["max_tokens"] != float64(777) {
+		t.Errorf("custom model body = %v", bodies[0])
+	}
+	if bodies[1]["temperature"] != 0.2 || bodies[1]["max_tokens"] != float64(50) {
+		t.Errorf("another model keeps the general limits = %v", bodies[1])
+	}
+}

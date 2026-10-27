@@ -83,6 +83,8 @@ type llmView struct {
 	// or empty one follows the session's level.
 	Thinking map[string]string `json:"thinking"`
 	Levels   []string          `json:"thinking_levels"`
+	// Custom is the custom provider's model and its limits (temperature, answer size, window).
+	Custom config.CustomModel `json:"custom_model"`
 	// PricesChecked is the day the catalogue's prices were last compared with the vendors' pages.
 	PricesChecked string `json:"prices_checked"`
 }
@@ -95,6 +97,11 @@ type taskModelSetter interface {
 // taskThinkingSetter is a service that can take a new thinking block on its next turn.
 type taskThinkingSetter interface {
 	SetTaskThinking(config.Thinking)
+}
+
+// customModelSetter is a service that can take a new custom model on its next turn.
+type customModelSetter interface {
+	SetCustomModel(config.CustomModel)
 }
 
 // providerRefresher is a service that can take a provider's new key and endpoint on its next turn.
@@ -117,6 +124,7 @@ var (
 	setLLMDefault = config.SetLLMDefault
 	setTaskModels = config.SetTaskModels
 	setTaskThink  = config.SetTaskThinking
+	setCustom     = config.SetCustomModel
 	deleteLogin   = oauth.DeleteCredential
 )
 
@@ -132,6 +140,7 @@ func (s *Server) llmRoutes(mux *http.ServeMux, plain func(http.HandlerFunc) http
 	mux.Handle("GET /v1/llm/usage", plain(s.handleLLMUsage))
 	mux.Handle("PUT /v1/llm/default", plain(s.handleLLMDefault))
 	mux.Handle("PUT /v1/llm/tasks", plain(s.handleLLMTasks))
+	mux.Handle("PUT /v1/llm/custom-model", plain(s.handleLLMCustomModel))
 	mux.Handle("PUT /v1/llm/providers/{id}", plain(s.handleLLMSave))
 	mux.Handle("DELETE /v1/llm/providers/{id}", plain(s.handleLLMForget))
 	mux.Handle("POST /v1/llm/providers/{id}/test", plain(s.handleLLMTest))
@@ -166,6 +175,16 @@ func (s *Server) configuredThinking() config.Thinking {
 		}
 	}
 	return s.opts.Service.Config().Thinking
+}
+
+// configuredCustom is the custom model the next turn of every conversation runs with.
+func (s *Server) configuredCustom() config.CustomModel {
+	if s.opts.ConfigPath != "" {
+		if cfg, err := config.LoadWithoutKey(s.opts.ConfigPath); err == nil {
+			return cfg.CustomModel
+		}
+	}
+	return s.opts.Service.Config().CustomModel
 }
 
 // effectiveBase is the endpoint a provider runs with.
@@ -212,12 +231,16 @@ func (s *Server) llmViewOf() llmView {
 	v := llmView{Provider: cfg.Provider, Model: cfg.Model, Writable: s.opts.ConfigPath != "",
 		Kinds: config.TaskKinds, Tasks: map[string]config.ModelChoice{},
 		Thinking: map[string]string{}, Levels: config.ThinkingLevels,
-		PricesChecked: onboard.PricesChecked()}
+		PricesChecked: onboard.PricesChecked(), Custom: s.configuredCustom()}
 	s.llmListedMu.Lock()
 	for _, p := range onboard.Providers() {
 		pv := s.providerView(cfg, p)
 		pv.Listed = append([]string(nil), s.llmListed[p.ID]...)
 		pv.Models = withInferredFacts(p.ID, pv.Models, pv.Listed)
+		if p.ID == config.ProviderCustom && !v.Custom.Empty() {
+			// The model typed in the settings is the one catalogue entry this provider has.
+			pv.Models = append(pv.Models, llmModelView{ID: v.Custom.Model, Label: v.Custom.Model})
+		}
 		v.Providers = append(v.Providers, pv)
 	}
 	s.llmListedMu.Unlock()
@@ -438,6 +461,10 @@ func (s *Server) handleLLMSave(w http.ResponseWriter, r *http.Request) {
 		var why string
 		if newBase, why = requestedBase(p, *body.BaseURL); why != "" {
 			writeError(w, http.StatusBadRequest, why)
+			return
+		}
+		if p.DefaultBaseURL == "" && newBase == "" {
+			writeError(w, http.StatusBadRequest, p.Name+" has no default address: type its URL")
 			return
 		}
 		base = p.DefaultBaseURL
@@ -702,6 +729,9 @@ func (s *Server) startingLLM(svc Service) {
 	if ts, ok := svc.(taskThinkingSetter); ok {
 		ts.SetTaskThinking(s.configuredThinking())
 	}
+	if cs, ok := svc.(customModelSetter); ok {
+		cs.SetCustomModel(s.configuredCustom())
+	}
 	if rf, ok := svc.(providerRefresher); ok {
 		rf.RefreshProvider(cfg.Provider, cfg.APIKey, effectiveBase(cfg, cfg.Provider))
 	}
@@ -801,4 +831,32 @@ func (s *Server) pushTaskModels() {
 			ts.SetTaskThinking(thinking)
 		}
 	}
+}
+
+// handleLLMCustomModel saves the custom provider's model and its limits. An empty model clears the
+// block. Every conversation takes it on its next turn.
+func (s *Server) handleLLMCustomModel(w http.ResponseWriter, r *http.Request) {
+	var body config.CustomModel
+	if !s.decodeBody(w, r, &body) {
+		return
+	}
+	body.Model = strings.TrimSpace(body.Model)
+	if err := body.Validate(); err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	if !s.needFile(w) {
+		return
+	}
+	if err := setCustom(s.opts.ConfigPath, body); err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	custom := s.configuredCustom()
+	for _, c := range s.snapshot() {
+		if cs, ok := c.svc.(customModelSetter); ok {
+			cs.SetCustomModel(custom)
+		}
+	}
+	writeJSON(w, http.StatusOK, s.llmViewOf())
 }

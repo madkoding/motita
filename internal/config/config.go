@@ -31,6 +31,7 @@ type Config struct {
 	LLM         LLM         `yaml:"llm"`
 	Models      Models      `yaml:"models"`
 	Thinking    Thinking    `yaml:"thinking"`
+	CustomModel CustomModel `yaml:"custom_model"`
 	Prompts     Prompts     `yaml:"prompts"`
 	FinalAction FinalAction `yaml:"final_action"`
 	Agent       Agent       `yaml:"agent"`
@@ -212,6 +213,7 @@ type Sandbox struct {
 // the validation all read this one list.
 var Providers = []string{
 	"openai", "codex", "copilot", "ollama", "ollama-cloud", "anthropic", "claude-code", "gemini", "qwen",
+	ProviderCustom,
 }
 
 // TemperatureOr is the configured temperature, or def when none was set.
@@ -237,6 +239,9 @@ type LLM struct {
 	Reasoning      Reasoning     `yaml:"reasoning"`
 	Session        Session       `yaml:"session"`
 	Skills         Skills        `yaml:"skills"`
+	// Custom is the custom_model block, copied here at load so every copy of the LLM block carries
+	// it to the client; it is not a key of llm.
+	Custom CustomModel `yaml:"-"`
 }
 
 // Skills points the agent at its procedure library: the directory of documents it may search
@@ -901,6 +906,7 @@ func (c *Config) ValidateWithoutKey() error { return c.validate(false) }
 // ends up duplicated, or applied in one path and not the other.
 func (c *Config) validate(requireKey bool) error {
 	c.normalize()
+	c.LLM.Custom = c.CustomModel
 	if err := c.validateTaskSource(); err != nil {
 		return err
 	}
@@ -1081,6 +1087,9 @@ func (c *Config) validateSandbox() error {
 }
 
 func (c *Config) validateLLM(requireKey bool) error {
+	if err := c.CustomModel.Validate(); err != nil {
+		return err
+	}
 	if err := oneOf("llm.provider", c.LLM.Provider, Providers...); err != nil {
 		return err
 	}
