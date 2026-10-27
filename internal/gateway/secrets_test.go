@@ -37,9 +37,11 @@ func TestSecretsAreSavedListedAndNeverReturned(t *testing.T) {
 	if !v.CanSave || len(v.Secrets) != 2 {
 		t.Fatalf("view = %+v", v)
 	}
-	if first, second := v.Secrets[0], v.Secrets[1]; first.Name != "DEPLOY_TOKEN" || first.Hint != "1234" {
+	first, second := v.Secrets[0], v.Secrets[1]
+	if first.Name != "DEPLOY_TOKEN" || first.Hint != "1234" {
 		t.Errorf("first = %+v", first)
-	} else if second.Hint != "" {
+	}
+	if second.Hint != "" {
 		t.Errorf("second = %+v", second)
 	}
 	if got := config.ReadSecrets(path)["DEPLOY_TOKEN"]; got != long {
