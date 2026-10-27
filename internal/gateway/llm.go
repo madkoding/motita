@@ -419,6 +419,9 @@ func requestedBase(p onboard.Provider, raw string) (string, string) {
 	if !canChangeBase(p) {
 		return "", p.Name + " has one endpoint: its address cannot be changed"
 	}
+	if strings.TrimSpace(raw) == "" && p.DefaultBaseURL == "" {
+		return "", p.Name + " has no default address: type its URL"
+	}
 	if strings.TrimSpace(raw) == "" {
 		return "", ""
 	}
@@ -461,10 +464,6 @@ func (s *Server) handleLLMSave(w http.ResponseWriter, r *http.Request) {
 		var why string
 		if newBase, why = requestedBase(p, *body.BaseURL); why != "" {
 			writeError(w, http.StatusBadRequest, why)
-			return
-		}
-		if p.DefaultBaseURL == "" && newBase == "" {
-			writeError(w, http.StatusBadRequest, p.Name+" has no default address: type its URL")
 			return
 		}
 		base = p.DefaultBaseURL

@@ -10,6 +10,25 @@ import (
 
 func (m *modelsService) SetCustomModel(c config.CustomModel) { m.custom = append(m.custom, c) }
 
+// customSaved says the view carries the custom model the save sent.
+func customSaved(v llmView) bool {
+	c := v.Custom
+	if c.Temperature == nil || *c.Temperature != 0.3 {
+		return false
+	}
+	return c.Model == "llama-3.3-70b" && c.MaxTokens == 8192 && c.ContextWindow == 128000
+}
+
+// sessionWithCustom says a session other than first was started with a custom model.
+func sessionWithCustom(srv *Server, first *modelsService) bool {
+	for _, c := range srv.sessions {
+		if m, ok := c.svc.(*modelsService); ok && m != first && len(m.custom) == 1 {
+			return true
+		}
+	}
+	return false
+}
+
 func TestCustomModelIsSavedAndReachesEverySession(t *testing.T) {
 	path := llmEnv(t, openAIConfig)
 	srv, svc := modelsServer(t, path)
@@ -19,8 +38,7 @@ func TestCustomModelIsSavedAndReachesEverySession(t *testing.T) {
 	w := llmCall(t, srv, http.MethodPut, "/v1/llm/custom-model",
 		`{"model":" llama-3.3-70b ","temperature":0.3,"max_tokens":8192,"context_window":128000}`)
 	v := decodeLLM(t, w)
-	if w.Code != http.StatusOK || v.Custom.Model != "llama-3.3-70b" || v.Custom.MaxTokens != 8192 ||
-		v.Custom.ContextWindow != 128000 || v.Custom.Temperature == nil || *v.Custom.Temperature != 0.3 {
+	if w.Code != http.StatusOK || !customSaved(v) {
 		t.Fatalf("save: %d %+v", w.Code, v.Custom)
 	}
 	cfg, err := config.LoadWithoutKey(path)
@@ -34,18 +52,10 @@ func TestCustomModelIsSavedAndReachesEverySession(t *testing.T) {
 	if p := providerOf(v, "custom"); len(p.Models) != 1 || p.Models[0].ID != "llama-3.3-70b" || !p.AskBaseURL {
 		t.Errorf("custom provider: %+v", p)
 	}
-	// A new session starts with it.
-	w = llmCall(t, srv, http.MethodPost, "/v1/sessions", `{}`)
-	if w.Code >= 300 {
+	if w = llmCall(t, srv, http.MethodPost, "/v1/sessions", `{}`); w.Code >= 300 {
 		t.Fatalf("create: %d %s", w.Code, w.Body.String())
 	}
-	found := false
-	for _, c := range srv.sessions {
-		if m, ok := c.svc.(*modelsService); ok && len(m.custom) == 1 && m != svc {
-			found = true
-		}
-	}
-	if !found {
+	if !sessionWithCustom(srv, svc) {
 		t.Error("a new session starts with the custom model")
 	}
 	// An empty model clears the block.

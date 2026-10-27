@@ -104,7 +104,7 @@ func SetCustomModel(path string, m CustomModel) error {
 	if err != nil {
 		return fmt.Errorf("the configuration file cannot be read: %w", err)
 	}
-	body, err := os.ReadFile(path)
+	body, err := os.ReadFile(path) // #nosec G304 -- the configuration file this process was started with.
 	if err != nil {
 		return fmt.Errorf("the configuration file cannot be read: %w", err)
 	}

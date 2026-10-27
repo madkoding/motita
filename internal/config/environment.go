@@ -302,14 +302,9 @@ func applyLLMEnvironment(c *Config) error {
 	// The two floating-point settings have their own variables because they are the
 	// only non-integer numbers in the configuration.
 	temperature := c.LLM.TemperatureOr(0)
-	customTemperature := 0.0
-	if c.CustomModel.Temperature != nil {
-		customTemperature = *c.CustomModel.Temperature
-	}
 	for _, b := range []binding[float64]{
 		{"MOTITA_LLM_SESSION_COMPACT_AT", &c.LLM.Session.CompactAt},
 		{"MOTITA_LLM_TEMPERATURE", &temperature},
-		{"MOTITA_CUSTOM_MODEL_TEMPERATURE", &customTemperature},
 	} {
 		if v := os.Getenv(b.key); v != "" {
 			f, err := strconv.ParseFloat(strings.TrimSpace(v), 64)
@@ -317,16 +312,16 @@ func applyLLMEnvironment(c *Config) error {
 				return fmt.Errorf("%s: %q is not a number", b.key, v)
 			}
 			*b.dst = f
-			switch b.key {
-			case "MOTITA_LLM_TEMPERATURE":
+			if b.key == "MOTITA_LLM_TEMPERATURE" {
 				c.LLM.Temperature = &temperature
-			case "MOTITA_CUSTOM_MODEL_TEMPERATURE":
-				c.CustomModel.Temperature = &customTemperature
 			}
 		}
 	}
 
 	if err := applyReasoningEnvironment(c); err != nil {
+		return err
+	}
+	if err := applyCustomTemperature(c); err != nil {
 		return err
 	}
 
@@ -341,6 +336,21 @@ func applyLLMEnvironment(c *Config) error {
 		return err
 	}
 	c.Agent.ShutdownTimeout = v
+	return nil
+}
+
+// applyCustomTemperature reads the custom model's temperature, which is optional: unset keeps the
+// endpoint's own.
+func applyCustomTemperature(c *Config) error {
+	v := os.Getenv("MOTITA_CUSTOM_MODEL_TEMPERATURE")
+	if v == "" {
+		return nil
+	}
+	f, err := strconv.ParseFloat(strings.TrimSpace(v), 64)
+	if err != nil {
+		return fmt.Errorf("MOTITA_CUSTOM_MODEL_TEMPERATURE: %q is not a number", v)
+	}
+	c.CustomModel.Temperature = &f
 	return nil
 }
 

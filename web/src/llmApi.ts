@@ -219,16 +219,27 @@ export interface CustomDraft {
 export function customDraft(m: CustomModel | undefined): CustomDraft {
   return {
     model: m?.model || "",
-    temperature: m?.temperature === undefined ? "" : String(m.temperature),
-    max_tokens: m?.max_tokens ? String(m.max_tokens) : "",
-    context_window: m?.context_window ? String(m.context_window) : "",
+    temperature: textOf(m?.temperature, true),
+    max_tokens: textOf(m?.max_tokens, false),
+    context_window: textOf(m?.context_window, false),
   };
+}
+
+// textOf is a saved number as typed: empty when there is none, or when zero means "default".
+function textOf(n: number | undefined, keepZero: boolean): string {
+  if (n === undefined || (n === 0 && !keepZero)) {
+    return "";
+  }
+  return String(n);
 }
 
 // numberOf reads a typed number: undefined when the field is empty, NaN when it is not a number.
 function numberOf(raw: string): number | undefined {
   const text = raw.trim();
-  return text === "" ? undefined : Number(text);
+  if (text === "") {
+    return undefined;
+  }
+  return Number(text);
 }
 
 // customProblem says what is wrong with the typed limits, or "" when they can be saved: the
