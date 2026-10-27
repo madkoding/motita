@@ -30,21 +30,13 @@ export function sizeLabel(bytes: number): string {
   return (bytes / (1024 * 1024)).toFixed(1) + " MB";
 }
 
-// hintOf is what the agent is told about reading one kind of file.
-function hintOf(kind: string): string {
-  switch (kind) {
-    case "image":
-      return " - look at it with an image-reading tool if you have one";
-    case "video":
-      return " - sample frames with ffmpeg (for example -vf fps=1) and read its audio track if it has one";
-    case "audio":
-      return " - transcribe it if you can";
-    case "document":
-      return " - extract its text with a tool such as pdftotext or pandoc";
-    default:
-      return "";
-  }
-}
+// HINTS is what the agent is told about reading each kind of file.
+const HINTS: Record<string, string> = {
+  image: " - view it with an image tool",
+  video: " - sample frames with ffmpeg",
+  audio: " - transcribe it",
+  document: " - extract its text (pdftotext)",
+};
 
 // withAttachments is the message the agent receives: what was typed, then the files by path.
 export function withAttachments(text: string, list: Attachment[]): string {
@@ -52,16 +44,19 @@ export function withAttachments(text: string, list: Attachment[]): string {
     return text;
   }
   const lines = list.map(
-    (a) => `- ${a.path} (${a.kind}, ${sizeLabel(a.size)})${hintOf(a.kind)}`,
+    (a) =>
+      `- ${a.path} (${a.kind}, ${sizeLabel(a.size)})${HINTS[a.kind] ?? ""}`,
   );
-  const lead = text || "Look at the attached files and tell me what you see.";
-  return `${lead}\n\n[The person attached these files, saved in your workspace:\n${lines.join("\n")}]`;
+  const lead = text || "Look at the attached files.";
+  return `${lead}\n\n[${NOTE_HEAD}\n${lines.join("\n")}]`;
 }
 
 // NOTE_PATTERN picks the files list out of a message that carries one, and FILE_PATTERN each
 // line of it: the folder is the session's own, so the line holds the id the file is served by.
-const NOTE_PATTERN =
-  /^([\s\S]*?)\n\n\[The person attached these files, saved in your workspace:\n([\s\S]*)\]$/;
+const NOTE_HEAD = "The person attached these files, saved in your workspace:";
+const NOTE_PATTERN = new RegExp(
+  `^([\\s\\S]*?)\\n\\n\\[${NOTE_HEAD}\\n([\\s\\S]*)\\]$`,
+);
 const FILE_PATTERN = /^- \.motita\/uploads\/([^/]+)\/(.+?) \((\w+), [^)]*\)/;
 
 // AttachedFile is one file a message names, with where it is served from.

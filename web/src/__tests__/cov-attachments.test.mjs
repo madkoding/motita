@@ -61,7 +61,7 @@ test("the message names each file with a hint for its kind, and ", () => {
   assert.match(sent, /^what is this\?\n\n\[The person attached these files/);
   assert.match(
     sent,
-    /- \.motita\/uploads\/shot\.png \(image, 2 KB\) - look at it/,
+    /- \.motita\/uploads\/shot\.png \(image, 2 KB\) - view it with an image tool/,
   );
   assert.match(
     sent,
