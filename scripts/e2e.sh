@@ -69,9 +69,14 @@ esac
 [ "$elf_class" = "$want" ] || { echo "ERROR: $TEST_BINARY is not the expected ELF class ($elf_class)"; exit 1; }
 echo "    ELF class confirmed ($elf_class)"
 
+# Docker's default seccomp profile lacks socketcall for 32-bit x86 in recent
+# engines (socket() fails with ENOSYS). Only this throwaway 386 container drops it.
+SECOPT=()
+[ "$ARCH" = "386" ] && SECOPT=(--security-opt seccomp=unconfined)
+
 echo "==> Running inside $IMAGE ($PLATFORM)"
 output="$(
-  "$CTR" run --rm --platform "$PLATFORM" -v "$PWD/$E2E_DIST:/t:ro" "$IMAGE" sh -c "
+  "$CTR" run --rm --platform "$PLATFORM" "${SECOPT[@]}" -v "$PWD/$E2E_DIST:/t:ro" "$IMAGE" sh -c "
     set -e
     architecture=\$(dpkg --print-architecture)
     echo \"architecture: \$architecture\"

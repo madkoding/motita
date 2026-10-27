@@ -106,9 +106,17 @@ rm -rf "$WORK" && mkdir -p "$WORK/work"
 cp configs/e2e-agent.yaml "$WORK/config.yaml"
 cp configs/e2e-task.txt "$WORK/task.txt"
 
+# Docker's default seccomp profile has no socketcall entry for 32-bit x86 in
+# recent engines, so on a 386 container every socket() fails with ENOSYS ("function
+# not implemented") and neither the simulated LLM nor the agent can open a TCP
+# socket. Only this throwaway test container, only for 386, runs without that
+# profile; the other targets keep Docker's default.
+SECOPT=()
+[ "$ARCH" = "386" ] && SECOPT=(--security-opt seccomp=unconfined)
+
 echo "==> Running in $IMAGE ($PLATFORM)"
 output="$(
-  "$CTR" run --rm --platform "$PLATFORM" \
+  "$CTR" run --rm --platform "$PLATFORM" "${SECOPT[@]}" \
     -v "$PWD/dist:/dist:ro" \
     -v "$PWD/$WORK:/e2e" \
     -w /e2e \
