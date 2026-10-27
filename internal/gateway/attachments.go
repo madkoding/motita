@@ -36,6 +36,9 @@ var attachmentKinds = map[string]string{
 	".ppt": "document", ".pptx": "document", ".odt": "document", ".rtf": "document",
 }
 
+// errNoAttachment is what a request for a file that is not there is answered with.
+const errNoAttachment = "there is no attachment with that name"
+
 // attachmentTypes are the pictures a browser may be shown inline. Anything else is a download.
 var attachmentTypes = map[string]string{
 	".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg",
@@ -183,24 +186,24 @@ func (s *Server) handleGetAttachment(w http.ResponseWriter, r *http.Request) {
 	name := r.PathValue("name")
 	ws := attachmentWorkspace(c)
 	if !validArtifactName(name) || !validArtifactName(c.id) {
-		writeError(w, http.StatusNotFound, "there is no attachment with that name")
+		writeError(w, http.StatusNotFound, errNoAttachment)
 		return
 	}
 	root, err := os.OpenRoot(filepath.Join(ws, filepath.FromSlash(AttachmentDir), c.id))
 	if err != nil {
-		writeError(w, http.StatusNotFound, "there is no attachment with that name")
+		writeError(w, http.StatusNotFound, errNoAttachment)
 		return
 	}
 	defer root.Close()
 	f, err := root.Open(name)
 	if err != nil {
-		writeError(w, http.StatusNotFound, "there is no attachment with that name")
+		writeError(w, http.StatusNotFound, errNoAttachment)
 		return
 	}
 	defer f.Close()
 	info, err := f.Stat()
 	if err != nil || !info.Mode().IsRegular() {
-		writeError(w, http.StatusNotFound, "there is no attachment with that name")
+		writeError(w, http.StatusNotFound, errNoAttachment)
 		return
 	}
 	h := w.Header()

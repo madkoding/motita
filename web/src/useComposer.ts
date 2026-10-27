@@ -113,7 +113,6 @@ export function useComposer({
   const [activeTags, setActiveTags] = useState<ActiveTag[]>([]);
 
   const files = useAttachments(api, sessionRef, startSession);
-  const { attachments } = files;
 
   const isCommandBlocked = (cmdName: string) => blockedBy(activeTags, cmdName);
 
@@ -195,16 +194,16 @@ export function useComposer({
       clear();
       return;
     }
-    if (!typed && attachments.length === 0) {
+    if (!typed && files.attachments.length === 0) {
       return;
     }
     const shellLine = shellCommandOf(typed);
-    if (shellLine && attachments.length === 0) {
+    if (shellLine && files.attachments.length === 0) {
       clear();
       void runShellLine(shellLine);
       return;
     }
-    const text = withAttachments(typed, attachments);
+    const text = withAttachments(typed, files.attachments);
     if (runningRef.current) {
       clear();
       stream.sendWhileRunning(text);
@@ -234,15 +233,13 @@ export function useComposer({
       // A view of this page, not a request to the agent: it opens the agents drawer, as the
       // TUI's /agents opens its panel.
       drawers.showAgents();
-      setInput("");
-      setSlashPopup(null);
+    } else if (selected && !isCommandBlocked(selected.name)) {
+      setActiveTags((prev) => [...prev, tagOf(selected)]);
+    } else {
       return;
     }
-    if (selected && !isCommandBlocked(selected.name)) {
-      setActiveTags((prev) => [...prev, tagOf(selected)]);
-      setInput("");
-      setSlashPopup(null);
-    }
+    setInput("");
+    setSlashPopup(null);
   };
 
   // slashKey handles the keys the popup answers, and says whether it did.

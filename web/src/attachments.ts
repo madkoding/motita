@@ -82,7 +82,8 @@ function fileOf(line: string): AttachedFile | null {
   if (!m) {
     return null;
   }
-  return { name: m[2], kind: m[3], url: attachmentUrl(m[1], m[2]) };
+  const [, sid, name, kind] = m;
+  return { name, kind, url: attachmentUrl(sid, name) };
 }
 
 // thumbOf is the picture to draw for a stored file, or "" when it is not a picture.

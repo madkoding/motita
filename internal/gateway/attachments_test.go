@@ -177,10 +177,14 @@ func TestAttachmentIsServedBackAsAPictureOrADownload(t *testing.T) {
 	base := "/v1/sessions/" + c.id + "/attachments/"
 
 	w := artifactCall(srv, http.MethodGet, base+"shot.png")
-	if w.Code != http.StatusOK || w.Body.String() != "png" || w.Header().Get("Content-Type") != "image/png" ||
-		w.Header().Get("X-Content-Type-Options") != "nosniff" ||
-		!strings.Contains(w.Header().Get("Content-Security-Policy"), "sandbox") {
-		t.Fatalf("picture = %d %q %v", w.Code, w.Body, w.Header())
+	if w.Code != http.StatusOK || w.Body.String() != "png" {
+		t.Fatalf("picture = %d %q", w.Code, w.Body)
+	}
+	if w.Header().Get("Content-Type") != "image/png" || w.Header().Get("X-Content-Type-Options") != "nosniff" {
+		t.Fatalf("picture headers = %v", w.Header())
+	}
+	if !strings.Contains(w.Header().Get("Content-Security-Policy"), "sandbox") {
+		t.Fatalf("picture is not sandboxed: %v", w.Header())
 	}
 	w = artifactCall(srv, http.MethodGet, base+"page.html")
 	if w.Header().Get("Content-Type") != "application/octet-stream" ||
