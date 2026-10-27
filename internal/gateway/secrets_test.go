@@ -34,8 +34,13 @@ func TestSecretsAreSavedListedAndNeverReturned(t *testing.T) {
 		t.Fatalf("a value was returned: %s", w.Body)
 	}
 	v := decodeSecrets(t, w.Body.String())
-	if !v.CanSave || len(v.Secrets) != 2 || v.Secrets[0].Name != "DEPLOY_TOKEN" || v.Secrets[0].Hint != "1234" || v.Secrets[1].Hint != "" {
-		t.Errorf("view = %+v", v)
+	if !v.CanSave || len(v.Secrets) != 2 {
+		t.Fatalf("view = %+v", v)
+	}
+	if first, second := v.Secrets[0], v.Secrets[1]; first.Name != "DEPLOY_TOKEN" || first.Hint != "1234" {
+		t.Errorf("first = %+v", first)
+	} else if second.Hint != "" {
+		t.Errorf("second = %+v", second)
 	}
 	if got := config.ReadSecrets(path)["DEPLOY_TOKEN"]; got != long {
 		t.Errorf("stored %q", got)
@@ -88,7 +93,8 @@ func TestSecretsReportAFailedWrite(t *testing.T) {
 	old := setSecret
 	setSecret = func(string, string, string) error { return errors.New("disk full") }
 	defer func() { setSecret = old }()
-	if w := llmCall(t, srv, http.MethodPut, "/v1/secrets/ABC", `{"value":"x"}`); w.Code != http.StatusBadRequest || !strings.Contains(w.Body.String(), "disk full") {
+	w := llmCall(t, srv, http.MethodPut, "/v1/secrets/ABC", `{"value":"x"}`)
+	if w.Code != http.StatusBadRequest || !strings.Contains(w.Body.String(), "disk full") {
 		t.Errorf("%d %s", w.Code, w.Body)
 	}
 }

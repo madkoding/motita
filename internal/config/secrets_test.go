@@ -71,7 +71,8 @@ func TestCurrentSecretsMergesBothFiles(t *testing.T) {
 		t.Fatal(err)
 	}
 	// A name the sandbox owns written by hand into the file is ignored.
-	_ = os.WriteFile(SecretsPath(shared), append([]byte("export PATH=evil\nexport EMPTY=\n"), mustRead(t, SecretsPath(shared))...), 0o600)
+	handEdited := append([]byte("export PATH=evil\nexport EMPTY=\n"), mustRead(t, SecretsPath(shared))...)
+	_ = os.WriteFile(SecretsPath(shared), handEdited, 0o600)
 	got := CurrentSecrets()
 	if got["SHARED"] != "1" || got["PATH"] != "" || len(got) != 1 {
 		t.Errorf("got %v", got)

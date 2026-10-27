@@ -135,9 +135,13 @@ function settingsTabs(p: Props): TabInfo[] {
   if (p.security) {
     tabs.push({ id: "security", label: t("Security"), icon: <IconShield /> });
   }
-  if (p.secrets) {
-    tabs.push({ id: "secrets", label: t("Secrets"), icon: <IconKey /> });
-  }
+  tabs.push(
+    ...choose(
+      !!p.secrets,
+      [{ id: "secrets" as Tab, label: t("Secrets"), icon: <IconKey /> }],
+      [],
+    ),
+  );
   if (p.friction) {
     tabs.push({ id: "journal", label: t("Journal"), icon: <IconJournal /> });
   }
