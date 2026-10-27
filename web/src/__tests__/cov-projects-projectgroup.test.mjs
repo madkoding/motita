@@ -59,6 +59,7 @@ function store({
         openEditProject: rec("edit"),
         refreshProjectMain: rec("refreshMain"),
         rescanNotes: rec("rescan"),
+        acceptTests: rec("acceptTests"),
       },
       repoGit: {
         openRepoGit: rec("details"),
@@ -355,5 +356,27 @@ test("news on origin shows a tag with the count and what to do", async () => {
   assert.match(fact.title, /Update main branch/);
   await m.rerender(s.value, h(ProjectGroup, { p: P }));
   assert.equal(m.q("[data-testid=project-remote]"), null);
+  await m.unmount();
+});
+
+test("a project without a gate, or whose tests were deleted, says so, and the menu accepts the lower count", async () => {
+  const s = store({ rowMenu: { id: "p1", type: "project" } });
+  const lost = { was: 12, now: 4 };
+  const m = await mount(
+    AppCtx,
+    s.value,
+    h(ProjectGroup, { p: { ...P, no_gate: true, tests_lost: lost } }),
+  );
+  assert.equal(m.q("[data-testid=project-no-gate]").textContent, "no gate");
+  assert.match(m.q("[data-testid=project-no-gate]").title, /finish unverified/);
+  const tag = m.q("[data-testid=project-tests-lost]");
+  assert.equal(tag.textContent, "−8 tests");
+  assert.match(tag.title, /had 12 tests and now has 4/);
+  await act(() => m.q("[data-testid=accept-tests]").click());
+  assert.deepEqual(s.log.slice(-2), [["acceptTests", "p1"], ["closeMenu"]]);
+  await m.rerender(s.value, h(ProjectGroup, { p: P }));
+  assert.equal(m.q("[data-testid=project-no-gate]"), null);
+  assert.equal(m.q("[data-testid=project-tests-lost]"), null);
+  assert.equal(m.q("[data-testid=accept-tests]"), null);
   await m.unmount();
 });

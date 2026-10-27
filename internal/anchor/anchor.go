@@ -196,6 +196,17 @@ func (a *Anchor) vacuous(checks []config.Check) bool {
 	return a.TestCount() == 0
 }
 
+// HasGate says whether dir declares a gate kind=auto can run: the question a project's header asks,
+// without building an anchor or reading a configuration.
+func HasGate(dir string) bool {
+	return len(New(config.Anchor{Kind: "auto"}, dir, nil).checks()) > 0
+}
+
+// TestsIn is how many tests dir declares (see TestCount), for a caller that has no anchor.
+func TestsIn(dir string) int {
+	return New(config.Anchor{Kind: "auto"}, dir, nil).TestCount()
+}
+
 // Planned returns the checks Validate would run right now, without running them.
 //
 // It exists so the model can be TOLD what it will be measured against. With kind=auto the gate is

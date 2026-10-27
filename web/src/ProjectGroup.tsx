@@ -54,6 +54,23 @@ function ProjectMenu({ p }: { p: ProjectInfo }) {
           {t("Update main branch")}
         </button>
       )}
+      {p.tests_lost && (
+        <button
+          class={ITEM_PLAIN}
+          data-testid="accept-tests"
+          title={t(
+            "Takes today's number of tests as the one to measure from; use it when deleting them was on purpose.",
+          )}
+          onClick={(e) => {
+            e.stopPropagation();
+            void projects.acceptTests(p.id);
+            menus.closeRowMenu();
+          }}
+        >
+          <IconRefresh size={14} class="flex-none" />
+          {t("Accept the lower test count")}
+        </button>
+      )}
       <button
         class={ITEM_PLAIN}
         data-testid="rescan-notes"
@@ -117,6 +134,44 @@ function RemoteFact({ p }: { p: ProjectInfo }) {
         {tf("{count} new", { count: String(total) })}
       </span>
     </span>
+  );
+}
+
+// GateFacts warns about the two ways a project's checks stop proving anything: its folder declares
+// no gate (sessions finish unverified), and its tests were deleted since the last look (a gate over
+// no tests passes).
+function GateFacts({ p }: { p: ProjectInfo }) {
+  const lost = p.tests_lost;
+  return (
+    <>
+      {p.no_gate && (
+        <span
+          class="inline-flex items-center gap-1 flex-none px-1 py-px rounded-sm bg-[#f0a040]/10"
+          title={t(
+            "This project declares no gate (a Makefile with check or test, go.mod, package.json, Cargo.toml, pyproject.toml or .motita/anchor), so its sessions finish unverified. Add one, or write the commands to run in .motita/anchor.",
+          )}
+          data-testid="project-no-gate"
+        >
+          <span class="text-[#f0a040] uppercase tracking-wide text-[9px]">
+            {t("no gate")}
+          </span>
+        </span>
+      )}
+      {lost && (
+        <span
+          class="inline-flex items-center gap-1 flex-none px-1 py-px rounded-sm bg-[#f0a040]/10"
+          title={tf(
+            "The project had {was} tests and now has {now}. A gate over fewer tests proves less; look at what was deleted, or choose “Accept the lower test count” in the menu.",
+            { was: String(lost.was), now: String(lost.now) },
+          )}
+          data-testid="project-tests-lost"
+        >
+          <span class="text-[#f0a040] uppercase tracking-wide text-[9px]">
+            {tf("−{count} tests", { count: String(lost.was - lost.now) })}
+          </span>
+        </span>
+      )}
+    </>
   );
 }
 
@@ -206,6 +261,7 @@ function ProjectHeader({
           <span class="project-name truncate">{p.title}</span>
           <StaleFact p={p} />
           <RemoteFact p={p} />
+          <GateFacts p={p} />
           {/* The pill folds its list: this button covers it. It comes after the title and
               before the actions, so it is painted above the one and under the other whatever
               their styles (see SessionRow). */}

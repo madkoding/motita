@@ -231,3 +231,21 @@ func TestTruncateKeepsValidUTF8(t *testing.T) {
 		t.Errorf("got %q", got)
 	}
 }
+
+// HasGate and TestsIn answer for a bare folder, with no configuration or anchor built by the caller.
+func TestHasGateAndTestsInReadTheFolder(t *testing.T) {
+	dir := t.TempDir()
+	if HasGate(dir) || TestsIn(dir) != 0 {
+		t.Fatal("an empty folder declares neither a gate nor tests")
+	}
+	if err := os.WriteFile(filepath.Join(dir, "go.mod"), []byte("module x\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	test := []byte("package x\nfunc TestA(t *testing.T) {}\n")
+	if err := os.WriteFile(filepath.Join(dir, "a_test.go"), test, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if !HasGate(dir) || TestsIn(dir) != 1 {
+		t.Fatalf("HasGate %v, TestsIn %d", HasGate(dir), TestsIn(dir))
+	}
+}

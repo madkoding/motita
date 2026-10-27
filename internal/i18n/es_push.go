@@ -4,6 +4,10 @@ package i18n
 // as the browser's toast for each step of a pull request's watch. Keys are the English text exactly
 // as the gateway writes it; a format keeps its verbs, in the same order, in the translation.
 var esPush = map[string]string{
+	"Tests lost": "Se perdieron tests",
+	"%s had %d tests and now has %d. Look at what was deleted, or accept the lower count in the " +
+		"project's menu.": "%s tenía %d tests y ahora tiene %d. Revisa qué se borró, o acepta " +
+		"la cantidad menor en el menú del proyecto.",
 	"Motita needs your approval": "Motita necesita tu aprobación",
 	"It is waiting to run: %s":   "Está esperando para ejecutar: %s",
 	"Motita stopped":             "Motita se detuvo",
