@@ -1,6 +1,7 @@
 package llm
 
 import (
+	"io"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -73,9 +74,5 @@ func readAttached(root *os.Root, name string) ([]byte, error) {
 	if err != nil || !info.Mode().IsRegular() || info.Size() > maxAttachedImageBytes {
 		return nil, os.ErrInvalid
 	}
-	data := make([]byte, info.Size())
-	if _, err := f.Read(data); err != nil && info.Size() > 0 {
-		return nil, err
-	}
-	return data, nil
+	return io.ReadAll(io.LimitReader(f, maxAttachedImageBytes))
 }
