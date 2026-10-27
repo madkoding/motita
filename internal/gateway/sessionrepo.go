@@ -70,6 +70,24 @@ func (c *conversation) sessionRepoDirs(ctx context.Context, repos []string) []st
 	return out
 }
 
+// knownRepoName is the name of the repository of the session's folder that name asks for, taken
+// from the folder and not from the request, so what reaches git is never the caller's own text. ""
+// when name is empty, and a name no repository has when it matches none (see namedRepo).
+func (c *conversation) knownRepoName(ctx context.Context, name string) string {
+	if name = strings.TrimSpace(name); name == "" {
+		return ""
+	}
+	for _, dir := range repoDirsIn(ctx, c.workspace) {
+		if c.namedRepo([]string{dir}, name) == dir {
+			if dir == c.workspace {
+				return "."
+			}
+			return filepath.Base(dir)
+		}
+	}
+	return "?"
+}
+
 // namedRepo is the repository called name among repos ("." is the session's folder itself), or "".
 func (c *conversation) namedRepo(repos []string, name string) string {
 	for _, dir := range repos {

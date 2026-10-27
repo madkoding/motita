@@ -289,3 +289,23 @@ func TestTheRepositoryWithWorkWinsOverOneOnTheSessionBranch(t *testing.T) {
 		t.Errorf("order = %v, want web then api", got)
 	}
 }
+
+// TestAnAskedForRepositoryIsNamedByTheFolder: what a request calls a repository is matched against
+// the folder, and only the folder's own name goes on; one that matches nothing becomes a name no
+// repository has, so the request is refused and no other repository is taken instead.
+func TestAnAskedForRepositoryIsNamedByTheFolder(t *testing.T) {
+	ctx := context.Background()
+	dir := t.TempDir()
+	gitInit(t, dir)
+	mustRun(t, "git", "-C", dir, "remote", "add", "origin", "https://github.com/o/r.git")
+	gitInit(t, filepath.Join(dir, "web"))
+	c := &conversation{id: "s1", workspace: dir}
+	for asked, want := range map[string]string{"": "", "  ": "", ".": ".", " web ": "web", "../x": "?", "nope": "?"} {
+		if got := c.knownRepoName(ctx, asked); got != want {
+			t.Errorf("knownRepoName(%q) = %q, want %q", asked, got, want)
+		}
+	}
+	if got := c.sessionRepoDir(ctx, c.knownRepoName(ctx, "nope")); got != "" {
+		t.Errorf("an unknown repository must not fall back to another: %q", got)
+	}
+}

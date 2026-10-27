@@ -170,7 +170,7 @@ func prHostError(svc gitforge.Service, err error) *prError {
 // if so, the state of its CI.
 func (s *Server) handleGetPR(w http.ResponseWriter, r *http.Request) {
 	c := convOf(r)
-	t, perr := s.prTargetOf(r.Context(), c, r.URL.Query().Get("repo"))
+	t, perr := s.prTargetOf(r.Context(), c, c.knownRepoName(r.Context(), r.URL.Query().Get("repo")))
 	if perr != nil {
 		s.writePRError(w, perr)
 		return
@@ -220,7 +220,7 @@ func (s *Server) handleCreatePR(w http.ResponseWriter, r *http.Request) {
 	if r.ContentLength > 0 && !s.decodeBody(w, r, &body) {
 		return
 	}
-	body.Repo = cmp.Or(body.Repo, r.URL.Query().Get("repo"))
+	body.Repo = c.knownRepoName(r.Context(), cmp.Or(body.Repo, r.URL.Query().Get("repo")))
 	t, perr := s.prTargetOf(r.Context(), c, body.Repo)
 	if perr != nil {
 		s.writePRError(w, perr)
