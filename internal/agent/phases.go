@@ -194,7 +194,10 @@ func (a *Agent) ask(ctx context.Context, p config.Template, vars map[string]stri
 	if err != nil {
 		return "", err
 	}
-	a.log.Debug("LLM response", "phase", phase, "ms", time.Since(start).Milliseconds(), "bytes", len(text))
+	// Info, not Debug: where a turn's wait goes (which phase, how big a prompt) is what a slow run
+	// is diagnosed from, and it has to be in the log of a run nobody was watching with debug on.
+	a.log.Info("LLM phase", "phase", phase, "model", engine.Model(), "ms", time.Since(start).Milliseconds(),
+		"prompt_bytes", len(system)+len(user), "reply_bytes", len(text))
 	return text, nil
 }
 

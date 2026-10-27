@@ -1499,6 +1499,16 @@ The provider comes before the first slash; the model after it may hold its own. 
 runs with its own key and endpoint. A model whose provider cannot run (no key) falls back to the
 session's model, and the log says so.
 
+`summary` is `off` by default: the criteria audit, the final summary, titles and compaction only
+read what the run did and write a short verdict, so they do not wait for thinking. Set it to
+`""` to follow the session's level again.
+
+**Where a slow turn waits.** Every model call writes one `LLM phase` line to the log with the
+phase (`analyze`, `plan`, `execute`, `audit`, `synthesize`), the model, `ms`, and the size of the
+prompt and of the reply. The prompts put what never changes first and what changes every round
+(task, plan, history) last, so providers that cache a repeated prompt prefix (OpenAI, Gemini,
+Copilot, Codex) reuse the long instructions between rounds instead of reading them again.
+
 A run's background agents (`spawn_agent`) take a `role`: `code` (the default) writes on a
 branch of its own; `review` and `research` read a copy of the run's current tree and change
 nothing. Each one runs on its role's model and is told which other agents of the run are working

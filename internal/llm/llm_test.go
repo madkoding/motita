@@ -628,3 +628,13 @@ func TestASelfHostedOllamaIsNeverSentAKey(t *testing.T) {
 		t.Errorf("a local Ollama was sent %q", header)
 	}
 }
+
+func TestClientModelIsTheConfiguredOne(t *testing.T) {
+	c, err := New(config.LLM{Provider: "ollama", Model: "qwen3", BaseURL: "http://localhost:11434"}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := c.Model(); got != "qwen3" {
+		t.Fatalf("Model() = %q, want qwen3", got)
+	}
+}
