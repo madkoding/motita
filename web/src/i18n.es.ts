@@ -733,6 +733,7 @@ const first: Record<string, string> = {
     "No se pudo pedir a Motita que arregle el CI",
   "Could not create the pull request": "No se pudo crear el pull request",
   "Create PR": "Crear PR",
+  "Project folder": "Carpeta del proyecto",
   "Pull request #{n}": "Pull request #{n}",
   "The CI is running": "El CI está corriendo",
   "CI running {done}/{total}": "CI corriendo {done}/{total}",

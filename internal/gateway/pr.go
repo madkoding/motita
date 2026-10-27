@@ -1,11 +1,13 @@
 package gateway
 
 import (
+	"cmp"
 	"context"
 	"errors"
 	"fmt"
 	"net/http"
 	"os/exec"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -38,6 +40,9 @@ type prView struct {
 	Merge *gitforge.MergeState `json:"merge,omitempty"`
 	// Watch is what the gateway is doing about the pull request, absent when nothing.
 	Watch *PRWatchView `json:"watch,omitempty"`
+	// Repos lists the repositories with work to propose, each with its pull request, when the
+	// session's folder has work in two or more; absent otherwise.
+	Repos []prRepoView `json:"repos,omitempty"`
 }
 
 // prTarget is the repository a session's pull request lives in.
@@ -119,6 +124,12 @@ func (s *Server) prTargetOf(ctx context.Context, c *conversation, repo string) (
 		return prTarget{}, &prError{status: http.StatusConflict, code: errPRNoRemote,
 			msg: "there is no git repository in this project's folder, so there is nothing to propose"}
 	}
+	return s.prTargetAt(ctx, c, dir)
+}
+
+// prTargetAt is prTargetOf for the repository at dir.
+func (s *Server) prTargetAt(ctx context.Context, c *conversation, dir string) (prTarget, *prError) {
+	st := s.gitStore()
 	url := s.repoRemote(ctx, c, dir)
 	if url == "" {
 		return prTarget{}, &prError{status: http.StatusConflict, code: errPRNoRemote,
@@ -159,7 +170,7 @@ func prHostError(svc gitforge.Service, err error) *prError {
 // if so, the state of its CI.
 func (s *Server) handleGetPR(w http.ResponseWriter, r *http.Request) {
 	c := convOf(r)
-	t, perr := s.prTargetOf(r.Context(), c, "")
+	t, perr := s.prTargetOf(r.Context(), c, c.knownRepoName(r.Context(), r.URL.Query().Get("repo")))
 	if perr != nil {
 		s.writePRError(w, perr)
 		return
@@ -190,6 +201,7 @@ func (s *Server) handleGetPR(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	view.Watch = c.prWatchView()
+	view.Repos = s.prRepoViews(r.Context(), c)
 	writeJSON(w, http.StatusOK, view)
 }
 
@@ -208,17 +220,23 @@ func (s *Server) handleCreatePR(w http.ResponseWriter, r *http.Request) {
 	if r.ContentLength > 0 && !s.decodeBody(w, r, &body) {
 		return
 	}
+	body.Repo = c.knownRepoName(r.Context(), cmp.Or(body.Repo, r.URL.Query().Get("repo")))
 	t, perr := s.prTargetOf(r.Context(), c, body.Repo)
 	if perr != nil {
 		s.writePRError(w, perr)
 		return
 	}
-	// A pull request already open is the answer, not a second one.
+	// A pull request already open is the answer, not a second one. When no repository was named and
+	// the project holds several, the next one with work and no pull request of its own comes first.
 	if pr, found, err := t.api.FindPR(r.Context(), t.remote, t.branch); err == nil && found {
-		writeJSON(w, http.StatusConflict, map[string]any{
-			"error": "this session already has an open pull request", "code": "pr_exists", "pr": pr,
-		})
-		return
+		next, ok := s.nextRepoWithoutPR(r.Context(), c, body.Repo, t.dir)
+		if !ok {
+			writeJSON(w, http.StatusConflict, map[string]any{
+				"error": "this session already has an open pull request", "code": "pr_exists", "pr": pr,
+			})
+			return
+		}
+		t = next
 	}
 	ahead := 0
 	if t.base != "" && gitx.BranchExists(r.Context(), t.dir, t.branch) {
@@ -252,6 +270,69 @@ Then give the user the link to the pull request. Do not wait for the CI and do n
 	// From here the gateway follows the pull request's CI, whether or not anyone is looking.
 	s.startPRWatch(c, nil)
 	s.startRunWithIntent(w, r, c, task, schedule.KindTask, "")
+}
+
+// nextRepoWithoutPR finds another repository of the session's folder that has work to propose and
+// no open pull request, after the one at current. Only when the caller named none: a named
+// repository is the answer as it is.
+func (s *Server) nextRepoWithoutPR(ctx context.Context, c *conversation, named, current string) (prTarget, bool) {
+	if strings.TrimSpace(named) != "" {
+		return prTarget{}, false
+	}
+	for _, dir := range c.sessionRepoDirs(ctx, repoDirsIn(ctx, c.workspace)) {
+		if dir == current || !repoHasWork(ctx, dir) {
+			continue
+		}
+		t, perr := s.prTargetAt(ctx, c, dir)
+		if perr != nil {
+			continue
+		}
+		if _, found, err := t.api.FindPR(ctx, t.remote, t.branch); err == nil && !found {
+			return t, true
+		}
+	}
+	return prTarget{}, false
+}
+
+// prRepoView is one repository of the session's folder that has work to propose, with the state of
+// its pull request.
+type prRepoView struct {
+	// Name is what a request names the repository by ("." for the session's folder itself).
+	Name  string                `json:"name"`
+	State string                `json:"state"`
+	PR    *gitforge.PullRequest `json:"pr,omitempty"`
+	CI    string                `json:"ci,omitempty"`
+}
+
+// prRepoViews lists the repositories of the session's folder with work to propose and where each
+// one's pull request stands. nil unless there are two or more: with one the bar needs nothing but
+// the view itself.
+func (s *Server) prRepoViews(ctx context.Context, c *conversation) []prRepoView {
+	var dirs []string
+	for _, dir := range c.sessionRepoDirs(ctx, repoDirsIn(ctx, c.workspace)) {
+		if repoHasWork(ctx, dir) {
+			dirs = append(dirs, dir)
+		}
+	}
+	if len(dirs) < 2 {
+		return nil
+	}
+	var out []prRepoView
+	for _, dir := range dirs {
+		v := prRepoView{Name: filepath.Base(dir), State: "none"}
+		if dir == c.workspace {
+			v.Name = "."
+		}
+		if t, perr := s.prTargetAt(ctx, c, dir); perr == nil {
+			if pr, found, err := t.api.FindPR(ctx, t.remote, t.branch); err == nil && found {
+				v.State, v.PR = "open", &pr
+				ci, _ := t.api.CI(ctx, t.remote, pr.Number)
+				v.CI = ci.State
+			}
+		}
+		out = append(out, v)
+	}
+	return out
 }
 
 // ciFixTask is what the agent is told when the CI of the session's pull request

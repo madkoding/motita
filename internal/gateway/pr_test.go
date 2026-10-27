@@ -734,3 +734,105 @@ func TestPRWaitsForTheChecksTheBaseRuns(t *testing.T) {
 		t.Fatalf("a job the push does not run: %v", ci)
 	}
 }
+
+// TestCreatingAPRMovesOnToTheNextRepositoryWithWork: in a project that holds several repositories,
+// the one that already has its pull request is not offered again while another has work to propose.
+func TestCreatingAPRMovesOnToTheNextRepositoryWithWork(t *testing.T) {
+	srv, host, ss := prSession(t, "https://github.com/o/r.git")
+	connectGitHub(t, srv)
+	branch := sessionBranch(ss.ID)
+	open := func(repo string) string {
+		return `[{"number":7,"html_url":"https://github.com/o/` + repo + `/pull/7","title":"x","head":{"ref":"` +
+			branch + `"},"base":{"ref":"main"}}]`
+	}
+	nested := func(name, origin string, work bool) string {
+		dir := filepath.Join(ss.Workspace, name)
+		gitInit(t, dir)
+		if origin != "" {
+			mustRun(t, "git", "-C", dir, "remote", "add", "origin", origin)
+		}
+		if work {
+			writeIn(t, dir, "new.txt")
+		}
+		return dir
+	}
+	nested("idle", "https://github.com/o/idle.git", false)
+	nested("noremote", "", true)
+	nested("done", "https://github.com/o/done.git", true)
+	web := nested("web", "https://github.com/o/web.git", true)
+	writeIn(t, ss.Workspace, "root.txt")
+	host.set("GET https://api.github.com/repos/o/r/pulls?state=open", open("r"))
+	host.set("GET https://api.github.com/repos/o/done/pulls?state=open", open("done"))
+	host.set("GET https://api.github.com/repos/o/web/pulls?state=open", `[]`)
+	c := srv.conversationOf(ss.ID)
+	ctx := context.Background()
+
+	if _, ok := srv.nextRepoWithoutPR(ctx, c, "done", ss.Workspace); ok {
+		t.Error("a repository the caller named is the answer as it is")
+	}
+	got, ok := srv.nextRepoWithoutPR(ctx, c, "", ss.Workspace)
+	if !ok || got.dir != web {
+		t.Fatalf("next = %q (%v), want web: idle has no work, noremote no origin, done its PR", got.dir, ok)
+	}
+	// With the session's folder itself free of a pull request, it is the one left.
+	// Creating the pull request answers with the next repository, not with the one that has its own.
+	host.set("GET https://api.github.com/repos/o/r/pulls?state=open", open("r"))
+	if w := postJSON(t, srv, sessionPath(srv, ss.ID, "/pr"), testToken, `{}`); w.Code == http.StatusConflict {
+		t.Errorf("creating the pull request of web: %d %s", w.Code, w.Body.String())
+	}
+	host.set("GET https://api.github.com/repos/o/r/pulls?state=open", `[]`)
+	if got, ok := srv.nextRepoWithoutPR(ctx, c, "", web); !ok || got.dir != ss.Workspace {
+		t.Errorf("next = %q (%v), want the session's folder", got.dir, ok)
+	}
+	host.set("GET https://api.github.com/repos/o/web/pulls?state=open", open("web"))
+	if _, ok := srv.nextRepoWithoutPR(ctx, c, "", ss.Workspace); ok {
+		t.Error("every repository with work has its pull request: nothing is left")
+	}
+}
+
+// TestPRReposTellWhereEachRepositoryStands: with work in two or more repositories the bar lists each
+// one with its pull request and CI, and a request can name the one it means in the query.
+func TestPRReposTellWhereEachRepositoryStands(t *testing.T) {
+	srv, host, ss := prSession(t, "https://github.com/o/r.git")
+	connectGitHub(t, srv)
+	host.set("GET https://api.github.com/repos/o/r/pulls?state=open", `[]`)
+	list := func() []any {
+		repos, _ := decode(t, get(t, srv, sessionPath(srv, ss.ID, "/pr"), testToken))["repos"].([]any)
+		return repos
+	}
+	writeIn(t, ss.Workspace, "root.txt")
+	if got := list(); len(got) != 0 {
+		t.Fatalf("work in one repository needs no list: %v", got)
+	}
+
+	web := filepath.Join(ss.Workspace, "web")
+	gitInit(t, web)
+	mustRun(t, "git", "-C", web, "remote", "add", "origin", "https://github.com/o/web.git")
+	writeIn(t, web, "new.txt")
+	noremote := filepath.Join(ss.Workspace, "noremote")
+	gitInit(t, noremote)
+	writeIn(t, noremote, "new.txt")
+	prHost(host, sessionBranch(ss.ID), "success", "clean")
+	host.set("GET https://api.github.com/repos/o/web/pulls?state=open", `[]`)
+	got := list()
+	if len(got) != 3 {
+		t.Fatalf("repos = %v, want the folder, noremote and web", got)
+	}
+	by := map[string]map[string]any{}
+	for _, v := range got {
+		m := v.(map[string]any)
+		by[m["name"].(string)] = m
+	}
+	if by["."]["state"] != "open" || by["."]["ci"] != "success" || by["web"]["state"] != "none" ||
+		by["noremote"]["state"] != "none" {
+		t.Errorf("states = %v", by)
+	}
+
+	// The query names the repository a request is about.
+	if m := decode(t, get(t, srv, sessionPath(srv, ss.ID, "/pr?repo=web"), testToken)); m["state"] != "none" {
+		t.Errorf("web has no pull request: %v", m)
+	}
+	if w := postJSON(t, srv, sessionPath(srv, ss.ID, "/pr?repo=web"), testToken, ``); w.Code == http.StatusConflict {
+		t.Errorf("creating the pull request of web: %d %s", w.Code, w.Body.String())
+	}
+}

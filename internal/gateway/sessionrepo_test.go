@@ -262,3 +262,50 @@ func TestAMergedPRDoesNotCloseASessionInTheProjectFolder(t *testing.T) {
 		t.Error("a finished pull request is not polled")
 	}
 }
+
+// TestTheRepositoryWithWorkWinsOverOneOnTheSessionBranch: a session of a project with several
+// repositories has a worktree of each on its branch, so the first one on that branch is not the one
+// the pull request is about when the work is in another.
+func TestTheRepositoryWithWorkWinsOverOneOnTheSessionBranch(t *testing.T) {
+	ctx := context.Background()
+	dir := t.TempDir()
+	for _, name := range []string{"api", "web"} {
+		gitInit(t, filepath.Join(dir, name))
+	}
+	repos := repoDirsIn(ctx, dir)
+	c := &conversation{id: "s1", workspace: dir}
+	for _, r := range repos {
+		if err := gitx.SwitchNew(ctx, r, sessionBranch(c.id)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := os.WriteFile(filepath.Join(repos[1], "new.txt"), []byte("x"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if got := c.sessionRepoDir(ctx, ""); got != repos[1] {
+		t.Errorf("repository = %q, want web, the one with the change", got)
+	}
+	if got := c.sessionRepoDirs(ctx, repos); got[0] != repos[1] || got[1] != repos[0] {
+		t.Errorf("order = %v, want web then api", got)
+	}
+}
+
+// TestAnAskedForRepositoryIsNamedByTheFolder: what a request calls a repository is matched against
+// the folder, and only the folder's own name goes on; one that matches nothing becomes a name no
+// repository has, so the request is refused and no other repository is taken instead.
+func TestAnAskedForRepositoryIsNamedByTheFolder(t *testing.T) {
+	ctx := context.Background()
+	dir := t.TempDir()
+	gitInit(t, dir)
+	mustRun(t, "git", "-C", dir, "remote", "add", "origin", "https://github.com/o/r.git")
+	gitInit(t, filepath.Join(dir, "web"))
+	c := &conversation{id: "s1", workspace: dir}
+	for asked, want := range map[string]string{"": "", "  ": "", ".": ".", " web ": "web", "../x": "?", "nope": "?"} {
+		if got := c.knownRepoName(ctx, asked); got != want {
+			t.Errorf("knownRepoName(%q) = %q, want %q", asked, got, want)
+		}
+	}
+	if got := c.sessionRepoDir(ctx, c.knownRepoName(ctx, "nope")); got != "" {
+		t.Errorf("an unknown repository must not fall back to another: %q", got)
+	}
+}

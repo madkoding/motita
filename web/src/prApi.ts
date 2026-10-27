@@ -15,12 +15,7 @@ export interface CICheck {
 
 // What the host says about a merge: possible now, refused for a reason, or not known.
 export type MergeCode =
-  | "ok"
-  | "blocked"
-  | "conflict"
-  | "draft"
-  | "behind"
-  | "unknown";
+  "ok" | "blocked" | "conflict" | "draft" | "behind" | "unknown";
 
 export interface PRView {
   // 'none' while the branch has no open pull request, 'open' once it has.
@@ -32,6 +27,8 @@ export interface PRView {
   merge?: { code: MergeCode };
   // What the gateway is doing about the CI; absent when nothing.
   watch?: PRWatch;
+  // The repositories with work to propose, when the session's folder has work in two or more.
+  repos?: PRRepo[];
 }
 
 // mergeRefused: the host would turn a merge down for a reason the user can see and fix.
@@ -84,6 +81,15 @@ export async function getPR(api: Api, sid: string): Promise<PRView> {
     throw await failure(res);
   }
   return res.json();
+}
+
+// One repository of a session's folder with work to propose, and where its pull request stands.
+export interface PRRepo {
+  // What a request names the repository by; "." is the session's folder itself.
+  name: string;
+  state: "none" | "open";
+  pr?: PRRef;
+  ci?: CIState;
 }
 
 // retryFix sends the agent to fix the CI now and has the gateway follow it again from the start:
