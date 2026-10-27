@@ -281,15 +281,7 @@ func applyLLMEnvironment(c *Config) error {
 	// Only for the providers that ARE OpenAI: an OPENAI_API_KEY exported for another tool
 	// used to become the Anthropic, Gemini or Ollama key too, and the user got a 401 from a
 	// provider that was never given that key.
-	if _, explicit := os.LookupEnv("MOTITA_LLM_API_KEY"); !explicit && (speaksOpenAIKey(c.LLM.Provider) || legacyKeyVariable(c.LLM.Provider) != "") {
-		if _, own := os.LookupEnv(ProviderKeyVariable(c.LLM.Provider)); !own {
-			name := legacyKeyVariable(c.LLM.Provider)
-			if name == "" {
-				name = "OPENAI_API_KEY"
-			}
-			c.LLM.APIKey = readText(name, c.LLM.APIKey)
-		}
-	}
+	applyOpenAIFamilyKey(c)
 
 	// The model and the endpoint are only taken from the standard OpenAI names when
 	// each is still the default, which is the case a bare `OPENAI_BASE_URL=...` is
@@ -700,4 +692,23 @@ func ProviderKeyVariable(provider string) string {
 		return v
 	}
 	return "MOTITA_LLM_API_KEY"
+}
+
+// applyOpenAIFamilyKey reads the standard key name for the provider the configuration names:
+// OPENAI_API_KEY for OpenAI, and for Codex or the local Ollama their older shared variable, so a
+// setup made before they had keys of their own keeps working.
+func applyOpenAIFamilyKey(c *Config) {
+	if _, explicit := os.LookupEnv("MOTITA_LLM_API_KEY"); explicit {
+		return
+	}
+	name := legacyKeyVariable(c.LLM.Provider)
+	if name == "" && speaksOpenAIKey(c.LLM.Provider) {
+		name = "OPENAI_API_KEY"
+	}
+	if name == "" {
+		return
+	}
+	if _, own := os.LookupEnv(ProviderKeyVariable(c.LLM.Provider)); !own {
+		c.LLM.APIKey = readText(name, c.LLM.APIKey)
+	}
 }
