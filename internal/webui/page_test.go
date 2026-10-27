@@ -192,7 +192,8 @@ func TestThePageStaysInsideItsBudget(t *testing.T) {
 	// landed in the settings and the sidebar, which are part of it).
 	// Raised to 1160 KiB when the shell reached 1155 KiB (the custom model form in the settings
 	// and the attachments of a message).
-	const shellBudget = 1160 * 1024
+	// Raised to 1168 KiB when the shell reached 1161 KiB (the Secrets tab in the settings).
+	const shellBudget = 1168 * 1024
 	const iconFace = "/JetBrainsMonoNerdFont-Icons.woff2"
 	const iconBudget = 1024 * 1024
 
