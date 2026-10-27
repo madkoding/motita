@@ -102,7 +102,8 @@ function AttachmentChips() {
         >
           {thumbOf(a) && (
             <img
-              class="w-5 h-5 rounded-sm object-cover flex-none"
+              class="rounded-sm object-cover flex-none"
+              style="width: 20px; height: 20px;"
               src={thumbOf(a)}
               alt=""
             />
