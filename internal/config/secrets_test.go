@@ -86,3 +86,32 @@ func mustRead(t *testing.T, p string) []byte {
 	}
 	return b
 }
+
+func TestSetSecretReportsAnUnwritableOrUnreadableFile(t *testing.T) {
+	dir := t.TempDir()
+	blocker := filepath.Join(dir, "file")
+	if err := os.WriteFile(blocker, nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := SetSecret(filepath.Join(blocker, "sub", "motita.yaml"), "A", "x"); err == nil {
+		t.Error("a directory that cannot be made was accepted")
+	}
+	cfg := filepath.Join(dir, "motita.yaml")
+	if err := os.Mkdir(SecretsPath(cfg), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := SetSecret(cfg, "A", "x"); err == nil {
+		t.Error("a variables file that cannot be read was accepted")
+	}
+}
+
+func TestCurrentSecretsWithoutAGatewayFileReadsTheHomeOnly(t *testing.T) {
+	UseSecretsBeside("")
+	t.Setenv("HOME", t.TempDir())
+	if err := SetSecret(File(), "HOME_ONLY", "1"); err != nil {
+		t.Fatal(err)
+	}
+	if got := CurrentSecrets(); got["HOME_ONLY"] != "1" || len(got) != 1 {
+		t.Errorf("got %v", got)
+	}
+}
