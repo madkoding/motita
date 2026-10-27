@@ -32,8 +32,8 @@ func repoDirsIn(ctx context.Context, dir string) []string {
 }
 
 // sessionRepoDir is the repository a session's git work (its pull request) is about: the one the
-// caller named (a folder name inside the session's folder), else the one already on the session's
-// branch, else the one holding uncommitted changes, else the first. "" when the folder holds none.
+// caller named (a folder name inside the session's folder), else the one holding the session's work
+// (see sessionRepoDirs), else the first. "" when the folder holds none.
 func (c *conversation) sessionRepoDir(ctx context.Context, named string) string {
 	repos := repoDirsIn(ctx, c.workspace)
 	if len(repos) == 0 {
@@ -42,18 +42,32 @@ func (c *conversation) sessionRepoDir(ctx context.Context, named string) string 
 	if named = strings.TrimSpace(named); named != "" {
 		return c.namedRepo(repos, named)
 	}
+	return c.sessionRepoDirs(ctx, repos)[0]
+}
+
+// sessionRepoDirs orders repos by how much a pull request is about them: first those with work to
+// propose, then the others, each group with the repositories already on the session's branch first.
+// A session of a project that holds several repositories has a worktree of each on its branch, so
+// being on that branch says nothing about where the work is.
+func (c *conversation) sessionRepoDirs(ctx context.Context, repos []string) []string {
 	branch := sessionBranch(c.id)
-	for _, dir := range repos {
-		if gitx.Display(ctx, dir) == branch {
-			return dir
+	rank := func(dir string) int {
+		r := 0
+		if !repoHasWork(ctx, dir) {
+			r += 2
 		}
-	}
-	for _, dir := range repos {
-		if n, err := gitx.WorkingTreeChanges(ctx, dir); err == nil && n > 0 {
-			return dir
+		if gitx.Display(ctx, dir) != branch {
+			r++
 		}
+		return r
 	}
-	return repos[0]
+	ranks := make(map[string]int, len(repos))
+	for _, dir := range repos {
+		ranks[dir] = rank(dir)
+	}
+	out := append([]string(nil), repos...)
+	sort.SliceStable(out, func(i, j int) bool { return ranks[out[i]] < ranks[out[j]] })
+	return out
 }
 
 // namedRepo is the repository called name among repos ("." is the session's folder itself), or "".
@@ -104,16 +118,23 @@ func (c *conversation) changesAcrossRepos(ctx context.Context) int {
 // works in the project's folder, and its work is as proposable as an isolated session's.
 func (c *conversation) hasProposableWork(ctx context.Context) bool {
 	for _, dir := range repoDirsIn(ctx, c.workspace) {
-		if n, err := gitx.WorkingTreeChanges(ctx, dir); err == nil && n > 0 {
-			return true
-		}
-		base, head := gitx.DefaultBranch(ctx, dir), gitx.Display(ctx, dir)
-		if base == "" || head == "" || head == base {
-			continue
-		}
-		if ahead, _, err := gitx.CommitsBetween(ctx, dir, base, head); err == nil && len(ahead) > 0 {
+		if repoHasWork(ctx, dir) {
 			return true
 		}
 	}
 	return false
+}
+
+// repoHasWork reports whether the repository at dir has uncommitted changes or commits on a work
+// branch that its default branch lacks.
+func repoHasWork(ctx context.Context, dir string) bool {
+	if n, err := gitx.WorkingTreeChanges(ctx, dir); err == nil && n > 0 {
+		return true
+	}
+	base, head := gitx.DefaultBranch(ctx, dir), gitx.Display(ctx, dir)
+	if base == "" || head == "" || head == base {
+		return false
+	}
+	ahead, _, err := gitx.CommitsBetween(ctx, dir, base, head)
+	return err == nil && len(ahead) > 0
 }

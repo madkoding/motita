@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net/http"
 	"os/exec"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -213,12 +214,17 @@ func (s *Server) handleCreatePR(w http.ResponseWriter, r *http.Request) {
 		s.writePRError(w, perr)
 		return
 	}
-	// A pull request already open is the answer, not a second one.
+	// A pull request already open is the answer, not a second one. When no repository was named and
+	// the project holds several, the next one with work and no pull request of its own comes first.
 	if pr, found, err := t.api.FindPR(r.Context(), t.remote, t.branch); err == nil && found {
-		writeJSON(w, http.StatusConflict, map[string]any{
-			"error": "this session already has an open pull request", "code": "pr_exists", "pr": pr,
-		})
-		return
+		next, ok := s.nextRepoWithoutPR(r.Context(), c, body.Repo, t.dir)
+		if !ok {
+			writeJSON(w, http.StatusConflict, map[string]any{
+				"error": "this session already has an open pull request", "code": "pr_exists", "pr": pr,
+			})
+			return
+		}
+		t = next
 	}
 	ahead := 0
 	if t.base != "" && gitx.BranchExists(r.Context(), t.dir, t.branch) {
@@ -252,6 +258,32 @@ Then give the user the link to the pull request. Do not wait for the CI and do n
 	// From here the gateway follows the pull request's CI, whether or not anyone is looking.
 	s.startPRWatch(c, nil)
 	s.startRunWithIntent(w, r, c, task, schedule.KindTask, "")
+}
+
+// nextRepoWithoutPR finds another repository of the session's folder that has work to propose and
+// no open pull request, after the one at current. Only when the caller named none: a named
+// repository is the answer as it is.
+func (s *Server) nextRepoWithoutPR(ctx context.Context, c *conversation, named, current string) (prTarget, bool) {
+	if strings.TrimSpace(named) != "" {
+		return prTarget{}, false
+	}
+	for _, dir := range c.sessionRepoDirs(ctx, repoDirsIn(ctx, c.workspace)) {
+		if dir == current || !repoHasWork(ctx, dir) {
+			continue
+		}
+		name := filepath.Base(dir)
+		if dir == c.workspace {
+			name = "."
+		}
+		t, perr := s.prTargetOf(ctx, c, name)
+		if perr != nil || t.dir != dir {
+			continue
+		}
+		if _, found, err := t.api.FindPR(ctx, t.remote, t.branch); err == nil && !found {
+			return t, true
+		}
+	}
+	return prTarget{}, false
 }
 
 // ciFixTask is what the agent is told when the CI of the session's pull request

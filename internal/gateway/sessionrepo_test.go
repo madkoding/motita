@@ -262,3 +262,30 @@ func TestAMergedPRDoesNotCloseASessionInTheProjectFolder(t *testing.T) {
 		t.Error("a finished pull request is not polled")
 	}
 }
+
+// TestTheRepositoryWithWorkWinsOverOneOnTheSessionBranch: a session of a project with several
+// repositories has a worktree of each on its branch, so the first one on that branch is not the one
+// the pull request is about when the work is in another.
+func TestTheRepositoryWithWorkWinsOverOneOnTheSessionBranch(t *testing.T) {
+	ctx := context.Background()
+	dir := t.TempDir()
+	for _, name := range []string{"api", "web"} {
+		gitInit(t, filepath.Join(dir, name))
+	}
+	repos := repoDirsIn(ctx, dir)
+	c := &conversation{id: "s1", workspace: dir}
+	for _, r := range repos {
+		if err := gitx.SwitchNew(ctx, r, sessionBranch(c.id)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := os.WriteFile(filepath.Join(repos[1], "new.txt"), []byte("x"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if got := c.sessionRepoDir(ctx, ""); got != repos[1] {
+		t.Errorf("repository = %q, want web, the one with the change", got)
+	}
+	if got := c.sessionRepoDirs(ctx, repos); got[0] != repos[1] || got[1] != repos[0] {
+		t.Errorf("order = %v, want web then api", got)
+	}
+}
