@@ -45,6 +45,15 @@ type Project struct {
 	// RemoteChanges is what origin has that this project's branches do not, as of the last look
 	// (every 15 minutes). Read live, never saved.
 	RemoteChanges []RemoteChange `json:"remote_changes,omitempty"`
+	// TestsFloor is the most tests the project's folder has had at a look (see gatewatch.go): a
+	// count below it is tests lost. It only rises, until the person accepts the lower count.
+	TestsFloor int `json:"tests_floor,omitempty"`
+	// TestsLost is how far the tests fell below the floor at the last look, read live. Absent when
+	// they did not.
+	TestsLost *TestsLost `json:"tests_lost,omitempty"`
+	// NoGate marks a project whose folder declares no gate for the anchor to run, so its sessions
+	// finish unverified. Read live.
+	NoGate bool `json:"no_gate,omitempty"`
 	// MergeMethod is how a pull request of this project is merged from motita: "merge", "squash"
 	// or "rebase". Empty is a merge commit.
 	MergeMethod string `json:"merge_method,omitempty"`

@@ -17,6 +17,7 @@ import { UnconfinedRunsSetting } from "./UnconfinedRunsSetting";
 import { NetworkIsolationSetting } from "./NetworkIsolationSetting";
 import { AutoApplySetting } from "./AutoApplySetting";
 import { ApproveAllSetting } from "./ApproveAllSetting";
+import { ApprovalTimeoutSetting } from "./ApprovalTimeoutSetting";
 import { DesktopSetting } from "./DesktopSetting";
 import { BoxesSetting } from "./BoxesSetting";
 
@@ -272,6 +273,9 @@ function CommandSettings({
       )}
       {view.approve_all_commands !== undefined && (
         <ApproveAllSetting api={api} view={view} onView={onView} />
+      )}
+      {view.approval_timeout_minutes !== undefined && (
+        <ApprovalTimeoutSetting api={api} view={view} onView={onView} />
       )}
       {view.auto_apply_suggestions !== undefined && (
         <AutoApplySetting api={api} view={view} onView={onView} />

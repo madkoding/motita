@@ -19,7 +19,7 @@ func TestOpenAIKeyIsNotHandedToOtherVendors(t *testing.T) {
 		os.Unsetenv(v)
 	}
 	t.Setenv("OPENAI_API_KEY", "sk-openai")
-	for provider, want := range map[string]string{"openai": "sk-openai", "codex": "sk-openai", "anthropic": "",
+	for provider, want := range map[string]string{"openai": "sk-openai", "codex": "", "anthropic": "",
 		"gemini": "", "qwen": "", "ollama": ""} {
 		c := Default()
 		c.LLM.Provider = provider
@@ -27,8 +27,12 @@ func TestOpenAIKeyIsNotHandedToOtherVendors(t *testing.T) {
 		if err := applyLLMEnvironment(&c); err != nil {
 			t.Fatal(err)
 		}
-		if c.LLM.APIKey != want {
-			t.Errorf("%s: key = %q, want %q", provider, c.LLM.APIKey, want)
+		loaded := want
+		if provider == "codex" {
+			loaded = "sk-openai" // a setup made before Codex had its own key keeps working
+		}
+		if c.LLM.APIKey != loaded {
+			t.Errorf("%s: key = %q, want %q", provider, c.LLM.APIKey, loaded)
 		}
 		if got := ProviderKeyFromEnv(provider); got != want {
 			t.Errorf("%s: ProviderKeyFromEnv = %q", provider, got)

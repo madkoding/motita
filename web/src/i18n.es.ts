@@ -6,6 +6,7 @@
 
 import more from "./i18n.es.part2.ts";
 import evals from "./i18n.es.evals.ts";
+import custom from "./i18n.es.custom.ts";
 import commands from "./i18n.es.commands.ts";
 import automode from "./i18n.es.automode.ts";
 import terminal from "./i18n.es.terminal.ts";
@@ -520,6 +521,15 @@ const first: Record<string, string> = {
   "{n} actions": "{n} acciones",
   "{n} agents": "{n} agentes",
   "{n} subagents": "{n} subagentes",
+  "Waiting for an answer": "Esperar la respuesta",
+  "If nobody answers": "Si nadie responde",
+  "A question about a command waits until you answer it. A run you left alone stays stopped until you come back.":
+    "Una pregunta sobre un comando espera hasta que la respondas. Una tarea que dejaste sola queda detenida hasta que vuelvas.",
+  "A question nobody answers within {minutes} minutes is refused and the run goes on without that command.":
+    "Una pregunta que nadie responde en {minutes} minutos se rechaza y la tarea sigue sin ese comando.",
+  "{n} min": "{n} min",
+  "Waiting for you": "Esperando tu respuesta",
+  "Waiting for your approval": "Esperando tu aprobación para un comando",
   "{n} background agents running": "{n} agentes en segundo plano trabajando",
   "{n} changes": "{n} cambios",
   "{n} commands": "{n} comandos",
@@ -588,6 +598,16 @@ const first: Record<string, string> = {
   "{n}y ago": "hace {n} años",
   behind: "atrás",
   outdated: "desactualizada",
+  "no gate": "sin gate",
+  "This project declares no gate (a Makefile with check or test, go.mod, package.json, Cargo.toml, pyproject.toml or .motita/anchor), so its sessions finish unverified. Add one, or write the commands to run in .motita/anchor.":
+    "Este proyecto no declara un gate (un Makefile con check o test, go.mod, package.json, Cargo.toml, pyproject.toml o .motita/anchor), así que sus sesiones terminan sin verificar. Agrega uno, o escribe los comandos a ejecutar en .motita/anchor.",
+  "−{count} tests": "−{count} tests",
+  "The project had {was} tests and now has {now}. A gate over fewer tests proves less; look at what was deleted, or choose “Accept the lower test count” in the menu.":
+    "El proyecto tenía {was} tests y ahora tiene {now}. Un gate sobre menos tests prueba menos; revisa qué se borró, o elige “Aceptar la cantidad menor de tests” en el menú.",
+  "Accept the lower test count": "Aceptar la cantidad menor de tests",
+  "Takes today's number of tests as the one to measure from; use it when deleting them was on purpose.":
+    "Toma la cantidad de tests de hoy como la de referencia; úsalo cuando borrarlos fue a propósito.",
+  "could not accept the tests": "no se pudieron aceptar los tests",
   "Update main branch": "Actualizar rama principal",
   "Update {repo}": "Actualizar {repo}",
   "Branch {branch}": "Rama {branch}",
@@ -832,6 +852,7 @@ const es: Record<string, string> = {
   ...first,
   ...more,
   ...evals,
+  ...custom,
   ...commands,
   ...automode,
   ...terminal,

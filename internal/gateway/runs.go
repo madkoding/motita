@@ -407,6 +407,7 @@ func (s *Server) reportDone(c *conversation, rn *run, kind, startRev, result str
 		out.Files = done.Changes.Files
 	}
 	c.recordOutcome(rn.turn, out)
+	s.pushUnwatched(c, rn, "done", "")
 	s.closeRun(c, rn, runEnd{event: EventDone, payload: done, outcome: "done", result: result, snap: snap})
 	s.autoTitle(c)
 }
@@ -416,6 +417,9 @@ func (s *Server) reportDone(c *conversation, rn *run, kind, startRev, result str
 func (s *Server) reportFailed(c *conversation, rn *run, outcome, msg string) {
 	msg = s.localizeLLM(msg)
 	c.recordOutcome(rn.turn, turnOutcome{Error: msg})
+	if outcome != "cancelled" {
+		s.pushUnwatched(c, rn, "error", msg)
+	}
 	s.closeRun(c, rn, runEnd{event: EventError, payload: map[string]string{"error": msg}, outcome: outcome, errText: msg})
 }
 
@@ -438,16 +442,13 @@ func (s *Server) approverFactory(c *conversation) func(*run) agent.Approver {
 // would hold its conversation's only run slot for the life of the process.
 func (s *Server) unattendedApprover(scheduleID string) func(*run) agent.Approver {
 	return func(rn *run) agent.Approver {
+		// A scheduled run has its own report; a phone notification for each would be noise.
+		rn.quiet = true
 		return func(_ context.Context, req agent.ApprovalRequest) (bool, error) {
 			err := fmt.Errorf("this run was started by the scheduled task %s and has nobody to ask: "+
 				"set agent.policy.enforce=false to run such actions unattended, or run the task by hand",
 				scheduleID)
-			if rn.onDenied != nil {
-				rn.onDenied(req.Command)
-			}
-			rn.append(EventApprovalDenied, approvalDeniedEvent{
-				Command: req.Command, Reason: req.Reason, Rule: req.Rule, Error: err.Error(),
-			})
+			rn.deny(req, err)
 			return false, err
 		}
 	}
@@ -714,15 +715,58 @@ func (s *Server) approverFor(c *conversation, rn *run) agent.Approver {
 		defer c.clearPendingApproval()
 
 		rn.append(EventApproval, approvalEvent{ID: id, Command: req.Command, Reason: req.Reason, Rule: req.Rule})
+		s.pushUnwatched(c, rn, "approval", req.Command)
 
-		select {
-		case ok := <-p.ch:
-			return ok, nil
-		case <-ctx.Done():
-			// The run was cancelled while the question was open.
-			return false, ctx.Err()
+		return s.awaitAnswer(ctx, rn, p, req, s.approvalTimeout(c))
+	}
+}
+
+// awaitAnswer blocks until the open question is answered, the run is cancelled, or wait has passed
+// (0 waits for as long as it takes): an unanswered question is refused, so the run goes on without
+// that command.
+func (s *Server) awaitAnswer(
+	ctx context.Context, rn *run, p *pendingApproval, req agent.ApprovalRequest, wait time.Duration,
+) (bool, error) {
+	// A nil channel never fires, which is what "no timeout" is.
+	var expired <-chan time.Time
+	if wait > 0 {
+		timer := time.NewTimer(wait)
+		defer timer.Stop()
+		expired = timer.C
+	}
+	select {
+	case ok := <-p.ch:
+		return ok, nil
+	case <-expired:
+		err := fmt.Errorf("nobody answered within %s: the command was refused", wait)
+		rn.deny(req, err)
+		return false, err
+	case <-ctx.Done():
+		// The run was cancelled while the question was open.
+		return false, ctx.Err()
+	}
+}
+
+// deny records a refused question in the run's friction record and its log.
+func (r *run) deny(req agent.ApprovalRequest, err error) {
+	if r.onDenied != nil {
+		r.onDenied(req.Command)
+	}
+	r.append(EventApprovalDenied, approvalDeniedEvent{
+		Command: req.Command, Reason: req.Reason, Rule: req.Rule, Error: err.Error(),
+	})
+}
+
+// approvalTimeout is how long a question of c waits for its answer, 0 for as long as it takes. The
+// settings page changes it in the file, so the file is asked first: a run already in flight
+// follows the change at its next question.
+func (s *Server) approvalTimeout(c *conversation) time.Duration {
+	if s.opts.ConfigPath != "" {
+		if cfg, err := loadConfig(s.opts.ConfigPath); err == nil {
+			return cfg.Agent.ApprovalTimeout
 		}
 	}
+	return c.svc.Config().Agent.ApprovalTimeout
 }
 
 // handleApproval answers the question of the run in progress IN THIS conversation.

@@ -56,6 +56,15 @@ export interface ModelChoice {
   model: string;
 }
 
+// The model of the custom provider and the limits it runs with. A missing temperature is the
+// endpoint's own default; a zero size keeps the general one.
+export interface CustomModel {
+  model: string;
+  temperature?: number;
+  max_tokens: number;
+  context_window: number;
+}
+
 export interface LLMView {
   provider: string;
   model: string;
@@ -67,6 +76,7 @@ export interface LLMView {
   // How hard each kind of work thinks (an absent kind follows the session's level), and the levels.
   thinking?: Record<string, string>;
   thinking_levels?: string[];
+  custom_model?: CustomModel;
   // The day the catalogue's prices were last compared with the vendors' pages.
   prices_checked?: string;
 }
@@ -194,6 +204,90 @@ export function saveDefault(
     method: "PUT",
     headers: JSON_HEADERS,
     body: JSON.stringify({ provider, model }),
+  });
+}
+
+// What the custom model form holds: everything as typed.
+export interface CustomDraft {
+  model: string;
+  temperature: string;
+  max_tokens: string;
+  context_window: string;
+}
+
+// customDraft is the form's text for a saved custom model.
+export function customDraft(m: CustomModel | undefined): CustomDraft {
+  return {
+    model: m?.model || "",
+    temperature: textOf(m?.temperature, true),
+    max_tokens: textOf(m?.max_tokens, false),
+    context_window: textOf(m?.context_window, false),
+  };
+}
+
+// textOf is a saved number as typed: empty when there is none, or when zero means "default".
+function textOf(n: number | undefined, keepZero: boolean): string {
+  if (n === undefined || (n === 0 && !keepZero)) {
+    return "";
+  }
+  return String(n);
+}
+
+// numberOf reads a typed number: undefined when the field is empty, NaN when it is not a number.
+function numberOf(raw: string): number | undefined {
+  const text = raw.trim();
+  if (text === "") {
+    return undefined;
+  }
+  return Number(text);
+}
+
+// customProblem says what is wrong with the typed limits, or "" when they can be saved: the
+// temperature a number from 0 to 2, the sizes whole numbers above zero.
+export function customProblem(d: CustomDraft): string {
+  const temperature = numberOf(d.temperature);
+  if (temperature !== undefined && !(temperature >= 0 && temperature <= 2)) {
+    return "temperature";
+  }
+  for (const key of ["max_tokens", "context_window"] as const) {
+    const n = numberOf(d[key]);
+    if (n !== undefined && !(Number.isInteger(n) && n > 0)) {
+      return key;
+    }
+  }
+  return "";
+}
+
+// customBody is what a save sends: the model trimmed and the limits as numbers, an empty one as
+// the default (no temperature, size zero).
+export function customBody(d: CustomDraft): CustomModel {
+  return {
+    model: d.model.trim(),
+    temperature: numberOf(d.temperature),
+    max_tokens: numberOf(d.max_tokens) ?? 0,
+    context_window: numberOf(d.context_window) ?? 0,
+  };
+}
+
+// sameCustom says whether the form holds what is saved already.
+export function sameCustom(
+  d: CustomDraft,
+  m: CustomModel | undefined,
+): boolean {
+  const saved = customDraft(m);
+  return (
+    d.model.trim() === saved.model &&
+    numberOf(d.temperature) === numberOf(saved.temperature) &&
+    numberOf(d.max_tokens) === numberOf(saved.max_tokens) &&
+    numberOf(d.context_window) === numberOf(saved.context_window)
+  );
+}
+
+export function saveCustomModel(api: Api, m: CustomModel): Promise<LLMView> {
+  return send<LLMView>(api, "/v1/llm/custom-model", {
+    method: "PUT",
+    headers: JSON_HEADERS,
+    body: JSON.stringify(m),
   });
 }
 

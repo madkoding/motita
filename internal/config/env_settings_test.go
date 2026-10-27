@@ -333,13 +333,13 @@ func TestProviderNeedsKey(t *testing.T) {
 }
 
 func TestProviderKeyVariable(t *testing.T) {
-	if got := ProviderKeyVariable("ollama"); got != "OLLAMA_API_KEY" {
+	if got := ProviderKeyVariable("ollama"); got != "MOTITA_OLLAMA_API_KEY" {
 		t.Errorf("ProviderKeyVariable(ollama) = %q", got)
 	}
-	if got := ProviderKeyVariable("OLLAMA"); got != "OLLAMA_API_KEY" {
+	if got := ProviderKeyVariable("OLLAMA"); got != "MOTITA_OLLAMA_API_KEY" {
 		t.Errorf("the lookup must be case-insensitive, got %q", got)
 	}
-	if got := ProviderKeyVariable("  ollama  "); got != "OLLAMA_API_KEY" {
+	if got := ProviderKeyVariable("  ollama  "); got != "MOTITA_OLLAMA_API_KEY" {
 		t.Errorf("the lookup must ignore surrounding spaces, got %q", got)
 	}
 	if got := ProviderKeyVariable("openai"); got != "MOTITA_LLM_API_KEY" {

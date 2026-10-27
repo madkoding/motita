@@ -518,6 +518,7 @@ test("a read-only gateway, and one with no provider connected", async () => {
   assert.deepEqual(tips, [
     "Connect a provider in Providers first.",
     "Connect a provider in Providers first.",
+    "Works with any OpenAI-compatible endpoint. Connect it first in Providers (URL and token), then pick it as a model here or per kind of work.",
   ]);
   for (const b of m.root.querySelectorAll("button[type=submit]")) {
     assert.equal(b.disabled, true);

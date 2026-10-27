@@ -176,7 +176,8 @@ func TestStoredKeyBelongsToItsProvider(t *testing.T) {
 		name, oldProvider, creds, provider, want string
 	}{
 		{"own variable", "gemini", "export GEMINI_API_KEY='g'\n", "gemini", "g"},
-		{"generic, same account", "codex", "export MOTITA_LLM_API_KEY='sk'\n", "openai", "sk"},
+		{"generic, same provider", "openai", "export MOTITA_LLM_API_KEY='sk'\n", "openai", "sk"},
+		{"generic, codex is not openai", "codex", "export MOTITA_LLM_API_KEY='sk'\n", "openai", ""},
 		{"generic, another vendor", "anthropic", "export MOTITA_LLM_API_KEY='sk'\n", "openai", ""},
 		{"nothing stored", "openai", "", "openai", ""},
 		{"no variable at all", "openai", "export MOTITA_LLM_API_KEY='sk'\n", "claude-code", ""},

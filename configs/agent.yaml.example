@@ -95,7 +95,7 @@ sandbox:
 # Layer B — THE REASONING ENGINE
 # ---------------------------------------------------------------------------
 llm:
-  provider: openai     # openai | codex | copilot | ollama | ollama-cloud | anthropic | claude-code | gemini | qwen
+  provider: openai     # openai | codex | copilot | ollama | ollama-cloud | anthropic | claude-code | gemini | qwen | custom
   model: gpt-4o-mini
   api_key: ""          # BETTER: export MOTITA_LLM_API_KEY
   base_url: https://api.openai.com/v1   # any compatible gateway works
@@ -321,6 +321,15 @@ thinking:
   summary: ""    # titles, compaction summaries, auto mode's guess
   cheap: ""      # background agents on the cheap tier
   strong: ""     # background agents on the strong tier
+
+custom_model:
+  # The model of the "custom" provider (any OpenAI-compatible endpoint: set its URL and token in
+  # the browser's Providers tab, or llm.base_url and MOTITA_CUSTOM_API_KEY). These limits apply to
+  # that model only. The browser's Models tab writes this block.
+  model: ""            # the name the endpoint knows it by, e.g. llama-3.3-70b-instruct
+  temperature:         # 0 to 2; empty keeps the endpoint's default, e.g. 0.2
+  max_tokens: 0        # tokens per answer; 0 keeps llm.max_tokens, e.g. 8192
+  context_window: 0    # the model's window in tokens; 0 asks the model, e.g. 128000
 
 ui:
   # The language of the terminal, the browser and the setup wizard: auto | en | es.

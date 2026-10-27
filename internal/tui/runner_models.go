@@ -34,6 +34,15 @@ func (r *AppRunner) SetTaskModels(m config.Models) {
 	r.taskEngines = nil
 }
 
+// SetCustomModel replaces the custom model this session runs with. Every engine is dropped: the
+// session's own may be running that model.
+func (r *AppRunner) SetCustomModel(m config.CustomModel) {
+	r.cfgMu.Lock()
+	defer r.cfgMu.Unlock()
+	r.Cfg.CustomModel, r.Cfg.LLM.Custom = m, m
+	r.dropEngines()
+}
+
 // SetTaskThinking replaces the thinking block this session runs with. The engines built from the
 // old one are dropped, as with the models block.
 func (r *AppRunner) SetTaskThinking(t config.Thinking) {

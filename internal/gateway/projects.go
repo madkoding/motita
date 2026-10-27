@@ -11,6 +11,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/madkoding/motita/internal/anchor"
 	"github.com/madkoding/motita/internal/gitforge"
 	"github.com/madkoding/motita/internal/gitx"
 	"github.com/madkoding/motita/internal/projectskills"
@@ -57,6 +58,8 @@ func (s *Server) projectViews() ([]Project, error) {
 		all[i].MainBranch = mainBranchOf(ctx, &all[i])
 		all[i].MainWarning = s.mainRefresh.warning(all[i].ID)
 		all[i].RemoteChanges = s.remoteWatch.of(all[i].ID)
+		all[i].TestsLost = s.remoteWatch.gate.of(all[i].ID)
+		all[i].NoGate = !anchor.HasGate(all[i].Dir)
 		all[i].Changes, _ = gitx.WorkingTreeChanges(ctx, all[i].Dir)
 		liveRepos(ctx, &all[i])
 		all[i].Nested = nestedReposOf(ctx, &all[i])

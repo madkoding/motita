@@ -20,6 +20,7 @@ import {
   primaryBtn,
 } from "./ProviderSettings";
 import { ModelPicker } from "./ModelPicker";
+import { CustomModelSettings } from "./CustomModelSettings";
 import { EvalSettings } from "./EvalSettings";
 import { REASONING_LEVELS } from "./appConst";
 
@@ -110,6 +111,12 @@ export function ModelSettings({ api, onNotice }: ProviderSettingsProps) {
             onNotice={onNotice}
           />
           <TaskModels
+            api={api}
+            view={view}
+            onSaved={setView}
+            onNotice={onNotice}
+          />
+          <CustomModelSettings
             api={api}
             view={view}
             onSaved={setView}

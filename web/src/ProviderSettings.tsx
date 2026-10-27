@@ -426,7 +426,11 @@ function KeyField({ p, value, onValue }: FieldProps) {
           tf("Saved ({hint}). Paste a new one to replace it", {
             hint: p.key_hint || "…",
           }),
-          t("Paste the key"),
+          choose(
+            p.id === "custom",
+            t("Paste the token, e.g. sk-proj-… or your server's token"),
+            t("Paste the key"),
+          ),
         )}
         autocomplete="off"
         autocapitalize="off"
@@ -447,7 +451,7 @@ function EndpointField({ p, value, onValue }: FieldProps) {
         class={inputCls + " font-mono"}
         type="url"
         value={value}
-        placeholder={p.default_base_url}
+        placeholder={p.default_base_url || t("https://llm.example.com/v1")}
         autocapitalize="off"
         spellcheck={false}
         onInput={(e) => onValue((e.target as HTMLInputElement).value)}

@@ -37,6 +37,11 @@ func credentialKey(configPath, provider string) string {
 	if v := creds[ProviderStoreVariable(provider)]; v != "" {
 		return v
 	}
+	if legacy := legacyKeyVariable(provider); legacy != "" {
+		if v := creds[legacy]; v != "" {
+			return v
+		}
+	}
 	return creds[genericKeyVariable]
 }
 

@@ -19,7 +19,7 @@ import (
 // the provider just chosen. A model from another provider would fail at runtime.
 func TestChooseModelIsLimitedToTheProvider(t *testing.T) {
 	stubDirectAuth(t, "stub-token")
-	for _, p := range Providers() {
+	for _, p := range WizardProviders() {
 		dir := t.TempDir()
 		out, res, err := run(context.Background(), t, dir, modelAnswers(t, p), Answers{})
 		if err != nil {
@@ -318,7 +318,7 @@ func TestKeyVariableForFallsBackForAnUnknownProvider(t *testing.T) {
 	if got := keyVariableFor("nope"); got != "MOTITA_LLM_API_KEY" {
 		t.Errorf("keyVariableFor(unknown) = %q", got)
 	}
-	if got := keyVariableFor("ollama"); got != "OLLAMA_API_KEY" {
+	if got := keyVariableFor("ollama"); got != "MOTITA_OLLAMA_API_KEY" {
 		t.Errorf("keyVariableFor(ollama) = %q", got)
 	}
 }

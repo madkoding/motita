@@ -14,6 +14,7 @@ type modelsService struct {
 	refreshingService
 	models []config.Models
 	think  []config.Thinking
+	custom []config.CustomModel
 }
 
 func (m *modelsService) SetTaskThinking(t config.Thinking) { m.think = append(m.think, t) }

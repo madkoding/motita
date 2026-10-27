@@ -73,6 +73,8 @@ export interface SessionInfo {
   // agents_running counts the background agents the session's run started that are still
   // working. Older gateways do not send it.
   agents_running?: number;
+  // awaiting_approval is set while the run is blocked on a question about a command.
+  awaiting_approval?: boolean;
   // provider and model are what this session's next turn runs with: each session keeps its own.
   // Older gateways do not send them.
   provider?: string;
@@ -150,6 +152,12 @@ export interface ProjectInfo {
   // remote_changes is what origin has that the project's branches do not, as of the gateway's last
   // look; absent when it is up to date.
   remote_changes?: RemoteChange[];
+  // tests_lost is how far the project's tests fell below the most it has had, as of the gateway's
+  // last look; absent when they did not.
+  tests_lost?: { was: number; now: number };
+  // no_gate marks a folder that declares no gate for the anchor to run: its sessions finish
+  // unverified.
+  no_gate?: boolean;
   // nested_repos are the git repositories inside the folder of a project that is not one itself.
   nested_repos?: NestedRepo[];
   // merge_method is how its pull requests are merged from here: merge, squash or rebase.

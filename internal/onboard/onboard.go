@@ -458,11 +458,11 @@ func (s *session) pick(ctx context.Context, prompt string, m *menu, what string)
 }
 
 func (s *session) chooseProvider(ctx context.Context, preset string) (Provider, error) {
-	providers := Providers()
+	providers := WizardProviders()
 
 	if preset != "" {
 		p, ok := Lookup(preset)
-		if !ok {
+		if !ok || p.WebOnly {
 			return Provider{}, fmt.Errorf("unknown provider %q (use %s)", preset, Names())
 		}
 		return p, nil
@@ -568,8 +568,8 @@ func (s *session) connect(ctx context.Context, st *setup, presetKey string) erro
 // provider, so a user who runs the wizard again to change the model is not asked to paste it
 // again.
 //
-// The generic variable is only offered back to the provider that wrote it (OpenAI and Codex share
-// it, being the same account): it would otherwise offer one vendor's key to another.
+// The generic variable is only offered back to the provider that wrote it (OpenAI): Codex has its
+// own variable, and offering either one's key to the other would mix two providers.
 func (s *session) storedKey(p Provider) string {
 	if p.EnvKey == "" {
 		return ""
@@ -583,7 +583,7 @@ func (s *session) storedKey(p Provider) string {
 		return ""
 	}
 	switch strings.ToLower(old.LLM.Provider) {
-	case "openai", "codex":
+	case "openai":
 		return key
 	default:
 		// Another vendor's key: not offered back.
