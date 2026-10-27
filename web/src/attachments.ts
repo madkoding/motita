@@ -55,7 +55,7 @@ export function withAttachments(text: string, list: Attachment[]): string {
 // line of it: the folder is the session's own, so the line holds the id the file is served by.
 const NOTE_HEAD = "The person attached these files, saved in your workspace:";
 const NOTE_PATTERN = new RegExp(
-  `^([\\s\\S]*?)\\n\\n\\[${NOTE_HEAD}\\n([\\s\\S]*)\\]$`,
+  String.raw`^([\s\S]*?)\n\n\[${NOTE_HEAD}\n([\s\S]*)\]$`,
 );
 const FILE_PATTERN = /^- \.motita\/uploads\/([^/]+)\/(.+?) \((\w+), [^)]*\)/;
 
