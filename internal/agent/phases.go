@@ -311,3 +311,6 @@ func describePlan(p Plan) string {
 	}
 	return sb.String()
 }
+
+// secretsNote tells the model the names of the variables the user kept for it.
+func (a *Agent) secretsNote() string { return describeSecrets(a.sandbox.SecretNames()) }

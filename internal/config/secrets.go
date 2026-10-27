@@ -18,7 +18,7 @@ import (
 // means to list the rest. The gateway never returns a value, only the name and the last characters.
 
 // secretName is what a stored variable may be called.
-var secretName = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]{0,63}$`)
+var secretName = regexp.MustCompile(`^[A-Za-z_]\w{0,63}$`)
 
 // reservedSecrets are variables a command needs from the sandbox itself: overriding one would break
 // the isolation or the tools, so they cannot be used as a secret's name.
@@ -41,11 +41,11 @@ func SecretsPath(configPath string) string {
 
 // CheckSecretName says why name cannot be a secret's name, or "".
 func CheckSecretName(name string) string {
-	switch {
-	case !secretName.MatchString(name):
+	upper := strings.ToUpper(name)
+	if !secretName.MatchString(name) {
 		return "a name is letters, digits and _, not starting with a digit, up to 64 long"
-	case reservedSecrets[strings.ToUpper(name)], strings.HasPrefix(strings.ToUpper(name), "LD_"),
-		strings.HasPrefix(strings.ToUpper(name), "MOTITA_"):
+	}
+	if reservedSecrets[upper] || strings.HasPrefix(upper, "LD_") || strings.HasPrefix(upper, "MOTITA_") {
 		return name + " is reserved for the sandbox"
 	}
 	return ""

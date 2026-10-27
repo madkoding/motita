@@ -474,12 +474,13 @@ func (s *Sandbox) prepare(p execx.Request, extraEnv []string) (preparedRun, erro
 	}
 
 	confine := s.op.ConfineWrites && !s.op.UseChroot && !p.Unconfined
+	env := s.environmentWithTmp(tempDir, !confine || p.Approved, p.SystemToolsFirst)
 	spec := Spec{
 		Command:     p.Command,
 		Args:        append([]string(nil), p.Args...),
 		Dir:         workDir,
 		Limits:      s.runLimits(p),
-		Environment: withVariables(s.environmentWithTmp(tempDir, !confine || p.Approved, p.SystemToolsFirst), append(s.secretEnv(), extraEnv...)),
+		Environment: withVariables(env, append(s.secretEnv(), extraEnv...)),
 	}
 
 	switch {

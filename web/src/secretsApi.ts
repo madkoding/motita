@@ -64,4 +64,4 @@ export async function deleteSecret(
 }
 
 // NAME_PATTERN is what a variable may be called, as the gateway checks it.
-export const NAME_PATTERN = /^[A-Za-z_][A-Za-z0-9_]{0,63}$/;
+export const NAME_PATTERN = /^[A-Za-z_]\w{0,63}$/;

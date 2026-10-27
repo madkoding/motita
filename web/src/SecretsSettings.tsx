@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from "preact/hooks";
 import { t, tf } from "./i18n";
 import type { Api } from "./gitApi";
+import { choose } from "./choose";
 import { errorMessage } from "./errors";
 import {
   NAME_PATTERN,
@@ -144,7 +145,11 @@ function SecretList({
           <div class="settings-row-text">
             <code class="text-sm">{s.name}</code>
             <div class="text-xs text-[#7a7a8c] mt-0.5">
-              {s.hint ? tf("Saved (…{hint})", { hint: s.hint }) : t("Saved")}
+              {choose(
+                !!s.hint,
+                tf("Saved (…{hint})", { hint: s.hint ?? "" }),
+                t("Saved"),
+              )}
             </div>
           </div>
           <div class="settings-row-control">
@@ -195,14 +200,16 @@ export function SecretsSettings({ api }: { api: Api }) {
               change={change}
             />
             <p class="settings-card-note text-xs text-[#7a7a8c]">
-              {view.can_save
-                ? tf(
-                    "Stored in a file only you can read, beside the configuration, and kept out of reach of the agent's commands. Up to {max} variables; saving a name that exists replaces it.",
-                    { max: String(view.max) },
-                  )
-                : t(
-                    "The gateway runs on its built-in defaults, without a configuration file, so variables cannot be saved here.",
-                  )}
+              {choose(
+                view.can_save,
+                tf(
+                  "Stored in a file only you can read, beside the configuration, and kept out of reach of the agent's commands. Up to {max} variables; saving a name that exists replaces it.",
+                  { max: String(view.max) },
+                ),
+                t(
+                  "The gateway runs on its built-in defaults, without a configuration file, so variables cannot be saved here.",
+                ),
+              )}
             </p>
           </>
         )}
