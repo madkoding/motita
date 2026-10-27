@@ -64,6 +64,9 @@ type Planner struct {
 	engine Engine
 	runner CommandRunner
 
+	// workspace is the folder the pictures a message names are read from; empty shows none.
+	workspace string
+
 	// maxLoops caps the number of tool turns per user message.
 	maxLoops int
 	// commandTimeout is the default timeout for execute_command.
@@ -150,6 +153,12 @@ func New(engine Engine, runner CommandRunner) *Planner {
 		maxLoops:       defaultMaxLoops,
 		commandTimeout: defaultCommandTimeout,
 	}
+}
+
+// WithAttachments names the workspace whose uploaded pictures a message shows the model.
+func (p *Planner) WithAttachments(workspace string) *Planner {
+	p.workspace = workspace
+	return p
 }
 
 // WithLoops sets the maximum tool iterations per turn.
@@ -503,7 +512,7 @@ func (p *Planner) Run(ctx context.Context, input string) (string, error) {
 	defer p.saveUsage()
 
 	sess := p.sessionFor()
-	sess.Append(llm.Message{Role: "user", Content: input})
+	sess.Append(llm.Message{Role: "user", Content: input, Images: llm.AttachedImages(p.workspace, input)})
 
 	if err := p.compactIfNeeded(ctx, sess); err != nil {
 		return "", err

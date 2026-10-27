@@ -9,6 +9,9 @@ import type { Drawers } from "./useDrawers";
 import type { Stream } from "./useStream";
 import type { ActiveTag, SlashCommand } from "./appTypes";
 import { SLASH_POPUP_MAX, TASK_INPUT_ID } from "./appConst";
+import type { Api } from "./gitApi";
+import { withAttachments } from "./attachments";
+import { useAttachments } from "./useAttachments";
 
 // tagSeq numbers the tags as they are added, so removing one never renames the others.
 let tagSeq = 0;
@@ -69,7 +72,14 @@ function keepsLine(e: KeyboardEvent): boolean {
   return e.shiftKey || e.ctrlKey || e.metaKey || e.altKey;
 }
 
+// takesSuggestion says whether an unmodified ArrowRight takes the hint of an empty field.
+function takesSuggestion(e: KeyboardEvent, canTake: unknown): boolean {
+  const plain = !e.shiftKey && !e.ctrlKey && !e.metaKey && !e.altKey;
+  return e.key === "ArrowRight" && plain && !!canTake;
+}
+
 interface Deps {
+  api: Api;
   rs: RunState;
   drawers: Drawers;
   stream: Stream;
@@ -82,6 +92,7 @@ interface Deps {
 }
 
 export function useComposer({
+  api,
   rs,
   drawers,
   stream,
@@ -100,6 +111,8 @@ export function useComposer({
   // Active slash command tags: when set, the composer shows them as pills
   // above the textarea. Multiple tags can be active at once.
   const [activeTags, setActiveTags] = useState<ActiveTag[]>([]);
+
+  const files = useAttachments(api, sessionRef, startSession);
 
   const isCommandBlocked = (cmdName: string) => blockedBy(activeTags, cmdName);
 
@@ -155,6 +168,7 @@ export function useComposer({
   const clear = () => {
     setInput("");
     setActiveTags([]);
+    files.clearAttachments();
   };
 
   // sendInNewSession opens a conversation for a message typed with none on screen, then sends
@@ -174,21 +188,22 @@ export function useComposer({
   // it waits for the end of the turn), and anything else starts a run. Stopping is Escape, or the
   // turn's menu: typing never cuts the work off.
   const send = () => {
-    const text = composedText(input, activeTags);
-    if (text === "/agents") {
+    const typed = composedText(input, activeTags);
+    if (typed === "/agents") {
       drawers.showAgents();
       clear();
       return;
     }
-    if (!text) {
+    if (!typed && files.attachments.length === 0) {
       return;
     }
-    const shellLine = shellCommandOf(text);
-    if (shellLine) {
+    const shellLine = shellCommandOf(typed);
+    if (shellLine && files.attachments.length === 0) {
       clear();
       void runShellLine(shellLine);
       return;
     }
+    const text = withAttachments(typed, files.attachments);
     if (runningRef.current) {
       clear();
       stream.sendWhileRunning(text);
@@ -218,15 +233,13 @@ export function useComposer({
       // A view of this page, not a request to the agent: it opens the agents drawer, as the
       // TUI's /agents opens its panel.
       drawers.showAgents();
-      setInput("");
-      setSlashPopup(null);
+    } else if (selected && !isCommandBlocked(selected.name)) {
+      setActiveTags((prev) => [...prev, tagOf(selected)]);
+    } else {
       return;
     }
-    if (selected && !isCommandBlocked(selected.name)) {
-      setActiveTags((prev) => [...prev, tagOf(selected)]);
-      setInput("");
-      setSlashPopup(null);
-    }
+    setInput("");
+    setSlashPopup(null);
   };
 
   // slashKey handles the keys the popup answers, and says whether it did.
@@ -260,9 +273,8 @@ export function useComposer({
 
   // acceptSuggestion: ArrowRight on an empty field takes the hint as the text, ready to send or edit.
   const acceptSuggestion = (e: KeyboardEvent) => {
-    const plain = !e.shiftKey && !e.ctrlKey && !e.metaKey && !e.altKey;
     const canTake = input === "" && activeTags.length === 0 && nextSuggestion;
-    if (e.key !== "ArrowRight" || !plain || !canTake) {
+    if (!takesSuggestion(e, canTake)) {
       return false;
     }
     e.preventDefault();
@@ -294,10 +306,7 @@ export function useComposer({
       return;
     }
     // Coarse pointer = touch device; skip Enter-to-send there.
-    if (window.matchMedia("(pointer: coarse)").matches) {
-      return;
-    }
-    if (keepsLine(e)) {
+    if (window.matchMedia("(pointer: coarse)").matches || keepsLine(e)) {
       return;
     }
     e.preventDefault();
@@ -324,6 +333,7 @@ export function useComposer({
     sendQueued: send,
     shellMode,
     nextSuggestion,
+    ...files,
   };
 }
 

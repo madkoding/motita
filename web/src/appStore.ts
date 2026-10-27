@@ -112,6 +112,7 @@ export function useAppStore(api: Api, machine = "") {
     messages: rs.messages,
   });
   const composer = useComposer({
+    api,
     rs,
     drawers,
     stream,
