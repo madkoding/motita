@@ -2,6 +2,8 @@ package gateway
 
 import (
 	"context"
+	"maps"
+	"slices"
 	"strings"
 )
 
@@ -126,4 +128,46 @@ func (s *Server) watchingAny(id string) bool {
 		}
 	}
 	return false
+}
+
+// repoWatchRecords are the extra watches as a session record keeps them, in the order of their
+// repositories. The caller holds c.stateMu.
+func repoWatchRecords(views map[string]*PRWatchView) []prWatchRecord {
+	var out []prWatchRecord
+	for _, repo := range slices.Sorted(maps.Keys(views)) {
+		v := views[repo]
+		out = append(out, prWatchRecord{Status: v.Status, Attempts: v.Attempts, Number: v.Number,
+			FixedKey: v.fixedKey, Repo: repo})
+	}
+	return out
+}
+
+// restoreRepoWatches gives a restored session the extra watches it had.
+func (c *conversation) restoreRepoWatches(recs []prWatchRecord, max int) {
+	c.stateMu.Lock()
+	defer c.stateMu.Unlock()
+	for _, r := range recs {
+		if r.Repo == "" {
+			continue
+		}
+		if c.prRepoWatches == nil {
+			c.prRepoWatches = map[string]*PRWatchView{}
+		}
+		c.prRepoWatches[r.Repo] = &PRWatchView{Status: r.Status, Attempts: r.Attempts, Max: max,
+			Number: r.Number, Repo: r.Repo, fixedKey: r.FixedKey}
+	}
+}
+
+// resumeRepoWatches follows again the extra pull requests a session was following when the gateway
+// stopped, after its first one (see resumePRWatch).
+func (s *Server) resumeRepoWatches(rec sessionRecord) {
+	c, ok := s.lookup(rec.ID)
+	if !ok {
+		return
+	}
+	for _, w := range rec.PRRepoWatches {
+		if w.Repo != "" && isWatchedPRStatus(w.Status) {
+			s.startPRWatch(c, &prWatchState{status: w.Status, attempts: w.Attempts, fixedKey: w.FixedKey, repo: w.Repo})
+		}
+	}
 }

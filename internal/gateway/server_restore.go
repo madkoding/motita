@@ -150,6 +150,7 @@ func (s *Server) restoreSession(rec sessionRecord) bool {
 	conv.setCheckpoints(rec.Checkpoints)
 	conv.restoreQueue(rec.Queue)
 	conv.restorePRWatch(rec.PRWatch, s.prMaxFixes(conv))
+	conv.restoreRepoWatches(rec.PRRepoWatches, s.prMaxFixes(conv))
 	// Restore provider/model if they were persisted and differ from the
 	// defaults the factory built with.
 	if rec.Provider != "" || rec.Model != "" {
@@ -258,6 +259,7 @@ func (s *Server) resumeInterruptedSessions() {
 
 // resumePRWatch follows again a pull request that was being followed when the gateway stopped.
 func (s *Server) resumePRWatch(rec sessionRecord) {
+	defer s.resumeRepoWatches(rec)
 	w := rec.PRWatch
 	if w == nil || !isWatchedPRStatus(w.Status) {
 		return

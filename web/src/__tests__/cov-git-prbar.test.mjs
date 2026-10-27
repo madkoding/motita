@@ -321,6 +321,69 @@ test("a folder with work in several repositories lists each one: its pull reques
   await one.done();
 });
 
+test("each repository's open pull request offers its own merge and its own try again", async () => {
+  const repos = [
+    {
+      name: ".",
+      state: "open",
+      pr: { number: 3, url: "https://h/3" },
+      ci: "success",
+    },
+    {
+      name: "api",
+      state: "open",
+      pr: { number: 9, url: "https://h/9" },
+      ci: "failure",
+      watch: { status: "gave_up", attempts: 3, max: 3 },
+    },
+    {
+      name: "web",
+      state: "open",
+      pr: { number: 5, url: "https://h/5" },
+      ci: "failure",
+      watch: { status: "fixing", attempts: 1, max: 3 },
+    },
+    {
+      name: "docs",
+      state: "open",
+      pr: { number: 6, url: "https://h/6" },
+      ci: "pending",
+    },
+  ];
+  const m = await mount(
+    {
+      "GET /v1/sessions/": json(200, { state: "none", branch: "b", repos }),
+      "POST /v1/sessions/": () => json(200, {}),
+    },
+    { session: sess({ mergeable: true }) },
+  );
+  assert.match(text(m.root), /CI failed — Motita gave up after 3 attempts/);
+  assert.match(text(m.root), /CI failed — Motita is fixing it \(1\/3\)/);
+  assert.equal(
+    [...m.root.querySelectorAll("button")].filter(
+      (b) => text(b) === "Try again",
+    ).length,
+    1,
+    "only the repository Motita gave up on offers to try again",
+  );
+
+  const merge = button(m.root, "Merge");
+  await click(merge);
+  assert.equal(text(merge), "Click again to merge");
+  assert.equal(posts(m.f, "/merge?repo=.").length, 0);
+  await act(() => {
+    merge.dispatchEvent(new window.FocusEvent("focusout", { bubbles: true }));
+  });
+  assert.equal(text(merge), "Merge");
+  await click(merge);
+  await click(merge);
+  assert.equal(posts(m.f, "/merge?repo=.").length, 1);
+
+  await click(button(m.root, "Try again"));
+  assert.equal(posts(m.f, "/fix?repo=api").length, 1);
+  await m.done();
+});
+
 // ── an open pull request ─────────────────────────────────────────────────────
 
 test("an open pull request links to it and says how its CI is going", async () => {

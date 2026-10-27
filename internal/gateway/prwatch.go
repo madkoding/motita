@@ -52,6 +52,9 @@ type PRWatchView struct {
 	Number   int    `json:"number,omitempty"`
 	// Repo is the repository of the session's folder the pull request is in ("." the folder itself).
 	Repo string `json:"repo,omitempty"`
+	// fixedKey is the push whose failure was last handed to the agent, kept with an extra watch's
+	// view so a restart does not send the agent again for it (the first watch keeps prFixedKey).
+	fixedKey string
 	// Next is the session opened by itself when the pull request was merged (the project's
 	// auto_continue); empty otherwise. It is not kept across a restart.
 	Next string `json:"next,omitempty"`
@@ -257,9 +260,12 @@ func (c *conversation) prWatchView() *PRWatchView {
 func (s *Server) publishPR(c *conversation, w *prWatchState, number int) {
 	view := &PRWatchView{Status: w.status, Attempts: w.attempts, Max: s.prMaxFixes(c), Number: number, Repo: w.repo}
 	if w.extra {
+		view.fixedKey = w.fixedKey
 		prev := c.watchViewOf(w)
 		c.setWatchViewOf(w, view)
-		if prev == nil || prev.Status != view.Status || prev.Attempts != view.Attempts {
+		if prev == nil || prev.Status != view.Status || prev.Attempts != view.Attempts ||
+			prev.Number != view.Number || prev.fixedKey != view.fixedKey {
+			s.saveSession(c)
 			s.pushPR(c, prev, view)
 		}
 		return

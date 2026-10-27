@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 )
 
 // A plain folder's repositories count for the remote watch and the pull request list like any
@@ -193,5 +194,44 @@ func TestTheRepositoriesOfAPlainFolderAreUpdated(t *testing.T) {
 	srv.refreshMain(context.Background(), srv.projectOf(id), false)
 	if _, err := os.Stat(filepath.Join(api, "upstream.txt")); err != nil {
 		t.Errorf("api was not brought up to date: %v", err)
+	}
+}
+
+// The watches of a session's other repositories are saved with it and followed again after a
+// restart, with the push whose failure was already handed to the agent.
+func TestExtraWatchesSurviveARestart(t *testing.T) {
+	srv, _, ss := prSession(t, "https://github.com/o/r.git", func(o *Options) {
+		o.PRPollEvery = time.Hour
+		o.SessionDir = t.TempDir()
+	})
+	c := srv.sessions[ss.ID]
+	c.setPRWatch(&PRWatchView{Status: prFollowing, Number: 7, Repo: "."})
+	srv.publishPR(c, &prWatchState{repo: "web", extra: true, status: prFixing, attempts: 1, fixedKey: "k1"}, 8)
+
+	recs, err := srv.store.loadAll()
+	if err != nil {
+		t.Fatal(err)
+	}
+	var saved []prWatchRecord
+	for _, r := range recs {
+		if r.ID == ss.ID {
+			saved = r.PRRepoWatches
+		}
+	}
+	if len(saved) != 1 || saved[0].Repo != "web" || saved[0].Number != 8 || saved[0].FixedKey != "k1" {
+		t.Fatalf("saved extra watches = %+v", saved)
+	}
+
+	restored := newConversation("again", &fakeService{})
+	restored.restoreRepoWatches(saved, 3)
+	if v := restored.repoWatchView("web"); v == nil || v.Status != prFixing || v.fixedKey != "k1" || v.Max != 3 {
+		t.Errorf("restored view = %+v", v)
+	}
+	srv.resumeRepoWatches(sessionRecord{ID: ss.ID, PRRepoWatches: saved})
+	srv.prMu.Lock()
+	watching := srv.prWatching[ss.ID+"\x00web"]
+	srv.prMu.Unlock()
+	if !watching {
+		t.Error("web's pull request is followed again after the restart")
 	}
 }
