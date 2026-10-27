@@ -138,7 +138,7 @@ func codexProvider() Provider {
 		Short:              "OpenAI Codex",
 		Access:             "sign in with ChatGPT, or an API key",
 		DefaultBaseURL:     "https://api.openai.com/v1",
-		EnvKey:             "MOTITA_LLM_API_KEY",
+		EnvKey:             "CODEX_API_KEY",
 		ConsoleURL:         "https://platform.openai.com/api-keys",
 		SupportsDirectAuth: true,
 		Models: []Model{
@@ -187,7 +187,7 @@ func ollamaProvider() Provider {
 		// Kept as Ollama Cloud's address, which a configuration naming this provider with no
 		// base_url has always reached; the settings page offers the local address instead.
 		DefaultBaseURL: "https://ollama.com/v1",
-		EnvKey:         "OLLAMA_API_KEY",
+		EnvKey:         "MOTITA_OLLAMA_API_KEY",
 		ConsoleURL:     "https://ollama.com/download",
 		// Populated at runtime from the models the server has pulled. The list below is what is
 		// offered when it cannot be reached.

@@ -281,9 +281,13 @@ func applyLLMEnvironment(c *Config) error {
 	// Only for the providers that ARE OpenAI: an OPENAI_API_KEY exported for another tool
 	// used to become the Anthropic, Gemini or Ollama key too, and the user got a 401 from a
 	// provider that was never given that key.
-	if _, explicit := os.LookupEnv("MOTITA_LLM_API_KEY"); !explicit && speaksOpenAIKey(c.LLM.Provider) {
+	if _, explicit := os.LookupEnv("MOTITA_LLM_API_KEY"); !explicit && (speaksOpenAIKey(c.LLM.Provider) || legacyKeyVariable(c.LLM.Provider) != "") {
 		if _, own := os.LookupEnv(ProviderKeyVariable(c.LLM.Provider)); !own {
-			c.LLM.APIKey = readText("OPENAI_API_KEY", c.LLM.APIKey)
+			name := legacyKeyVariable(c.LLM.Provider)
+			if name == "" {
+				name = "OPENAI_API_KEY"
+			}
+			c.LLM.APIKey = readText(name, c.LLM.APIKey)
 		}
 	}
 
@@ -502,8 +506,9 @@ func readBool(key string, current bool) (bool, error) {
 // documentation uses. Keeping the table here means the wizard, the loader and the
 // tests all agree on one name per provider.
 var providerKeyAliases = map[string]string{
-	"ollama":       "OLLAMA_API_KEY",
+	"ollama":       "MOTITA_OLLAMA_API_KEY",
 	"ollama-cloud": "OLLAMA_API_KEY",
+	"codex":        "CODEX_API_KEY",
 	"copilot":      "GITHUB_COPILOT_TOKEN",
 	"anthropic":    "ANTHROPIC_API_KEY",
 	"gemini":       "GEMINI_API_KEY",
@@ -511,13 +516,35 @@ var providerKeyAliases = map[string]string{
 	ProviderCustom: "MOTITA_CUSTOM_API_KEY",
 }
 
-// speaksOpenAIKey reports whether OPENAI_API_KEY is a key for this provider.
+// speaksOpenAIKey reports whether OPENAI_API_KEY is a key for this provider. Codex has a key of
+// its own (CODEX_API_KEY): the two are separate providers and never share one.
 func speaksOpenAIKey(provider string) bool {
 	switch strings.ToLower(strings.TrimSpace(provider)) {
-	case "", "openai", "codex":
+	case "", "openai":
 		return true
 	default:
 		return false
+	}
+}
+
+// speaksOpenAIAPI reports whether the provider's endpoint is OpenAI's own API, which the voice
+// block can borrow. That is a question about the endpoint, not about whose key it is.
+func speaksOpenAIAPI(provider string) bool {
+	return speaksOpenAIKey(provider) || strings.EqualFold(strings.TrimSpace(provider), "codex")
+}
+
+// legacyKeyVariable is the variable a provider's key used to be read from before it got one of
+// its own: OPENAI_API_KEY for codex, OLLAMA_API_KEY for the self-hosted ollama (both shared with
+// another provider). It is honoured only for the provider the configuration names, so a setup
+// made earlier keeps working, and never offered to the other one.
+func legacyKeyVariable(provider string) string {
+	switch strings.ToLower(strings.TrimSpace(provider)) {
+	case "codex":
+		return "OPENAI_API_KEY"
+	case "ollama":
+		return "OLLAMA_API_KEY"
+	default:
+		return ""
 	}
 }
 

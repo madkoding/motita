@@ -318,7 +318,7 @@ func TestKeyVariableForFallsBackForAnUnknownProvider(t *testing.T) {
 	if got := keyVariableFor("nope"); got != "MOTITA_LLM_API_KEY" {
 		t.Errorf("keyVariableFor(unknown) = %q", got)
 	}
-	if got := keyVariableFor("ollama"); got != "OLLAMA_API_KEY" {
+	if got := keyVariableFor("ollama"); got != "MOTITA_OLLAMA_API_KEY" {
 		t.Errorf("keyVariableFor(ollama) = %q", got)
 	}
 }
