@@ -3,7 +3,6 @@ package gateway
 import (
 	"cmp"
 	"context"
-	"errors"
 	"fmt"
 	"os"
 	"os/exec"
@@ -30,7 +29,10 @@ import (
 // worktree, not another download. The ones cloned inside a project before the catalog (or under
 // gitx.ReposDir before that) stay where they are, clones of their own.
 
-// ProjectRepo is one of a project's other repositories.
+// ProjectRepo is one of a project's other repositories. In a plain project folder the repositories
+// are found by looking (foundRepos), and a clone made when the project was created is recorded here
+// only so its URL is known: that URL, not an origin the agent can rewrite, is where its pull requests
+// go (repoRemote). Every listing merges the two by folder, so none is counted twice.
 type ProjectRepo struct {
 	// Name is the repository's folder name, and what the user calls it.
 	Name   string `json:"name"`
@@ -107,68 +109,20 @@ func legacyProjectBranch(p *Project) string {
 	return "project/" + filepath.Base(p.Dir)
 }
 
-// freeProjectBranch is the branch a new worktree of the project in the catalog's clone src takes:
-// the usual name, or that name and the start of the project's id when the clone already has a
-// branch by it. Two projects whose folders share a name, or a project made after another of the
-// same name was deleted, would otherwise share a branch, and the new one would start on the work
-// the other left on it.
-func freeProjectBranch(ctx context.Context, src string, p *Project) string {
-	branch := legacyProjectBranch(p)
-	if !gitx.BranchExists(ctx, src, branch) {
-		return branch
-	}
-	return branch + "-" + p.ID[:min(len(p.ID), 8)]
-}
-
 // sessionRepoPath is where a session that runs in workspace finds the project's repository repo.
 func sessionRepoPath(workspace string, p *Project, repo ProjectRepo) string {
 	return filepath.Join(workspace, repo.relPath(p.Dir))
 }
 
-// placeRepo puts the repository gitURL in the project's folder, at dest. By default it is a plain
-// clone with nothing shared with other projects and no branch of the project's own. With shared it
-// is a worktree of the catalog's clone on the project's own branch, so projects that use the same
-// repository keep one copy; a repository with nothing to branch from yet (an empty one), or a
-// workspace without a catalog, gets a clone of its own there instead.
-func (s *Server) placeRepo(
-	ctx context.Context, p *Project, name, gitURL, dest string, shared bool,
-) (ProjectRepo, error) {
-	var err error
-	if shared {
-		var src string
-		var fresh bool
-		src, fresh, err = s.catalogClone(gitURL, name)
-		switch {
-		case err == nil && gitx.HasCommits(ctx, src):
-			return placeSharedRepo(ctx, p, name, gitURL, src, dest)
-		case fresh:
-			// An empty repository has no commit a worktree could start from: the project takes the clone.
-			err = renamePath(src, dest)
-		case err == nil || errors.Is(err, errNoCatalog):
-			_, err = cloneGitRepo(gitURL, dest, s.gitCommandEnv())
-		default:
-			// The catalog's clone failed: that is the answer.
-		}
-	} else {
-		_, err = cloneGitRepo(gitURL, dest, s.gitCommandEnv())
-	}
-	if err != nil {
+// placeRepo clones the repository gitURL into the project's folder, at dest: a clone of the
+// project's own, with nothing shared with other projects. (Projects used to share one clone per
+// repository from the workspace's catalog; that is retired, see migrateSharedRepos.)
+func (s *Server) placeRepo(ctx context.Context, name, gitURL, dest string) (ProjectRepo, error) {
+	if _, err := cloneGitRepo(gitURL, dest, s.gitCommandEnv()); err != nil {
 		return ProjectRepo{}, err
 	}
 	mainBranch := settleMainBranch(ctx, dest, defaultMainBranch)
 	return ProjectRepo{Name: name, GitURL: gitURL, Dir: dest, MainBranch: mainBranch}, nil
-}
-
-// placeSharedRepo adds the project's worktree of the catalog's clone src at dest, on a branch of
-// the project's own.
-func placeSharedRepo(ctx context.Context, p *Project, name, gitURL, src, dest string) (ProjectRepo, error) {
-	mainBranch := settleMainBranch(ctx, src, defaultMainBranch)
-	branch := freeProjectBranch(ctx, src, p)
-	if err := gitx.AddWorktree(ctx, src, dest, branch); err != nil {
-		return ProjectRepo{}, err
-	}
-	return ProjectRepo{Name: name, GitURL: gitURL, Dir: src, MainBranch: mainBranch, Shared: true,
-		ProjectBranch: branch}, nil
 }
 
 // beforeProjectUpdate runs just before a repository handler saves its change; a variable only so a

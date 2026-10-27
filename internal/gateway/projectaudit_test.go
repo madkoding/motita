@@ -125,3 +125,73 @@ func TestAProjectFolderNameMayHaveADot(t *testing.T) {
 		}
 	}
 }
+
+// Each repository's pull request has a watch of its own: merging one leaves the session open while
+// another is still open, and the session is integrated once the last one is merged.
+func TestEachRepositorysPullRequestIsFollowedOnItsOwn(t *testing.T) {
+	srv := newTestServer(t, &fakeService{})
+	c := newConversation("s-multi", &fakeService{})
+	c.setProjectID("", filepath.Join(t.TempDir(), "worktree"), t.TempDir())
+	c.setPRWatch(&PRWatchView{Status: prFollowing, Number: 7, Repo: "."})
+	ctx := context.Background()
+
+	srv.prMu.Lock()
+	extra := srv.firstWatchElsewhere(c, "web")
+	srv.prMu.Unlock()
+	if !extra {
+		t.Fatal("a second repository's watch is an extra one while the first PR is open")
+	}
+	srv.finishMerge(ctx, c, "web", 8, "sha-web", "")
+	if c.isMerged() {
+		t.Error("the session is not integrated while the folder's own pull request is open")
+	}
+	if v := c.repoWatchView("web"); v == nil || v.Status != prMerged || v.Number != 8 {
+		t.Errorf("web's watch = %+v, want merged #8", v)
+	}
+	if v := c.prWatchView(); v == nil || v.Status != prFollowing || v.Number != 7 {
+		t.Errorf("the first watch was overwritten: %+v", v)
+	}
+	srv.finishMerge(ctx, c, ".", 7, "sha-root", "")
+	if !c.isMerged() {
+		t.Error("with every pull request merged the session is integrated")
+	}
+}
+
+// A folder git sees inside a work tree is a repository of its own (a package of a monorepo), unless
+// it holds repositories: then it is a container that only happens to sit inside another one.
+func TestAContainerInsideAnotherRepositoryIsStillAContainer(t *testing.T) {
+	ctx := context.Background()
+	outer := t.TempDir()
+	gitInit(t, outer)
+	pkg := filepath.Join(outer, "packages", "app")
+	box := filepath.Join(outer, "work")
+	for _, d := range []string{pkg, box} {
+		if err := os.MkdirAll(d, 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	gitInit(t, filepath.Join(box, "api"))
+	if !projectIsRepo(ctx, outer) || !projectIsRepo(ctx, pkg) {
+		t.Error("a repository and a package inside one are repositories")
+	}
+	if projectIsRepo(ctx, box) {
+		t.Error("a folder holding repositories is a container, wherever it sits")
+	}
+	if projectIsRepo(ctx, t.TempDir()) {
+		t.Error("a plain folder is no repository")
+	}
+}
+
+// The background update brings the repositories of a plain folder up to date too.
+func TestTheRepositoriesOfAPlainFolderAreUpdated(t *testing.T) {
+	srv := newTestServer(t, &fakeService{})
+	ws := t.TempDir()
+	withProjects(t, srv, ws)
+	id, dir := plainProject(t, srv, ws, "services")
+	api := filepath.Join(dir, "api")
+	repoWithOrigin(t, ws, api)
+	srv.refreshMain(context.Background(), srv.projectOf(id), false)
+	if _, err := os.Stat(filepath.Join(api, "upstream.txt")); err != nil {
+		t.Errorf("api was not brought up to date: %v", err)
+	}
+}

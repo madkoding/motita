@@ -50,6 +50,8 @@ type PRWatchView struct {
 	Attempts int    `json:"attempts"`
 	Max      int    `json:"max"`
 	Number   int    `json:"number,omitempty"`
+	// Repo is the repository of the session's folder the pull request is in ("." the folder itself).
+	Repo string `json:"repo,omitempty"`
 	// Next is the session opened by itself when the pull request was merged (the project's
 	// auto_continue); empty otherwise. It is not kept across a restart.
 	Next string `json:"next,omitempty"`
@@ -61,6 +63,7 @@ type prWatchRecord struct {
 	Attempts int    `json:"attempts"`
 	Number   int    `json:"number,omitempty"`
 	FixedKey string `json:"fixed_key,omitempty"`
+	Repo     string `json:"repo,omitempty"`
 	// Seen is the comment IDs the watch had already taken in, so a restart reports the comments
 	// made while the gateway was down instead of swallowing them in a new baseline. null when there
 	// was no baseline yet (or it grew past prSeenLimit); an empty list is a baseline with no
@@ -87,7 +90,7 @@ func (c *conversation) restorePRWatch(r *prWatchRecord, max int) {
 		return
 	}
 	c.stateMu.Lock()
-	c.prWatch = &PRWatchView{Status: r.Status, Attempts: r.Attempts, Max: max, Number: r.Number}
+	c.prWatch = &PRWatchView{Status: r.Status, Attempts: r.Attempts, Max: max, Number: r.Number, Repo: r.Repo}
 	c.prFixedKey = r.FixedKey
 	c.prSeen = r.Seen
 	c.stateMu.Unlock()
@@ -95,6 +98,10 @@ func (c *conversation) restorePRWatch(r *prWatchRecord, max int) {
 
 // prWatchState is the memory of one watch.
 type prWatchState struct {
+	// repo is the repository the watch follows (see repoName), and extra marks the watch of one
+	// besides the session's first: its view is in prRepoWatches and is not saved.
+	repo      string
+	extra     bool
 	status    string
 	attempts  int
 	fixedKey  string
@@ -248,7 +255,15 @@ func (c *conversation) prWatchView() *PRWatchView {
 // publishPR makes the watch visible, and saves the session when it moved: the watch is what a
 // restart resumes from.
 func (s *Server) publishPR(c *conversation, w *prWatchState, number int) {
-	view := &PRWatchView{Status: w.status, Attempts: w.attempts, Max: s.prMaxFixes(c), Number: number}
+	view := &PRWatchView{Status: w.status, Attempts: w.attempts, Max: s.prMaxFixes(c), Number: number, Repo: w.repo}
+	if w.extra {
+		prev := c.watchViewOf(w)
+		c.setWatchViewOf(w, view)
+		if prev == nil || prev.Status != view.Status || prev.Attempts != view.Attempts {
+			s.pushPR(c, prev, view)
+		}
+		return
+	}
 	c.stateMu.Lock()
 	prev := c.prWatch
 	changed := prev == nil || prev.Status != view.Status || prev.Attempts != view.Attempts ||
@@ -264,22 +279,29 @@ func (s *Server) publishPR(c *conversation, w *prWatchState, number int) {
 // startPRWatch begins following the session's pull request, from the memory given (nil for a new
 // watch). A watch already running is left alone.
 func (s *Server) startPRWatch(c *conversation, from *prWatchState) {
-	s.prMu.Lock()
-	if s.prWatching == nil {
-		s.prWatching = map[string]bool{}
-	}
-	if s.prWatching[c.id] {
-		s.prMu.Unlock()
-		return
-	}
-	s.prWatching[c.id] = true
-	s.prMu.Unlock()
-
 	w := from
 	if w == nil {
 		w = &prWatchState{status: prFollowing}
 	}
-	s.publishPR(c, w, c.prNumber())
+	if w.repo == "" {
+		w.repo = s.firstWatchRepo(c)
+	}
+	s.prMu.Lock()
+	if s.prWatching == nil {
+		s.prWatching = map[string]bool{}
+	}
+	key := c.id + "\x00" + w.repo
+	if s.prWatching[key] {
+		s.prMu.Unlock()
+		return
+	}
+	// The session's first watch is the one the session list shows and a restart resumes; a watch of
+	// another repository while that one runs is an extra one.
+	w.extra = s.firstWatchElsewhere(c, w.repo)
+	s.prWatching[key] = true
+	s.prMu.Unlock()
+
+	s.publishPR(c, w, c.watchNumberOf(w))
 	every := s.opts.PRPollEvery
 	if every <= 0 {
 		every = defaultPRPollEvery
@@ -287,7 +309,7 @@ func (s *Server) startPRWatch(c *conversation, from *prWatchState) {
 	go func() {
 		defer func() {
 			s.prMu.Lock()
-			delete(s.prWatching, c.id)
+			delete(s.prWatching, key)
 			s.prMu.Unlock()
 		}()
 		for {
@@ -308,31 +330,57 @@ func (s *Server) startPRWatch(c *conversation, from *prWatchState) {
 // not followed yet: the agent may have opened it from its shell rather than through the pull
 // request button, and from here on the waiting is the gateway's and not the model's.
 func (s *Server) followOpenedPR(c *conversation) {
-	if c.prDone() || c.isClosing() || c.projectID == "" || c.prWatchView() != nil {
+	if c.isMerged() || c.isClosing() || c.projectID == "" {
 		return
 	}
-	t, perr := s.prTargetOf(s.baseCtx, c, "")
-	if perr != nil {
+	if !c.prDone() && c.prWatchView() == nil {
+		t, perr := s.prTargetOf(s.baseCtx, c, "")
+		if perr != nil {
+			return
+		}
+		pr, found, err := t.api.FindPR(s.baseCtx, t.remote, t.branch)
+		if err != nil || !found {
+			return
+		}
+		c.setPRWatch(&PRWatchView{Status: prFollowing, Max: s.prMaxFixes(c), Number: pr.Number, Repo: t.repo})
+		s.watchRepo(c, t.repo)
+	}
+	s.followOtherRepos(c)
+}
+
+// followOtherRepos starts following the pull requests the agent opened in the session's other
+// repositories, when it holds more than one with work.
+func (s *Server) followOtherRepos(c *conversation) {
+	ctx := s.baseCtx
+	dirs := repoDirsIn(ctx, c.workspace)
+	if len(dirs) < 2 {
 		return
 	}
-	pr, found, err := t.api.FindPR(s.baseCtx, t.remote, t.branch)
-	if err != nil || !found {
-		return
+	for _, dir := range dirs {
+		name := c.repoName(dir)
+		if c.repoWatchView(name) != nil || !repoHasWork(ctx, dir) {
+			continue
+		}
+		t, perr := s.prTargetAt(ctx, c, dir)
+		if perr != nil {
+			continue
+		}
+		if _, found, err := t.api.FindPR(ctx, t.remote, t.branch); err == nil && found {
+			s.watchRepo(c, name)
+		}
 	}
-	c.setPRWatch(&PRWatchView{Status: prFollowing, Max: s.prMaxFixes(c), Number: pr.Number})
-	s.startPRWatch(c, nil)
 }
 
 // pollPR asks the host once and acts on the answer. It reports whether the watch is over.
 func (s *Server) pollPR(c *conversation, w *prWatchState) bool {
-	if c.prDone() {
-		if v := c.prWatchView(); v == nil || v.Status != prMerged {
-			c.setPRWatch(nil)
+	if c.watchDone(w) {
+		if v := c.watchViewOf(w); v == nil || v.Status != prMerged {
+			c.setWatchViewOf(w, nil)
 		}
 		return true
 	}
 	ctx := s.baseCtx
-	t, perr := s.prTargetOf(ctx, c, "")
+	t, perr := s.prTargetOf(ctx, c, w.repo)
 	if perr != nil {
 		return s.prFailed(c, w)
 	}
@@ -351,7 +399,7 @@ func (s *Server) pollPR(c *conversation, w *prWatchState) bool {
 	if !found {
 		// The agent is still opening it; when it has stopped and there is none, nothing is left to follow.
 		if !c.isRunning() {
-			c.setPRWatch(nil)
+			c.setWatchViewOf(w, nil)
 			return true
 		}
 		return false
@@ -423,6 +471,9 @@ func (s *Server) pollTalk(
 // rememberTalk keeps the comments the watch has taken in with the session, and saves it when they
 // changed: a restart resumes the tracker from them (see prWatchRecord.Seen).
 func (s *Server) rememberTalk(c *conversation, w *prWatchState) {
+	if w.extra {
+		return
+	}
 	seen := w.seenRecord()
 	c.stateMu.Lock()
 	moved := !slices.Equal(c.prSeen, seen) || (c.prSeen == nil) != (seen == nil)
@@ -473,9 +524,9 @@ func (s *Server) pollPassed(c *conversation, w *prWatchState, t prTarget) bool {
 		w.idle++
 		return w.idle >= prIdleLimit || s.pollTalk(ctx, c, w, t, pr)
 	}
-	number := c.prNumber()
+	number := c.watchNumberOf(w)
 	if number == 0 {
-		c.setPRWatch(nil)
+		c.setWatchViewOf(w, nil)
 		return true
 	}
 	st, err := t.api.PRState(ctx, t.remote, number)
@@ -484,7 +535,7 @@ func (s *Server) pollPassed(c *conversation, w *prWatchState, t prTarget) bool {
 	}
 	switch st.State {
 	case gitforge.PRMerged:
-		s.finishMerge(ctx, c, number, st.SHA, "")
+		s.finishMerge(ctx, c, w.repo, number, st.SHA, "")
 		return true
 	case gitforge.PRClosed:
 		w.status = prClosed
@@ -512,7 +563,7 @@ func (s *Server) prFailed(c *conversation, w *prWatchState) bool {
 	if w.errors < prErrorLimit {
 		return false
 	}
-	c.setPRWatch(nil)
+	c.setWatchViewOf(w, nil)
 	return true
 }
 
@@ -525,7 +576,7 @@ func (s *Server) sendToAgent(c *conversation, task string) (started bool, positi
 // the agent never merges.
 func (s *Server) handleMergePR(w http.ResponseWriter, r *http.Request) {
 	c := convOf(r)
-	t, perr := s.prTargetOf(r.Context(), c, "")
+	t, perr := s.prTargetOf(r.Context(), c, c.knownRepoName(r.Context(), r.URL.Query().Get("repo")))
 	if perr != nil {
 		s.writePRError(w, perr)
 		return
@@ -580,25 +631,26 @@ func (s *Server) doMerge(ctx context.Context, c *conversation, t prTarget, pr gi
 	if err != nil {
 		return err
 	}
-	s.finishMerge(ctx, c, pr.Number, sha, pr.Base)
+	s.finishMerge(ctx, c, t.repo, pr.Number, sha, pr.Base)
 	return nil
 }
 
 // finishMerge is what a merged pull request leaves behind, whoever merged it: the session is the
 // integrated one (read-only, continuable), the watch says merged, and the project's checkout is
 // brought up to date so the next session starts from what was merged.
-func (s *Server) finishMerge(ctx context.Context, c *conversation, number int, sha, base string) {
+func (s *Server) finishMerge(ctx context.Context, c *conversation, repo string, number int, sha, base string) {
 	if sha == "" {
 		sha = fmt.Sprintf("pr-%d", number)
 	}
-	prev := c.prWatchView()
-	merged := &PRWatchView{Status: prMerged, Max: s.prMaxFixes(c), Number: number}
-	c.setPRWatch(merged)
+	w := &prWatchState{repo: repo, extra: s.firstWatchElsewhere(c, repo)}
+	prev := c.watchViewOf(w)
+	merged := &PRWatchView{Status: prMerged, Max: s.prMaxFixes(c), Number: number, Repo: repo}
+	c.setWatchViewOf(w, merged)
 	s.pushPR(c, prev, merged)
 	// A session with a worktree of its own is the integrated one from here on (read-only,
-	// continuable). One working in the project's folder just goes on: the pull request is done,
-	// the session is not.
-	if !gitx.SamePath(c.workspace, c.projectDir) {
+	// continuable), once none of its repositories has a pull request still open. One working in
+	// the project's folder just goes on: the pull request is done, the session is not.
+	if !gitx.SamePath(c.workspace, c.projectDir) && !c.otherPRsOpen(repo) {
 		c.setMerged(sha)
 	}
 	s.saveSession(c)

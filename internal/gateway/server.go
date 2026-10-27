@@ -356,10 +356,6 @@ type Server struct {
 	// to the catalog, what deletes its clone and what takes it out of a project do not run at once
 	// on the same one, while a clone of one repository no longer holds up the others.
 	catalogLocks sync.Map
-	// cloningMu guards cloning, the folders of the catalog a clone is being made in, so two clones
-	// do not pick the same folder and a deletion does not take one half made.
-	cloningMu sync.Mutex
-	cloning   map[string]bool
 	// schedules persists the tasks that fire on their own. nil when no directory was
 	// configured, which means scheduling is off.
 	schedules *schedule.Store

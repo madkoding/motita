@@ -51,7 +51,7 @@ func addRepo(t *testing.T, srv *Server, id, body string) (int, Project) {
 	if in.Shared {
 		defer srv.lockCatalogRepo(gitURL)()
 	}
-	repo, err := srv.placeRepo(ctx, p, name, gitURL, filepath.Join(p.Dir, name), in.Shared)
+	repo, err := srv.placeLegacyRepo(ctx, p, name, gitURL, filepath.Join(p.Dir, name), in.Shared)
 	if err != nil {
 		return http.StatusBadGateway, Project{}
 	}

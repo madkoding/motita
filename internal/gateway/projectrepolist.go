@@ -16,7 +16,7 @@ type foundRepo struct{ rel, dir string }
 // ones the project recorded, whose worktrees or clones are in that folder too. A project whose
 // folder is a repository has none: it is one repository.
 func foundRepos(ctx context.Context, p *Project) []foundRepo {
-	if p.Dir == "" || gitx.Repo(ctx, p.Dir) == nil {
+	if p.Dir == "" || projectIsRepo(ctx, p.Dir) {
 		return nil
 	}
 	var out []foundRepo
@@ -27,4 +27,15 @@ func foundRepos(ctx context.Context, p *Project) []foundRepo {
 		}
 	}
 	return out
+}
+
+// projectIsRepo reports whether a project's folder is a repository of its own. A folder git sees
+// inside a work tree usually is (a package of a monorepo), except when it is a container of
+// repositories that only happens to sit inside another one (a workspace under a dotfiles repository):
+// what it holds are the repositories, as for any plain folder.
+func projectIsRepo(ctx context.Context, dir string) bool {
+	if gitx.Repo(ctx, dir) != nil {
+		return false
+	}
+	return gitx.IsRepoRoot(ctx, dir) || len(reposUnder(dir, "", nestedRepoDepth)) == 0
 }

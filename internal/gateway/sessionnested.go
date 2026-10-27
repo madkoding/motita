@@ -53,7 +53,7 @@ func nestedSessionWorktree(ctx context.Context, projectDir, path, branch string)
 // or is the session's own folder.
 func nestedSessionRepos(ctx context.Context, projectDir, workspace string) [][2]string {
 	var out [][2]string
-	if projectDir == "" || workspace == "" || gitx.SamePath(projectDir, workspace) || gitx.Repo(ctx, projectDir) == nil {
+	if projectDir == "" || workspace == "" || gitx.SamePath(projectDir, workspace) || projectIsRepo(ctx, projectDir) {
 		return out
 	}
 	for _, rel := range reposUnder(projectDir, "", nestedRepoDepth) {
@@ -159,7 +159,7 @@ The project's folder is not a repository: it holds several, and this session has
 // projectRev is the mark a merge run compares the project against: the HEAD of its folder, or for
 // a plain folder the HEAD of each repository in it, joined by commas.
 func projectRev(ctx context.Context, projectDir string) string {
-	if gitx.Repo(ctx, projectDir) == nil {
+	if projectIsRepo(ctx, projectDir) {
 		return gitx.HeadRev(ctx, projectDir)
 	}
 	var revs []string

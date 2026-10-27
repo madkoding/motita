@@ -145,7 +145,7 @@ type remoteTarget struct{ repo, dir, branch string }
 // of the repositories its plain folder holds.
 func remoteTargets(ctx context.Context, p *Project) []remoteTarget {
 	var targets []remoteTarget
-	if main := mainBranchOf(ctx, p); main != "" && gitx.Repo(ctx, p.Dir) == nil {
+	if main := mainBranchOf(ctx, p); main != "" && projectIsRepo(ctx, p.Dir) {
 		targets = append(targets, remoteTarget{"", p.Dir, main})
 	}
 	for _, repo := range p.Repos {

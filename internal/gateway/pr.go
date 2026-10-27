@@ -49,9 +49,10 @@ type prTarget struct {
 	api    gitforge.API
 	remote gitforge.Remote
 	branch string
-	// dir is the repository the pull request is about, inside the session's folder, and base the
-	// branch it proposes into.
+	// dir is the repository the pull request is about, inside the session's folder, repo what a
+	// request calls it (see repoName), and base the branch it proposes into.
 	dir  string
+	repo string
 	base string
 }
 
@@ -154,7 +155,7 @@ func (s *Server) prTargetAt(ctx context.Context, c *conversation, dir string) (p
 		return prTarget{}, &prError{status: http.StatusInternalServerError, msg: err.Error()}
 	}
 	api.Cache = &s.etags
-	return prTarget{api: api, remote: remote, dir: dir, base: gitx.DefaultBranch(ctx, dir),
+	return prTarget{api: api, remote: remote, dir: dir, repo: c.repoName(dir), base: gitx.DefaultBranch(ctx, dir),
 		branch: c.proposalBranch(ctx, dir)}, nil
 }
 
@@ -199,7 +200,7 @@ func (s *Server) handleGetPR(w http.ResponseWriter, r *http.Request) {
 		}
 		// A CI seen running is a CI to follow, whoever pushed: the loop does not wait to be asked.
 		if ci.State == gitforge.StatePending {
-			s.startPRWatch(c, nil)
+			s.watchRepo(c, t.repo)
 		}
 	}
 	view.Watch = c.prWatchView()
@@ -270,7 +271,7 @@ Base branch: %[3]s
 Then give the user the link to the pull request. Do not wait for the CI and do not merge: `+
 		`the gateway follows the CI and tells the user when it ends.`, branch, t.dir, t.base)
 	// From here the gateway follows the pull request's CI, whether or not anyone is looking.
-	s.startPRWatch(c, nil)
+	s.watchRepo(c, t.repo)
 	s.startRunWithIntent(w, r, c, task, schedule.KindTask, "")
 }
 
@@ -304,6 +305,8 @@ type prRepoView struct {
 	State string                `json:"state"`
 	PR    *gitforge.PullRequest `json:"pr,omitempty"`
 	CI    string                `json:"ci,omitempty"`
+	// Watch is what the gateway is doing about this repository's pull request, absent when nothing.
+	Watch *PRWatchView `json:"watch,omitempty"`
 }
 
 // prRepoViews lists the repositories of the session's folder with work to propose and where each
@@ -327,8 +330,13 @@ func (s *Server) prRepoViews(ctx context.Context, c *conversation) []prRepoView 
 				v.State, v.PR = "open", &pr
 				ci, _ := t.api.CI(ctx, t.remote, pr.Number)
 				v.CI = ci.State
+				// A CI seen running is a CI to follow, in every repository.
+				if ci.State == gitforge.StatePending {
+					s.watchRepo(c, v.Name)
+				}
 			}
 		}
+		v.Watch = c.repoWatchView(v.Name)
 		out = append(out, v)
 	}
 	return out
@@ -398,7 +406,7 @@ func (s *Server) handleFixPR(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusConflict, "this session has already been integrated into the project")
 		return
 	}
-	t, perr := s.prTargetOf(r.Context(), c, "")
+	t, perr := s.prTargetOf(r.Context(), c, c.knownRepoName(r.Context(), r.URL.Query().Get("repo")))
 	if perr != nil {
 		s.writePRError(w, perr)
 		return
@@ -412,8 +420,11 @@ func (s *Server) handleFixPR(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusConflict, "this session has no open pull request whose CI could be fixed")
 		return
 	}
-	c.setPRWatch(nil)
-	s.startPRWatch(c, nil)
+	s.prMu.Lock()
+	extra := s.firstWatchElsewhere(c, t.repo)
+	s.prMu.Unlock()
+	c.setWatchViewOf(&prWatchState{repo: t.repo, extra: extra}, nil)
+	s.watchRepo(c, t.repo)
 	started, pos := s.sendToAgent(c, ciFixTask(t.branch, pr))
 	if started {
 		writeJSON(w, http.StatusAccepted, map[string]any{"queued": false, "started": true})

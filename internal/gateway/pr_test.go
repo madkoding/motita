@@ -535,7 +535,7 @@ func TestMergeBringsTheProjectUpToDate(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(p.Dir, "wip.txt"), []byte("wip\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	srv.finishMerge(context.Background(), c, 7, "x", base)
+	srv.finishMerge(context.Background(), c, "", 7, "x", base)
 	if _, err := os.Stat(filepath.Join(p.Dir, "merged.txt")); err == nil {
 		t.Fatal("a checkout with uncommitted changes is left alone")
 	}
@@ -639,7 +639,7 @@ func TestAMergedPRCanOpenTheNextSessionByItself(t *testing.T) {
 	mustRun(t, "git", "-C", p.Dir, "push", "-q", "origin", base)
 
 	before := srv.sessionCount()
-	srv.finishMerge(context.Background(), c, 7, "x", base)
+	srv.finishMerge(context.Background(), c, "", 7, "x", base)
 	if srv.sessionCount() != before {
 		t.Fatal("without the setting nothing is opened")
 	}
@@ -647,7 +647,7 @@ func TestAMergedPRCanOpenTheNextSessionByItself(t *testing.T) {
 	if patchProjectCode(t, srv, ss.ProjectID, `{"auto_continue":true}`) != http.StatusOK {
 		t.Fatal("setting auto_continue")
 	}
-	srv.finishMerge(context.Background(), c, 7, "x", base)
+	srv.finishMerge(context.Background(), c, "", 7, "x", base)
 	v := c.prWatchView()
 	if v == nil || v.Next == "" || srv.sessionCount() != before+1 {
 		t.Fatalf("the next session is opened and named: %+v", v)

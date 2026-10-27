@@ -77,7 +77,7 @@ func (s *Server) refreshMain(ctx context.Context, p *Project, explicit bool) str
 	warning := ""
 	// A folder of the user's own, outside the workspace, is theirs to update: only an explicit "update
 	// now" moves its branch.
-	if main := mainBranchOf(ctx, p); main != "" && gitx.Repo(ctx, p.Dir) == nil && (explicit || !s.usersFolder(p.Dir)) {
+	if main := mainBranchOf(ctx, p); main != "" && projectIsRepo(ctx, p.Dir) && (explicit || !s.usersFolder(p.Dir)) {
 		before := gitx.BranchCommit(ctx, p.Dir, main)
 		err := gitx.RefreshBranch(ctx, p.Dir, main)
 		if err != nil && !errors.Is(err, gitx.ErrBranchDirty) {
@@ -96,6 +96,7 @@ func (s *Server) refreshMain(ctx context.Context, p *Project, explicit bool) str
 		}
 	}
 	s.syncSharedRepos(ctx, p)
+	s.refreshFoundRepos(ctx, p, explicit)
 	// What is still missing after the update (or none) replaces the last look's news.
 	s.watchRemote(ctx, p, nil)
 	return warning
@@ -125,4 +126,22 @@ func (s *Server) handleRefreshProjectMain(w http.ResponseWriter, r *http.Request
 	warning := s.refreshMain(ctx, p, true)
 	s.mainRefresh.finish(p.ID, warning)
 	writeJSON(w, http.StatusOK, map[string]string{"main_warning": warning})
+}
+
+// refreshFoundRepos brings the main branch of each repository a plain project folder holds up to
+// date with origin, by the same rule as the project's own: forward only, a dirty checkout left as it
+// is, and a folder of the user's own only on an explicit "update now". Advisory: what is still behind
+// shows in the remote watch, and each repository has its own "update now".
+func (s *Server) refreshFoundRepos(ctx context.Context, p *Project, explicit bool) {
+	if !explicit && s.usersFolder(p.Dir) {
+		return
+	}
+	for _, f := range foundRepos(ctx, p) {
+		if main := mainBranchOf(ctx, &Project{Dir: f.dir}); main != "" {
+			if err := gitx.RefreshBranch(ctx, f.dir, main); err != nil && !errors.Is(err, gitx.ErrBranchDirty) {
+				s.warn("a repository of the project could not be brought up to date",
+					"project", p.ID, "repo", f.rel, "error", err.Error())
+			}
+		}
+	}
 }

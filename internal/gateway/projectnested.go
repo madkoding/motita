@@ -36,7 +36,7 @@ type NestedRepo struct {
 // A project whose own folder is a repository has none to list: it is one repository, and what it
 // contains is its own business.
 func nestedReposOf(ctx context.Context, p *Project) []NestedRepo {
-	if p.Dir == "" || gitx.Repo(ctx, p.Dir) == nil {
+	if p.Dir == "" || projectIsRepo(ctx, p.Dir) {
 		return nil
 	}
 	var found []NestedRepo

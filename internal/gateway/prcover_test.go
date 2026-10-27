@@ -368,7 +368,7 @@ func TestAWatchFollowingWhenTheGatewayStoppedIsFollowedAgain(t *testing.T) {
 		NewService:   func() (Service, error) { return &fakeService{}, nil },
 	})
 	srv.prMu.Lock()
-	following := srv.prWatching["s-follow"]
+	following := srv.watchingAny("s-follow")
 	srv.prMu.Unlock()
 	if !following {
 		t.Error("a CI being fixed when the gateway stopped is followed again")

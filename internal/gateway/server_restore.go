@@ -263,7 +263,7 @@ func (s *Server) resumePRWatch(rec sessionRecord) {
 		return
 	}
 	if c, ok := s.lookup(rec.ID); ok {
-		st := &prWatchState{status: w.Status, attempts: w.Attempts, fixedKey: w.FixedKey}
+		st := &prWatchState{status: w.Status, attempts: w.Attempts, fixedKey: w.FixedKey, repo: w.Repo}
 		st.talk.Resume(w.Seen)
 		s.startPRWatch(c, st)
 	}

@@ -90,6 +90,8 @@ export interface PRRepo {
   state: "none" | "open";
   pr?: PRRef;
   ci?: CIState;
+  // What the gateway is doing about this repository's pull request, absent when nothing.
+  watch?: PRWatch;
 }
 
 // retryFix sends the agent to fix the CI now and has the gateway follow it again from the start:
