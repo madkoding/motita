@@ -116,7 +116,10 @@ export async function retryFix(
 
 // repoQuery names the repository of the session's folder a request is about ("" the default one).
 function repoQuery(repo: string): string {
-  return repo ? "?repo=" + encodeURIComponent(repo) : "";
+  if (!repo) {
+    return "";
+  }
+  return "?repo=" + encodeURIComponent(repo);
 }
 
 // mergePR merges the pull request (of repo, when the folder holds several). The gateway refuses

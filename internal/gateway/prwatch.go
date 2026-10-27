@@ -263,8 +263,7 @@ func (s *Server) publishPR(c *conversation, w *prWatchState, number int) {
 		view.fixedKey = w.fixedKey
 		prev := c.watchViewOf(w)
 		c.setWatchViewOf(w, view)
-		if prev == nil || prev.Status != view.Status || prev.Attempts != view.Attempts ||
-			prev.Number != view.Number || prev.fixedKey != view.fixedKey {
+		if watchMoved(prev, view) {
 			s.saveSession(c)
 			s.pushPR(c, prev, view)
 		}

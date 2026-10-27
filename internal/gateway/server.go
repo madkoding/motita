@@ -805,20 +805,6 @@ func (s *Server) skillRoutes(mux *http.ServeMux, prefix string, wrap func(http.H
 	mux.Handle("POST "+prefix+"/skills/{name}/restore", wrap(s.handleRestoreSkill))
 }
 
-// projectRoutes is the table of projects and their repositories; the notes have their own.
-func (s *Server) projectRoutes(mux *http.ServeMux, plain func(http.HandlerFunc) http.Handler) {
-	mux.Handle("GET /v1/projects", plain(s.handleListProjects))
-	s.notesRoutes(mux, plain)
-	s.nestedRoutes(mux, plain)
-	mux.Handle("GET /v1/projects/{id}/code-index", plain(s.handleProjectCodeIndex))
-	mux.Handle("POST /v1/projects/{id}/code-index", plain(s.handleBuildProjectCodeIndex))
-	mux.Handle("POST /v1/projects", plain(s.handleCreateProject))
-	mux.Handle("PATCH /v1/projects/{id}", plain(s.handleUpdateProject))
-	mux.Handle("GET /v1/projects/{id}/branches", plain(s.handleProjectBranches))
-	mux.Handle("DELETE /v1/projects/{id}", plain(s.handleDeleteProject))
-	mux.Handle("POST /v1/projects/{id}/main/refresh", plain(s.handleRefreshProjectMain))
-}
-
 // routes builds the endpoint table.
 //
 // Every conversation endpoint is addressed by the session it is about, and only /v1/health is

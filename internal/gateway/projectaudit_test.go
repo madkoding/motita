@@ -207,6 +207,8 @@ func TestExtraWatchesSurviveARestart(t *testing.T) {
 	c := srv.sessions[ss.ID]
 	c.setPRWatch(&PRWatchView{Status: prFollowing, Number: 7, Repo: "."})
 	srv.publishPR(c, &prWatchState{repo: "web", extra: true, status: prFixing, attempts: 1, fixedKey: "k1"}, 8)
+	// The same reading again moves nothing.
+	srv.publishPR(c, &prWatchState{repo: "web", extra: true, status: prFixing, attempts: 1, fixedKey: "k1"}, 8)
 
 	recs, err := srv.store.loadAll()
 	if err != nil {

@@ -171,3 +171,14 @@ func (s *Server) resumeRepoWatches(rec sessionRecord) {
 		}
 	}
 }
+
+// watchMoved reports whether an extra watch's view changed in what is saved or told: anything but
+// its limit.
+func watchMoved(prev, cur *PRWatchView) bool {
+	if prev == nil {
+		return true
+	}
+	a, b := *prev, *cur
+	a.Max, b.Max = 0, 0
+	return a != b
+}

@@ -108,5 +108,6 @@ func (s *Server) placeLegacyRepo(
 	default:
 		return ProjectRepo{}, err
 	}
-	return ProjectRepo{Name: name, GitURL: gitURL, Dir: dest, MainBranch: settleMainBranch(ctx, dest, defaultMainBranch)}, nil
+	mainBranch := settleMainBranch(ctx, dest, defaultMainBranch)
+	return ProjectRepo{Name: name, GitURL: gitURL, Dir: dest, MainBranch: mainBranch}, nil
 }
