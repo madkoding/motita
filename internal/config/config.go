@@ -339,6 +339,9 @@ type Agent struct {
 	// ReadOnly is plan mode: the agent explores and plans, and every action that
 	// could change the system is refused before it runs.
 	ReadOnly bool `yaml:"read_only"`
+	// ApprovalTimeout is how long a run waits for an answer to a question about a command before
+	// refusing it and going on. Zero (the default) waits for as long as it takes.
+	ApprovalTimeout time.Duration `yaml:"approval_timeout"`
 	// AutoModeRulesOnly makes auto mode decide plan or task with its rules alone. By default every
 	// message that does not name its mode costs one short call to the summary model, which
 	// decides; this turns that call off.

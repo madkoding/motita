@@ -474,6 +474,9 @@ type SessionStatus struct {
 	// now, not counting the main one. It is what the sidebar draws, so a session whose main agent
 	// is waiting on others does not read as stuck.
 	AgentsRunning int `json:"agents_running,omitempty"`
+	// AwaitingApproval is set while the session's run is blocked on a question about a command, so
+	// the sidebar can tell a session that waits for the person from one that is working.
+	AwaitingApproval bool `json:"awaiting_approval,omitempty"`
 	// Provider and Model are what THIS session's next turn runs with. The model belongs to the
 	// session, not to the gateway: each one keeps its own, and the list says which so two
 	// sessions on two models can be told apart without opening them.
@@ -512,7 +515,8 @@ func (c *conversation) status() SessionStatus {
 	defer c.stateMu.Unlock()
 	st := SessionStatus{ID: c.id, Title: c.title, ProjectID: c.projectID, ParentID: c.parentID,
 		Created: c.created, LastUsed: c.lastUsed, Running: c.running && c.terminal == nil,
-		Terminal: c.terminal != nil, AutoApprove: c.autoApprove, AgentsRunning: runningSubagents(c.agents)}
+		Terminal: c.terminal != nil, AutoApprove: c.autoApprove, AgentsRunning: runningSubagents(c.agents),
+		AwaitingApproval: c.pending != nil}
 	st.Workspace = c.workspace
 	if c.svc != nil {
 		cfg := c.svc.Config()

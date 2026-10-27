@@ -8,9 +8,14 @@ var esPush = map[string]string{
 	"%s had %d tests and now has %d. Look at what was deleted, or accept the lower count in the " +
 		"project's menu.": "%s tenía %d tests y ahora tiene %d. Revisa qué se borró, o acepta " +
 		"la cantidad menor en el menú del proyecto.",
-	"Motita notifications work":             "Las notificaciones de Motita funcionan",
-	"This is how a CI that ends will look.": "Así se verá cuando termine un CI.",
-	"CI passed":                             "CI aprobado",
+	"Motita needs your approval": "Motita necesita tu aprobación",
+	"It is waiting to run: %s":   "Está esperando para ejecutar: %s",
+	"Motita stopped":             "Motita se detuvo",
+	"Motita finished":            "Motita terminó",
+	"The run is done: open the session to read the answer.": "La tarea terminó: abre la sesión para leer la respuesta.",
+	"Motita notifications work":                             "Las notificaciones de Motita funcionan",
+	"This is how a CI that ends will look.":                 "Así se verá cuando termine un CI.",
+	"CI passed":                                             "CI aprobado",
 	"Pull request %s is green: you can go and merge it.": "El pull request %s está en verde: ya puedes " +
 		"ir a mergearlo.",
 	"CI failed": "El CI falló",

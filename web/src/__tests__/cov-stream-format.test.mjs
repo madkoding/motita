@@ -169,6 +169,10 @@ test("a session's and a project's tooltips list the facts that are there", () =>
     m.sessionTooltip({ id: "s", agents_running: 1 }),
     "1 background agent running",
   );
+  assert.equal(
+    m.sessionTooltip({ id: "s", awaiting_approval: true }),
+    "Waiting for your approval",
+  );
   assert.equal(m.projectTooltip({}), undefined);
   assert.equal(
     m.projectTooltip({ branch: "main", changes: 2 }),
