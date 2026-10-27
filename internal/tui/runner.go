@@ -437,6 +437,7 @@ func (r *AppRunner) SetWorkspace(dir string) {
 		GitHome:       config.HomeDir(),
 		GPG:           sandbox.GPGAccess(cfg.Sandbox.GPGSigning, config.HomeDir(), r.Log),
 		HiddenPaths:   config.SecretFiles(""),
+		Secrets:       config.CurrentSecrets,
 		Home:          home,
 		PrivateRoots:  privateRoots(root, dir),
 		Log:           r.Log,

@@ -44,15 +44,18 @@ func TestSecretFilesNameTheLoginsTheConfigurationAndItsKeys(t *testing.T) {
 	// token, the web-push key directory, and the sessions store.
 	gatewayState := strings.Join([]string{filepath.Join(dir, "gateway.token"),
 		filepath.Join(dir, "push"), filepath.Join(dir, "sessions")}, " ")
-	if got := strings.Join(SecretFiles(""), " "); got != "/auth "+home+" "+CredentialsPath(home)+" "+gatewayState {
+	want := "/auth " + home + " " + CredentialsPath(home) + " " + SecretsPath(home) + " " + gatewayState
+	if got := strings.Join(SecretFiles(""), " "); got != want {
 		t.Errorf("without a loaded file: %s", got)
 	}
 	wd, _ := os.Getwd()
 	got := SecretFiles("conf/x.yaml")
-	if len(got) != 8 || got[3] != filepath.Join(wd, "conf/x.yaml") || got[4] != filepath.Join(wd, "conf/x.env") {
+	loaded := []string{"conf/x.yaml", "conf/x.env", "conf/x.secrets.env"}
+	if len(got) != 10 || got[4:7][0] != filepath.Join(wd, loaded[0]) ||
+		got[4:7][1] != filepath.Join(wd, loaded[1]) || got[4:7][2] != filepath.Join(wd, loaded[2]) {
 		t.Errorf("a loaded file is made absolute and its key file named: %v", got)
 	}
-	if got[5] != filepath.Join(dir, "gateway.token") || got[7] != filepath.Join(dir, "sessions") {
+	if got[7] != filepath.Join(dir, "gateway.token") || got[9] != filepath.Join(dir, "sessions") {
 		t.Errorf("the gateway state must be named: %v", got)
 	}
 }

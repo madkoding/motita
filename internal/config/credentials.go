@@ -158,10 +158,10 @@ func unquoteEscape(b *strings.Builder, s string, i int) int {
 // empty and is ignored by the sandbox; a path under a directory the command writes is dropped by
 // the sandbox too, so naming one that does not apply is harmless.
 func SecretFiles(loaded string) []string {
-	files := []string{AuthDir(), File(), CredentialsPath(File())}
+	files := []string{AuthDir(), File(), CredentialsPath(File()), SecretsPath(File())}
 	if loaded != "" {
 		abs, _ := filepath.Abs(loaded)
-		files = append(files, abs, CredentialsPath(abs))
+		files = append(files, abs, CredentialsPath(abs), SecretsPath(abs))
 	}
 	if dir := Dir(); dir != "" {
 		files = append(files,

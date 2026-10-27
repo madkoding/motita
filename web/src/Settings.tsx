@@ -26,6 +26,7 @@ import { NotesScanSettings } from "./NotesScanSettings";
 import { AutopilotSettings } from "./AutopilotSettings";
 import { NetworkSettings } from "./NetworkSettings";
 import { SecuritySettings } from "./SecuritySettings";
+import { SecretsSettings } from "./SecretsSettings";
 import { FrictionSettings } from "./FrictionSettings";
 import { GitConnections, type GitSettingsProps } from "./GitConnections";
 import {
@@ -34,6 +35,7 @@ import {
   IconChip,
   IconGlobe,
   IconJournal,
+  IconKey,
   IconMic,
   IconPlug,
   IconWrench,
@@ -69,6 +71,9 @@ interface Props extends AppearanceSettingsProps {
   // How much of the disk the agent reaches. Absent where the page has no API to hand it, and the
   // section stays hidden on a gateway without the security API.
   security?: { api: Api; sessionId?: string };
+  // The variables kept for the agent. Hidden where the page has no API to hand it, and on a gateway
+  // without the secrets API.
+  secrets?: { api: Api };
   // Phone notifications through the gateway (Web Push). Absent where the page has no API to hand.
   push?: { api: Api };
   // The journal of what got in the way. Hidden where the page has no API to hand it.
@@ -89,6 +94,7 @@ export type Tab =
   | "voice"
   | "speech"
   | "security"
+  | "secrets"
   | "network"
   | "journal"
   | "codeindex"
@@ -129,6 +135,13 @@ function settingsTabs(p: Props): TabInfo[] {
   if (p.security) {
     tabs.push({ id: "security", label: t("Security"), icon: <IconShield /> });
   }
+  tabs.push(
+    ...choose(
+      !!p.secrets,
+      [{ id: "secrets" as Tab, label: t("Secrets"), icon: <IconKey /> }],
+      [],
+    ),
+  );
   if (p.friction) {
     tabs.push({ id: "journal", label: t("Journal"), icon: <IconJournal /> });
   }
@@ -174,6 +187,7 @@ const PANES: Record<Tab, (p: Props) => ComponentChildren> = {
     p.security && (
       <SecuritySettings api={p.security.api} sessionId={p.security.sessionId} />
     ),
+  secrets: (p) => p.secrets && <SecretsSettings api={p.secrets.api} />,
   journal: (p) => p.friction && <FrictionSettings api={p.friction.api} />,
   codeindex: (p) =>
     p.codeIndex && (

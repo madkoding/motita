@@ -230,7 +230,7 @@ func (a *Agent) baseVariables(t task.Task) map[string]string {
 		"history":      a.dialogue(),
 		"model":        a.cfg.LLM.Model,
 		"provider":     a.cfg.LLM.Provider,
-		"tools":        describeTools(a.cfg.Sandbox, a.sandbox.Home()) + describeShell(shellFor(a.cfg)),
+		"tools":        describeTools(a.cfg.Sandbox, a.sandbox.Home()) + describeShell(shellFor(a.cfg)) + a.secretsNote(),
 		"desktop":      a.desktopDocs(),
 	}
 	for k, v := range t.Context {
@@ -311,3 +311,6 @@ func describePlan(p Plan) string {
 	}
 	return sb.String()
 }
+
+// secretsNote tells the model the names of the variables the user kept for it.
+func (a *Agent) secretsNote() string { return describeSecrets(a.sandbox.SecretNames()) }

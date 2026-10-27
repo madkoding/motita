@@ -89,3 +89,10 @@ func TestStringMasksEverySecretInALine(t *testing.T) {
 		}
 	}
 }
+
+func TestValuesMasksTheLongestFirstAndSkipsEmpty(t *testing.T) {
+	got := Values("a=abcd b=abcdef", []string{"abcd", "", "abcdef"})
+	if got != "a="+Mask+" b="+Mask {
+		t.Errorf("got %q", got)
+	}
+}
