@@ -413,6 +413,9 @@ type Policy struct {
 // Default returns a complete, usable configuration with no YAML file.
 func Default() Config {
 	return Config{
+		// The small calls only read and write a short verdict (the criteria audit, the summary, a
+		// title): thinking first made each one wait for nothing it used.
+		Thinking: Thinking{Summary: "off"},
 		TaskSource: TaskSource{
 			Kind:     "stdin",
 			Method:   "GET",

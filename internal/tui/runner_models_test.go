@@ -85,8 +85,26 @@ func TestEngineForFallsBackWhenTheAssignedModelCannotRun(t *testing.T) {
 	if e := r.roleEngine(config.TaskReview); e != own {
 		t.Error("the role's engine falls back too")
 	}
+	r.Cfg.Thinking = config.Thinking{}
 	if e := r.summaryEngine(own); e != own {
-		t.Error("with no summary model, compaction uses the turn's engine")
+		t.Error("with no summary model and no thinking level, compaction uses the turn's engine")
+	}
+}
+
+// The small calls (audit, summary, compaction) do not think by default, even on the session's own
+// model: the default configuration assigns the summary kind the level "off".
+func TestSummaryKindDoesNotThinkByDefault(t *testing.T) {
+	r, own := modelsRunner(t, config.Models{})
+	r.Cfg.LLM.Reasoning = config.Reasoning{Enabled: true, Level: "high"}
+	cfg, e, err := r.engineFor(config.TaskSummary)
+	if err != nil || e == own || e == nil {
+		t.Fatalf("summary engine: %v, own=%v", err, e == own)
+	}
+	if cfg.LLM.Reasoning.Enabled || cfg.LLM.Reasoning.Level != "off" {
+		t.Errorf("summary reasoning = %+v, want off", cfg.LLM.Reasoning)
+	}
+	if _, _, err := r.engineFor(config.TaskCode); err != nil {
+		t.Errorf("code: %v", err)
 	}
 }
 
