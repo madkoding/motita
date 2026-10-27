@@ -21,6 +21,7 @@ import {
 } from "./appParse";
 import { lastExit, statusLabel } from "./appFormat";
 import { RUN_MENU } from "./useCheckpoints";
+import { type AttachedFile, attachedIn } from "./attachments";
 import type { ChangeReport, Message, StepView } from "./appTypes";
 
 // ShellStatus is all the conversation says about a command's result: still running, worked,
@@ -263,6 +264,15 @@ function CheckpointItems({ turn }: { turn: number }) {
 // UserText is what a message of the user's says. A message drawn under a label (the turn that
 // applies suggestions) shows the label, and the prompt it sent opens under it on request.
 export function UserText({ m }: { m: Message }) {
+  const { lead, files } = attachedIn(m.text);
+  if (files.length > 0) {
+    return (
+      <>
+        <span>{lead}</span>
+        <AttachedFiles files={files} />
+      </>
+    );
+  }
   if (!m.shown) {
     return <span>{m.text}</span>;
   }
@@ -271,6 +281,29 @@ export function UserText({ m }: { m: Message }) {
       <summary>{m.shown}</summary>
       <pre>{m.text}</pre>
     </details>
+  );
+}
+
+// AttachedFiles are the files a message of the user's carries: a thumbnail for a picture, which
+// opens whole in a tab, and the name for anything else.
+function AttachedFiles({ files }: { files: AttachedFile[] }) {
+  return (
+    <div class="msg-files">
+      {files.map((f) => (
+        <FileThumb key={f.url} f={f} />
+      ))}
+    </div>
+  );
+}
+
+function FileThumb({ f }: { f: AttachedFile }) {
+  if (f.kind !== "image") {
+    return <span class="msg-file">📎 {f.name}</span>;
+  }
+  return (
+    <a href={f.url} target="_blank" rel="noopener" title={f.name}>
+      <img class="msg-thumb" src={f.url} alt={f.name} loading="lazy" />
+    </a>
   );
 }
 

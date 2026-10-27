@@ -236,3 +236,26 @@ func TestNewDesktopNeedsAGraphicalSession(t *testing.T) {
 		t.Fatalf("%v", err)
 	}
 }
+
+func TestEveryPhaseShowsThePicturesThePersonAttached(t *testing.T) {
+	var body string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		b, _ := io.ReadAll(r.Body)
+		body = string(b)
+		_, _ = io.WriteString(w, `{"choices":[{"message":{"content":"ok"}}]}`)
+	}))
+	t.Cleanup(srv.Close)
+	e := mount(t, srv, config.Anchor{Kind: "command", Command: "true"}, nil)
+	dir := filepath.Join(e.dir, ".motita", "uploads")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "shot.png"), []byte("png"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	e.agent.cfg.Agent.WorkspaceDir = e.dir
+	tmpl := config.Template{User: "see\n- .motita/uploads/shot.png (image, 3 B)"}
+	if _, err := e.agent.ask(context.Background(), tmpl, nil, "plan"); err != nil || !strings.Contains(body, "image_url") {
+		t.Fatalf("the picture was not sent: %v %s", err, body)
+	}
+}

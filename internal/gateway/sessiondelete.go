@@ -141,6 +141,7 @@ func (s *Server) handleDeleteSession(w http.ResponseWriter, r *http.Request) {
 	}
 	s.learnFromClosing(c)
 	c.closeForGood()
+	removeAttachments(c)
 	s.releaseFreeSessionDir(c)
 	s.forgetCheckpoints(c)
 	s.forget(c.id)
