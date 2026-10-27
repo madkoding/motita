@@ -116,7 +116,7 @@ SECOPT=()
 
 echo "==> Running in $IMAGE ($PLATFORM)"
 output="$(
-  "$CTR" run --rm --platform "$PLATFORM" "${SECOPT[@]}" \
+  "$CTR" run --rm --platform "$PLATFORM" ${SECOPT[@]+"${SECOPT[@]}"} \
     -v "$PWD/dist:/dist:ro" \
     -v "$PWD/$WORK:/e2e" \
     -w /e2e \

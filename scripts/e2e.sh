@@ -76,7 +76,7 @@ SECOPT=()
 
 echo "==> Running inside $IMAGE ($PLATFORM)"
 output="$(
-  "$CTR" run --rm --platform "$PLATFORM" "${SECOPT[@]}" -v "$PWD/$E2E_DIST:/t:ro" "$IMAGE" sh -c "
+  "$CTR" run --rm --platform "$PLATFORM" ${SECOPT[@]+"${SECOPT[@]}"} -v "$PWD/$E2E_DIST:/t:ro" "$IMAGE" sh -c "
     set -e
     architecture=\$(dpkg --print-architecture)
     echo \"architecture: \$architecture\"
