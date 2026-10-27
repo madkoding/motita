@@ -76,3 +76,16 @@ func describeShell(shell string) string {
 		return ""
 	}
 }
+
+// describeSecrets tells the model which variables the person keeps for it: the names alone, as
+// environment variables of every command. Their values are never in the prompt, and a command's
+// output has them masked.
+func describeSecrets(names []string) string {
+	if len(names) == 0 {
+		return ""
+	}
+	return "\n## VARIABLES THE USER KEPT FOR YOU\n" +
+		"- These environment variables are set in every command: " + strings.Join(names, ", ") + ".\n" +
+		"- Use them by name (\"$NAME\"). Never print, echo or write their values anywhere: the value is hidden from you\n" +
+		"  and masked in output on purpose.\n"
+}

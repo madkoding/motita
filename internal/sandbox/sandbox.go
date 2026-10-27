@@ -108,6 +108,10 @@ type Options struct {
 	// stored keys, which no command needs. Like the write confinement, it spares what the user
 	// approved, which also keeps motita's logins for git.
 	HiddenPaths []string
+	// Secrets are the variables the person keeps for the agent (NAME to value), read at every
+	// command so a change applies at once. Each reaches the command as an environment variable,
+	// and its value is masked in the output the command prints.
+	Secrets func() map[string]string
 	// FullDisk lifts the confinement to the workspace: a command may then write anywhere and read
 	// everything but HiddenPaths. Without it (the default) a confined command also cannot read the
 	// user's files outside the directories it works in (see privatePaths). SetFullDisk changes it
@@ -396,6 +400,7 @@ func (s *Sandbox) Run(ctx context.Context, p execx.Request) (string, bool, int, 
 	defer run.cleanup()
 
 	out, truncated, code, err := s.launch(ctx, s.executable, run.args, run.workDir, timeout, maxOutput, run.limits)
+	out = s.maskSecrets(out)
 	if code != 0 {
 		out = s.withFailureHint(out, run.confined, run.tempDir)
 	}
@@ -474,7 +479,7 @@ func (s *Sandbox) prepare(p execx.Request, extraEnv []string) (preparedRun, erro
 		Args:        append([]string(nil), p.Args...),
 		Dir:         workDir,
 		Limits:      s.runLimits(p),
-		Environment: withVariables(s.environmentWithTmp(tempDir, !confine || p.Approved, p.SystemToolsFirst), extraEnv),
+		Environment: withVariables(s.environmentWithTmp(tempDir, !confine || p.Approved, p.SystemToolsFirst), append(s.secretEnv(), extraEnv...)),
 	}
 
 	switch {

@@ -873,6 +873,7 @@ func (s *Server) routes() *http.ServeMux {
 	// The LLM providers and the default model: process-wide too, saved beside and in the
 	// configuration. See llm.go.
 	s.llmRoutes(mux, plain)
+	s.secretsRoutes(mux, plain)
 	s.evalRoutes(mux, plain)
 	s.llmLoginRoutes(mux, plain)
 	// Speech input and output, and the local voices: process-wide too. See voiceRoutes.

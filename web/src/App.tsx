@@ -734,6 +734,7 @@ function SettingsHost() {
           setToast({ message, type: choose(error, "error", "success") }),
       }}
       security={{ api: request, sessionId: rs.sessionId }}
+      secrets={{ api: request }}
       codeIndex={{ api: request }}
       autopilot={{ api: request }}
       network={{ api: request }}

@@ -8,6 +8,7 @@ import more from "./i18n.es.part2.ts";
 import evals from "./i18n.es.evals.ts";
 import custom from "./i18n.es.custom.ts";
 import commands from "./i18n.es.commands.ts";
+import secrets from "./i18n.es.secrets.ts";
 import automode from "./i18n.es.automode.ts";
 import terminal from "./i18n.es.terminal.ts";
 
@@ -857,6 +858,7 @@ const es: Record<string, string> = {
   ...commands,
   ...automode,
   ...terminal,
+  ...secrets,
 };
 
 export default es;

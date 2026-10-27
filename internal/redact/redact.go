@@ -5,7 +5,11 @@
 // credentials, not every secret a program can print.
 package redact
 
-import "regexp"
+import (
+	"regexp"
+	"sort"
+	"strings"
+)
 
 // Mask replaces every secret that is found.
 const Mask = "[REDACTED]"
@@ -59,6 +63,19 @@ var rules = []rule{
 func String(s string) string {
 	for _, r := range rules {
 		s = r.re.ReplaceAllString(s, r.repl)
+	}
+	return s
+}
+
+// Values returns s with each of values replaced by Mask, the longest first so a value that holds
+// another is masked whole. An empty value is skipped.
+func Values(s string, values []string) string {
+	sorted := append([]string(nil), values...)
+	sort.Slice(sorted, func(i, j int) bool { return len(sorted[i]) > len(sorted[j]) })
+	for _, v := range sorted {
+		if v != "" {
+			s = strings.ReplaceAll(s, v, Mask)
+		}
 	}
 	return s
 }

@@ -230,7 +230,7 @@ func (a *Agent) baseVariables(t task.Task) map[string]string {
 		"history":      a.dialogue(),
 		"model":        a.cfg.LLM.Model,
 		"provider":     a.cfg.LLM.Provider,
-		"tools":        describeTools(a.cfg.Sandbox, a.sandbox.Home()) + describeShell(shellFor(a.cfg)),
+		"tools":        describeTools(a.cfg.Sandbox, a.sandbox.Home()) + describeShell(shellFor(a.cfg)) + describeSecrets(a.sandbox.SecretNames()),
 		"desktop":      a.desktopDocs(),
 	}
 	for k, v := range t.Context {

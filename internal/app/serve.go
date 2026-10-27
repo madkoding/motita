@@ -235,6 +235,7 @@ func (op Options) startGateway(
 	// A key saved from the browser's settings goes beside the file this gateway runs on, and a
 	// provider switch in any conversation must find it there.
 	config.UseCredentialsBeside(resolvedConfigPath(fl))
+	config.UseSecretsBeside(resolvedConfigPath(fl))
 	if path := resolvedConfigPath(fl); path != "" {
 		// What each provider has consumed outlives a restart, in a file beside the configuration.
 		llm.PersistUsage(filepath.Join(filepath.Dir(path), "usage.json"))
