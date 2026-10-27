@@ -235,3 +235,86 @@ func TestExtraWatchesSurviveARestart(t *testing.T) {
 		t.Error("web's pull request is followed again after the restart")
 	}
 }
+
+// A repository whose CI is seen running in the bar's list starts being followed by itself.
+func TestARunningCIInTheRepositoryListIsFollowed(t *testing.T) {
+	srv, host, ss := prSession(t, "https://github.com/o/r.git", func(o *Options) { o.PRPollEvery = time.Hour })
+	connectGitHub(t, srv)
+	prHost(host, sessionBranch(ss.ID), "success", "clean")
+	host.set("GET https://api.github.com/repos/o/r/commits/abc/check-runs",
+		`{"check_runs":[{"id":1,"name":"test","status":"in_progress"}]}`)
+	writeIn(t, ss.Workspace, "root.txt")
+	web := filepath.Join(ss.Workspace, "web")
+	gitInit(t, web)
+	writeIn(t, web, "new.txt")
+	get(t, srv, sessionPath(srv, ss.ID, "/pr"), testToken)
+	srv.prMu.Lock()
+	watching := srv.prWatching[ss.ID+"\x00."]
+	srv.prMu.Unlock()
+	if !watching {
+		t.Error("the folder's running CI is followed")
+	}
+}
+
+// The bookkeeping of the extra watches: removing one, telling when one is over, an open one keeping
+// the session from being integrated, and a record without a repository being skipped.
+func TestTheExtraWatchesBookkeeping(t *testing.T) {
+	srv := newTestServer(t, &fakeService{})
+	c := newConversation("s-book", &fakeService{})
+	w := &prWatchState{repo: "web", extra: true}
+	c.setWatchViewOf(w, &PRWatchView{Status: prFollowing, Repo: "web"})
+	if c.watchDone(w) {
+		t.Error("a followed pull request is not over")
+	}
+	if !c.otherPRsOpen(".") {
+		t.Error("web's open pull request is another one open")
+	}
+	srv.rememberTalk(c, w)
+	c.setWatchViewOf(w, &PRWatchView{Status: prMerged, Repo: "web"})
+	if !c.watchDone(w) {
+		t.Error("a merged pull request is over")
+	}
+	c.setWatchViewOf(w, nil)
+	if c.repoWatchView("web") != nil {
+		t.Error("a removed watch has no view")
+	}
+	c.restoreRepoWatches([]prWatchRecord{{Repo: "", Status: prFollowing}}, 3)
+	if len(c.prRepoWatches) != 0 {
+		t.Errorf("a record without a repository is skipped: %v", c.prRepoWatches)
+	}
+	srv.prMu.Lock()
+	srv.prWatching = map[string]bool{"other\x00.": true}
+	any := srv.watchingAny("s-book")
+	srv.prMu.Unlock()
+	if any {
+		t.Error("another session's watch is not this one's")
+	}
+	outside := &conversation{workspace: t.TempDir()}
+	if got := outside.repoName(filepath.Join(t.TempDir(), "elsewhere")); got != "elsewhere" {
+		t.Errorf("a folder outside the session's is named by its folder, got %q", got)
+	}
+}
+
+// A folder another clone is being made in is never offered.
+func TestAFolderBeingClonedIntoIsNotOffered(t *testing.T) {
+	base := filepath.Join(t.TempDir(), "app")
+	got := freeCloneDir(base, "https://example.com/a/app", nil, func(d string) bool { return d == base })
+	if got != base+"-2" {
+		t.Errorf("folder = %q, want %q", got, base+"-2")
+	}
+}
+
+// A repository of a plain folder whose origin cannot be reached is logged and left as it is.
+func TestARepositoryThatCannotBeUpdatedIsLeftAsItIs(t *testing.T) {
+	srv := newTestServer(t, &fakeService{})
+	ws := t.TempDir()
+	withProjects(t, srv, ws)
+	id, dir := plainProject(t, srv, ws, "services")
+	api := filepath.Join(dir, "api")
+	gitInit(t, api)
+	mustGit(t, api, "remote", "add", "origin", filepath.Join(ws, "missing.git"))
+	srv.refreshFoundRepos(context.Background(), srv.projectOf(id), true)
+	if out := mustGit(t, api, "rev-parse", "--abbrev-ref", "HEAD"); out != "main" {
+		t.Errorf("api moved: %q", out)
+	}
+}

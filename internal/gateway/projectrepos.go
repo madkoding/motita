@@ -144,19 +144,12 @@ func (s *Server) deletesClone(repo ProjectRepo) bool {
 	return !repo.Shared && s.ownsProjectDir(repo.Dir)
 }
 
-// discardRepoFolder is what a repository leaves behind when it goes: the project's worktree of a
-// shared one (its branch only when nothing on it is unmerged: what was committed there is work), or
-// the project's own clone.
-func (s *Server) discardRepoFolder(ctx context.Context, p *Project, repo ProjectRepo) {
-	if repo.Shared {
-		// Best effort, like the sessions' worktrees.
-		_ = worktreeRemove(ctx, repo.Dir, p.repoPath(repo), true)
-		_ = gitx.DeleteBranch(ctx, repo.Dir, projectBranch(p, repo))
-	} else if s.deletesClone(repo) {
-		_ = os.RemoveAll(repo.Dir)
-	} else {
-		// A clone registered from outside the workspace is the user's: it stays where it is.
-	}
+// discardSharedRepoFolder is what a shared repository leaves behind when its project goes: the
+// project's worktree of it, and its branch only when nothing on it is unmerged (what was committed
+// there is work). Best effort, like the sessions' worktrees.
+func discardSharedRepoFolder(ctx context.Context, p *Project, repo ProjectRepo) {
+	_ = worktreeRemove(ctx, repo.Dir, p.repoPath(repo), true)
+	_ = gitx.DeleteBranch(ctx, repo.Dir, projectBranch(p, repo))
 }
 
 // lockProjectRepos serialises the repository operations of one project and returns the unlock. A
@@ -199,7 +192,7 @@ func (s *Server) releaseProjectFolder(ctx context.Context, p *Project, projectDi
 	case s.projectInDir(p.Dir, p.ID) == nil:
 		for _, repo := range p.Repos {
 			if repo.Shared {
-				s.discardRepoFolder(ctx, p, repo)
+				discardSharedRepoFolder(ctx, p, repo)
 			}
 		}
 	default:
