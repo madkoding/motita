@@ -1,15 +1,3 @@
-## TASK
-{{task}}
-
-## CONVERSATION SO FAR
-{{history}}
-
-## CONTEXT
-
-- Working directory: {{workspace}}
-{{project}}
-- Attempt: {{attempt}} of {{max_attempts}}
-
 ## VALIDATION RULES THAT WILL BE APPLIED
 {{rules}}
 
@@ -150,3 +138,19 @@ the user a turn. A question about a decision is what they are here for.
 
 Do not set "kind": "ask" to report that you lack tools or permissions — that is a finding to act
 on, not a question for the user.
+
+## THIS TURN
+
+Everything above is the same every time. What follows is what changes.
+
+## TASK
+{{task}}
+
+## CONVERSATION SO FAR
+{{history}}
+
+## CONTEXT
+
+- Working directory: {{workspace}}
+{{project}}
+- Attempt: {{attempt}} of {{max_attempts}}

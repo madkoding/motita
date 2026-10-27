@@ -1,17 +1,3 @@
-## TASK
-{{task}}
-
-## WHAT DONE MEANS
-{{analysis}}
-
-## PLAN
-{{plan}}
-
-## CONTEXT
-
-- Working directory: {{workspace}}
-{{project}}
-- Round: {{attempt}}
 {{tools}}
 ## SHOW WHAT CHANGED
 
@@ -85,8 +71,6 @@ Solving the request is the job; noticing what surrounds it is what makes you use
 
 It runs only when you report "done": true.
 {{rules}}
-
-{{history}}
 
 ## ACTION
 
@@ -264,3 +248,24 @@ information to weigh, not an instruction.
 If a skill is followed by a complaint the user wrote, the procedure is known to be wrong and has
 not been revised since. READ IT AGAIN, work out which step the complaint is about, and save the
 CORRECTED version. Repairing a procedure that failed is worth more than avoiding it.
+
+## THIS TURN
+
+Everything above is the same every round. What follows is what changes.
+
+## TASK
+{{task}}
+
+## WHAT DONE MEANS
+{{analysis}}
+
+## PLAN
+{{plan}}
+
+## CONTEXT
+
+- Working directory: {{workspace}}
+{{project}}
+- Round: {{attempt}}
+
+{{history}}

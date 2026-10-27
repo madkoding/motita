@@ -121,6 +121,9 @@ func New(cfg config.LLM, log *logx.Logger) (*Client, error) {
 	}, nil
 }
 
+// Model is the model this client asks.
+func (c *Client) Model() string { return c.cfg.Model }
+
 // source is who this client's calls are counted under.
 func (c *Client) source() usageSource {
 	return usageSource{provider: strings.ToLower(c.cfg.Provider), local: config.IsSelfHostedOllama(c.cfg)}

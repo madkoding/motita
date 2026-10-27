@@ -133,8 +133,8 @@ func TestLLMThinkingLevelsAreSavedAndReachEverySession(t *testing.T) {
 	path := llmEnv(t, openAIConfig)
 	srv, svc := modelsServer(t, path)
 	v := decodeLLM(t, get(t, srv, "/v1/llm", testToken))
-	if len(v.Levels) != 4 || len(v.Thinking) != 0 {
-		t.Fatalf("no kind has a level yet: %+v %+v", v.Levels, v.Thinking)
+	if len(v.Levels) != 4 || len(v.Thinking) != 1 || v.Thinking["summary"] != "off" {
+		t.Fatalf("only the summary kind has a level by default: %+v %+v", v.Levels, v.Thinking)
 	}
 	w := llmCall(t, srv, http.MethodPut, "/v1/llm/tasks",
 		`{"tasks":{},"thinking":{"plan":"high","summary":"off","code":""}}`)
