@@ -458,11 +458,11 @@ func (s *session) pick(ctx context.Context, prompt string, m *menu, what string)
 }
 
 func (s *session) chooseProvider(ctx context.Context, preset string) (Provider, error) {
-	providers := Providers()
+	providers := WizardProviders()
 
 	if preset != "" {
 		p, ok := Lookup(preset)
-		if !ok {
+		if !ok || p.WebOnly {
 			return Provider{}, fmt.Errorf("unknown provider %q (use %s)", preset, Names())
 		}
 		return p, nil

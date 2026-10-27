@@ -19,7 +19,7 @@ import (
 // the provider just chosen. A model from another provider would fail at runtime.
 func TestChooseModelIsLimitedToTheProvider(t *testing.T) {
 	stubDirectAuth(t, "stub-token")
-	for _, p := range Providers() {
+	for _, p := range WizardProviders() {
 		dir := t.TempDir()
 		out, res, err := run(context.Background(), t, dir, modelAnswers(t, p), Answers{})
 		if err != nil {

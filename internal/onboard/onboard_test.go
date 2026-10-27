@@ -545,6 +545,9 @@ func TestCatalogueMatchesTheClientProtocols(t *testing.T) {
 		implemented[p] = true
 	}
 	for _, p := range Providers() {
+		if p.WebOnly {
+			continue // set up in the browser: no console, no default endpoint
+		}
 		if !implemented[p.ID] {
 			t.Errorf("the wizard offers %q, which the client does not implement", p.ID)
 		}
@@ -792,5 +795,28 @@ func TestPresetBaseURLForAnOpenAIHost(t *testing.T) {
 	cfg, _ := os.ReadFile(res.ConfigPath)
 	if !strings.Contains(string(cfg), "api.groq.com") {
 		t.Errorf("the preset endpoint must be written:\n%s", cfg)
+	}
+}
+
+// The custom provider is set up in the browser: the catalogue has it, the wizard does not.
+func TestTheWizardDoesNotOfferWebOnlyProviders(t *testing.T) {
+	p, ok := Lookup("custom")
+	if !ok || !p.WebOnly || !p.AskBaseURL || p.DefaultBaseURL != "" {
+		t.Fatalf("custom: %+v %v", p, ok)
+	}
+	for _, w := range WizardProviders() {
+		if w.WebOnly {
+			t.Errorf("%s is in the wizard", w.ID)
+		}
+	}
+	if strings.Contains(Names(), "custom") {
+		t.Errorf("Names() = %q", Names())
+	}
+	if len(WizardProviders()) != len(Providers())-1 {
+		t.Error("only the custom provider is kept out")
+	}
+	_, _, err := run(context.Background(), t, t.TempDir(), nil, Answers{Provider: "custom"})
+	if err == nil {
+		t.Error("a preset naming a web-only provider is refused")
 	}
 }

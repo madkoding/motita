@@ -190,7 +190,9 @@ func TestThePageStaysInsideItsBudget(t *testing.T) {
 	// number is paid on EVERY load, so a jump toward the new ceiling should still be looked at.
 	// Raised to 1152 KiB when the shell reached 1121 KiB (the notes library and the quality check
 	// landed in the settings and the sidebar, which are part of it).
-	const shellBudget = 1152 * 1024
+	// Raised to 1160 KiB when the shell reached 1155 KiB (the custom model form in the settings
+	// and the attachments of a message).
+	const shellBudget = 1160 * 1024
 	const iconFace = "/JetBrainsMonoNerdFont-Icons.woff2"
 	const iconBudget = 1024 * 1024
 

@@ -77,6 +77,7 @@ func New(cfg config.LLM, log *logx.Logger) (*Client, error) {
 	if !known {
 		return nil, fmt.Errorf("unsupported LLM provider: %q", cfg.Provider)
 	}
+	cfg = cfg.Tuned()
 	if cfg.Timeout <= 0 {
 		cfg.Timeout = 90 * time.Second
 	}

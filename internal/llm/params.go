@@ -7,6 +7,8 @@ import (
 	"fmt"
 	"net/url"
 	"strings"
+
+	"github.com/madkoding/motita/internal/config"
 )
 
 // isReasoningModel reports whether an OpenAI model id is one of the reasoning
@@ -53,7 +55,8 @@ func (c *Client) openAIBody(messages []Message, tools []Tool) map[string]any {
 			body["max_tokens"] = c.cfg.MaxTokens
 		}
 	}
-	if !reasoning {
+	if !reasoning || (strings.EqualFold(c.cfg.Provider, config.ProviderCustom) && c.cfg.Temperature != nil) {
+		// A custom model's temperature was asked for by name: it is sent whatever the id looks like.
 		body["temperature"] = c.cfg.TemperatureOr(defaultTemperature)
 	}
 	if c.cfg.Reasoning.Enabled && c.cfg.Reasoning.Level != "off" && c.cfg.Reasoning.Level != "" {

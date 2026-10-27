@@ -67,6 +67,7 @@ func textBindings(c *Config) []binding[string] {
 		{"MOTITA_MODELS_SUMMARY", &c.Models.Summary},
 		{"MOTITA_MODELS_CHEAP", &c.Models.Cheap},
 		{"MOTITA_MODELS_STRONG", &c.Models.Strong},
+		{"MOTITA_CUSTOM_MODEL_MODEL", &c.CustomModel.Model},
 		{"MOTITA_THINKING_PLAN", &c.Thinking.Plan},
 		{"MOTITA_THINKING_CODE", &c.Thinking.Code},
 		{"MOTITA_THINKING_REVIEW", &c.Thinking.Review},
@@ -155,6 +156,8 @@ func integerBindings(c *Config) []binding[int] {
 		{"MOTITA_GATEWAY_MAX_SESSIONS", &c.Gateway.MaxSessions},
 		{"MOTITA_GATEWAY_ARTIFACT_DAYS", &c.Gateway.ArtifactDays},
 		{"MOTITA_LLM_MAX_TOKENS", &c.LLM.MaxTokens},
+		{"MOTITA_CUSTOM_MODEL_MAX_TOKENS", &c.CustomModel.MaxTokens},
+		{"MOTITA_CUSTOM_MODEL_CONTEXT_WINDOW", &c.CustomModel.ContextWindow},
 		{"MOTITA_LLM_SESSION_CONTEXT_WINDOW", &c.LLM.Session.ContextWindow},
 		{"MOTITA_LLM_SESSION_RESERVE", &c.LLM.Session.Reserve},
 		{"MOTITA_LLM_SESSION_KEEP_RECENT", &c.LLM.Session.KeepRecent},
@@ -318,6 +321,9 @@ func applyLLMEnvironment(c *Config) error {
 	if err := applyReasoningEnvironment(c); err != nil {
 		return err
 	}
+	if err := applyCustomTemperature(c); err != nil {
+		return err
+	}
 
 	// The shutdown timeout has a second, historical name: it was published while the
 	// field is called graceful_shutdown_timeout, so a reader following the documented
@@ -330,6 +336,21 @@ func applyLLMEnvironment(c *Config) error {
 		return err
 	}
 	c.Agent.ShutdownTimeout = v
+	return nil
+}
+
+// applyCustomTemperature reads the custom model's temperature, which is optional: unset keeps the
+// endpoint's own.
+func applyCustomTemperature(c *Config) error {
+	v := os.Getenv("MOTITA_CUSTOM_MODEL_TEMPERATURE")
+	if v == "" {
+		return nil
+	}
+	f, err := strconv.ParseFloat(strings.TrimSpace(v), 64)
+	if err != nil {
+		return fmt.Errorf("MOTITA_CUSTOM_MODEL_TEMPERATURE: %q is not a number", v)
+	}
+	c.CustomModel.Temperature = &f
 	return nil
 }
 
@@ -487,6 +508,7 @@ var providerKeyAliases = map[string]string{
 	"anthropic":    "ANTHROPIC_API_KEY",
 	"gemini":       "GEMINI_API_KEY",
 	"qwen":         "DASHSCOPE_API_KEY",
+	ProviderCustom: "MOTITA_CUSTOM_API_KEY",
 }
 
 // speaksOpenAIKey reports whether OPENAI_API_KEY is a key for this provider.
