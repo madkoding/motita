@@ -21,174 +21,94 @@ import {
 } from "./memoryApi";
 
 const MEMORY_PATH = "/v1/memory";
+const ENTRY_EXT = ".md";
 
 const entryUrl = (path: string) =>
   MEMORY_PATH + "/entry?path=" + encodeURIComponent(path);
 
 const NO_ANSWER: MemoryAnswer = { hits: [] };
 
-export function useMemory(api: Api, setState: SetStatus) {
-  const [showMemory, setShowMemory] = useState(false);
-  const [entries, setEntries] = useState<MemoryEntry[]>([]);
-  const [namespaces, setNamespaces] = useState<Namespace[]>([]);
-  const [root, setRoot] = useState("");
-  // What the person asked to delete and has not yet confirmed.
-  const [pending, setPending] = useState<Deletion | null>(null);
-  const [current, setCurrent] = useState<EntryView | null>(null);
-  const [draft, setDraft] = useState("");
-  const [editing, setEditing] = useState(false);
+// useMemorySearch is the search box and its filters: the answer on screen is the newest one asked.
+function useMemorySearch(api: Api) {
   const [query, setQuery] = useState("");
   const [filters, setFilters] = useState<MemoryFilters>(NO_FILTERS);
   const [answer, setAnswer] = useState<MemoryAnswer>(NO_ANSWER);
-  // The graph of links, when it is the view on screen.
-  const [graph, setGraph] = useState<MemoryGraph | null>(null);
   // The newest search is the only one that may paint: answers can arrive out of order.
   const searchSeq = useRef(0);
-  // The draft and the entry it belongs to, for the save that happens when the person moves on.
-  const live = useRef({ current, draft });
-  live.current = { current, draft };
   // The query and filters of the search on screen, so changing one reruns it with the other.
   const asked = useRef({ query, filters });
   asked.current = { query, filters };
 
-  const loadList = useCallback(async () => {
-    try {
-      const res = await api(MEMORY_PATH);
-      if (res.ok) {
-        const d = await res.json();
-        setEntries(d.entries);
-        setNamespaces(d.namespaces ?? []);
-        setRoot(d.root);
+  // runSearch asks the memory what it says about q under the filters.
+  const runSearch = useCallback(
+    async (q: string, f: MemoryFilters) => {
+      searchSeq.current += 1;
+      const seq = searchSeq.current;
+      if (q.trim() === "") {
+        setAnswer(NO_ANSWER);
+        return;
       }
-    } catch {
-      setState(t("could not load the memory"), true);
-    }
-  }, [api, setState]);
-
-  // fetchEntry reads an entry and puts it on screen.
-  const fetchEntry = useCallback(
-    async (path: string, edit: boolean) => {
       try {
-        const res = await api(entryUrl(path));
-        if (!res.ok) {
-          setState(t("could not open the entry"), true);
-          return;
+        const res = await api(searchPath(q, f));
+        let d = NO_ANSWER;
+        if (res.ok) {
+          d = await res.json();
         }
-        const view: EntryView = await res.json();
-        setGraph(null);
-        setCurrent(view);
-        setDraft(view.body);
-        setEditing(edit);
-      } catch {
-        setState(t("could not open the entry"), true);
-      }
-    },
-    [api, setState],
-  );
-
-  // save writes the draft of the open entry, and reports whether it was kept.
-  const save = useCallback(async (): Promise<boolean> => {
-    const { current: entry, draft: body } = live.current;
-    if (!entry || body === entry.body) {
-      return true;
-    }
-    try {
-      const res = await api(entryUrl(entry.path), {
-        method: "PUT",
-        headers: JSON_HEADERS,
-        body: JSON.stringify({ body }),
-      });
-      if (!res.ok) {
-        setState(t("could not save the entry"), true);
-        return false;
-      }
-      return true;
-    } catch {
-      setState(t("could not save the entry"), true);
-      return false;
-    }
-  }, [api, setState]);
-
-  // saveEntry saves and shows the entry again, so its links and backlinks are the new ones.
-  const saveEntry = useCallback(async () => {
-    const entry = live.current.current;
-    if (entry && (await save())) {
-      await fetchEntry(entry.path, true);
-    }
-  }, [save, fetchEntry]);
-
-  // openEntry moves to another entry, keeping what was typed in the one being left.
-  const openEntry = useCallback(
-    async (path: string, edit = false) => {
-      if (await save()) {
-        await fetchEntry(path, edit);
-      }
-    },
-    [save, fetchEntry],
-  );
-
-  // peekEntry reads an entry without opening it, for a look at it beside the map; null when it cannot.
-  const peekEntry = useCallback(
-    async (path: string): Promise<EntryView | null> => {
-      try {
-        const res = await api(entryUrl(path));
-        if (!res.ok) {
-          return null;
+        if (seq === searchSeq.current) {
+          setAnswer(d);
         }
-        return (await res.json()) as EntryView;
       } catch {
-        return null;
+        if (seq === searchSeq.current) {
+          setAnswer(NO_ANSWER);
+        }
       }
     },
     [api],
   );
 
-  const openMemory = useCallback(() => {
-    setShowMemory(true);
-    void loadList();
-  }, [loadList]);
+  const search = useCallback(
+    async (q: string) => {
+      setQuery(q);
+      await runSearch(q, asked.current.filters);
+    },
+    [runSearch],
+  );
 
-  // closeMemory says whether the window closed: it stays when the open entry could not be saved.
-  const closeMemory = useCallback(async () => {
-    if (!(await save())) {
-      return false;
-    }
-    setShowMemory(false);
-    setCurrent(null);
-    setGraph(null);
+  // filter changes some of the filters and runs the search again.
+  const filter = useCallback(
+    async (change: Partial<MemoryFilters>) => {
+      const next = { ...asked.current.filters, ...change };
+      setFilters(next);
+      await runSearch(asked.current.query, next);
+    },
+    [runSearch],
+  );
+
+  // reset forgets the query, the filters and the answer.
+  const reset = useCallback(() => {
     setQuery("");
     setFilters(NO_FILTERS);
     setAnswer(NO_ANSWER);
-    return true;
-  }, [save]);
+  }, []);
 
-  // openGraph shows the entries as a graph of their links.
-  const openGraph = useCallback(async () => {
-    if (!(await save())) {
-      return;
-    }
-    try {
-      const res = await api(MEMORY_PATH + "/graph");
-      if (!res.ok) {
-        setState(t("could not load the graph"), true);
-        return;
-      }
-      setCurrent(null);
-      setGraph(await res.json());
-    } catch {
-      setState(t("could not load the graph"), true);
-    }
-  }, [api, save, setState]);
+  return { query, filters, answer, search, filter, reset };
+}
 
-  const closeGraph = useCallback(() => setGraph(null), []);
-
-  // back leaves the open entry for the list (the way out of an entry on a phone).
-  const back = useCallback(async () => {
-    if (await save()) {
-      setCurrent(null);
-      void loadList();
-    }
-  }, [save, loadList]);
+// useEntryEdits makes, renames and deletes entries. save, loadList and fetchEntry are the main
+// hook's, and setCurrent closes the entry on screen when it is the one that went.
+function useEntryEdits(
+  api: Api,
+  setState: SetStatus,
+  live: { current: { current: EntryView | null; draft: string } },
+  steps: {
+    save: () => Promise<boolean>;
+    loadList: () => Promise<void>;
+    fetchEntry: (path: string, edit: boolean) => Promise<void>;
+    setCurrent: (v: EntryView | null) => void;
+    setPending: (v: Deletion | null) => void;
+  },
+) {
+  const { save, loadList, fetchEntry, setCurrent, setPending } = steps;
 
   // createEntry makes an entry called title in folder, and opens it ready to be written.
   const createEntry = useCallback(
@@ -202,7 +122,7 @@ export function useMemory(api: Api, setState: SetStatus) {
         return;
       }
       try {
-        const name = path.slice(path.lastIndexOf("/") + 1, -3);
+        const name = path.slice(path.lastIndexOf("/") + 1, -ENTRY_EXT.length);
         const res = await api(entryUrl(path), {
           method: "PUT",
           headers: JSON_HEADERS,
@@ -319,46 +239,172 @@ export function useMemory(api: Api, setState: SetStatus) {
     [deleteEntry, deleteFolder],
   );
 
-  // runSearch asks the memory what it says about q under the filters.
-  const runSearch = useCallback(
-    async (q: string, f: MemoryFilters) => {
-      const seq = ++searchSeq.current;
-      if (q.trim() === "") {
-        setAnswer(NO_ANSWER);
-        return;
+  return { createEntry, renameEntry, deleteEntry, deleteFolder, confirmDelete };
+}
+
+export function useMemory(api: Api, setState: SetStatus) {
+  const [showMemory, setShowMemory] = useState(false);
+  const [entries, setEntries] = useState<MemoryEntry[]>([]);
+  const [namespaces, setNamespaces] = useState<Namespace[]>([]);
+  const [root, setRoot] = useState("");
+  // What the person asked to delete and has not yet confirmed.
+  const [pending, setPending] = useState<Deletion | null>(null);
+  const [current, setCurrent] = useState<EntryView | null>(null);
+  const [draft, setDraft] = useState("");
+  const [editing, setEditing] = useState(false);
+  // The graph of links, when it is the view on screen.
+  const [graph, setGraph] = useState<MemoryGraph | null>(null);
+  const { query, filters, answer, search, filter, reset } =
+    useMemorySearch(api);
+  // The draft and the entry it belongs to, for the save that happens when the person moves on.
+  const live = useRef({ current, draft });
+  live.current = { current, draft };
+
+  const loadList = useCallback(async () => {
+    try {
+      const res = await api(MEMORY_PATH);
+      if (res.ok) {
+        const d = await res.json();
+        setEntries(d.entries);
+        setNamespaces(d.namespaces ?? []);
+        setRoot(d.root);
       }
+    } catch {
+      setState(t("could not load the memory"), true);
+    }
+  }, [api, setState]);
+
+  // fetchEntry reads an entry and puts it on screen.
+  const fetchEntry = useCallback(
+    async (path: string, edit: boolean) => {
       try {
-        const res = await api(searchPath(q, f));
-        const d: MemoryAnswer = res.ok ? await res.json() : NO_ANSWER;
-        if (seq === searchSeq.current) {
-          setAnswer(d);
+        const res = await api(entryUrl(path));
+        if (!res.ok) {
+          setState(t("could not open the entry"), true);
+          return;
         }
+        const view: EntryView = await res.json();
+        setGraph(null);
+        setCurrent(view);
+        setDraft(view.body);
+        setEditing(edit);
       } catch {
-        if (seq === searchSeq.current) {
-          setAnswer(NO_ANSWER);
+        setState(t("could not open the entry"), true);
+      }
+    },
+    [api, setState],
+  );
+
+  // save writes the draft of the open entry, and reports whether it was kept.
+  const save = useCallback(async (): Promise<boolean> => {
+    const { current: entry, draft: body } = live.current;
+    if (!entry || body === entry.body) {
+      return true;
+    }
+    try {
+      const res = await api(entryUrl(entry.path), {
+        method: "PUT",
+        headers: JSON_HEADERS,
+        body: JSON.stringify({ body }),
+      });
+      if (!res.ok) {
+        setState(t("could not save the entry"), true);
+        return false;
+      }
+      return true;
+    } catch {
+      setState(t("could not save the entry"), true);
+      return false;
+    }
+  }, [api, setState]);
+
+  // saveEntry saves and shows the entry again, so its links and backlinks are the new ones.
+  const saveEntry = useCallback(async () => {
+    const entry = live.current.current;
+    if (entry && (await save())) {
+      await fetchEntry(entry.path, true);
+    }
+  }, [save, fetchEntry]);
+
+  // openEntry moves to another entry, keeping what was typed in the one being left.
+  const openEntry = useCallback(
+    async (path: string, edit = false) => {
+      if (await save()) {
+        await fetchEntry(path, edit);
+      }
+    },
+    [save, fetchEntry],
+  );
+
+  // peekEntry reads an entry without opening it, for a look at it beside the map; null when it cannot.
+  const peekEntry = useCallback(
+    async (path: string): Promise<EntryView | null> => {
+      try {
+        const res = await api(entryUrl(path));
+        if (!res.ok) {
+          return null;
         }
+        return (await res.json()) as EntryView;
+      } catch {
+        return null;
       }
     },
     [api],
   );
 
-  const search = useCallback(
-    async (q: string) => {
-      setQuery(q);
-      await runSearch(q, asked.current.filters);
-    },
-    [runSearch],
-  );
+  const openMemory = useCallback(() => {
+    setShowMemory(true);
+    void loadList();
+  }, [loadList]);
 
-  // filter changes some of the filters and runs the search again.
-  const filter = useCallback(
-    async (change: Partial<MemoryFilters>) => {
-      const next = { ...asked.current.filters, ...change };
-      setFilters(next);
-      await runSearch(asked.current.query, next);
-    },
-    [runSearch],
-  );
+  // closeMemory says whether the window closed: it stays when the open entry could not be saved.
+  const closeMemory = useCallback(async () => {
+    if (!(await save())) {
+      return false;
+    }
+    setShowMemory(false);
+    setCurrent(null);
+    setGraph(null);
+    reset();
+    return true;
+  }, [save]);
+
+  // openGraph shows the entries as a graph of their links.
+  const openGraph = useCallback(async () => {
+    if (!(await save())) {
+      return;
+    }
+    try {
+      const res = await api(MEMORY_PATH + "/graph");
+      if (!res.ok) {
+        setState(t("could not load the graph"), true);
+        return;
+      }
+      setCurrent(null);
+      setGraph(await res.json());
+    } catch {
+      setState(t("could not load the graph"), true);
+    }
+  }, [api, save, setState]);
+
+  const closeGraph = useCallback(() => setGraph(null), []);
+
+  // back leaves the open entry for the list (the way out of an entry on a phone).
+  const back = useCallback(async () => {
+    if (await save()) {
+      setCurrent(null);
+      void loadList();
+    }
+  }, [save, loadList]);
+
+  const { createEntry, renameEntry, deleteEntry, deleteFolder, confirmDelete } =
+    useEntryEdits(api, setState, live, {
+      save,
+      loadList,
+      fetchEntry,
+      setCurrent,
+      setPending,
+    });
 
   // followLink opens the entry a [[link]] of the preview leads to, or makes it when it is new.
   const followLink = useCallback(

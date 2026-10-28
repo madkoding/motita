@@ -149,19 +149,14 @@ function FolderContent({
 
 // byline says who wrote a section and when.
 function byline(h: MemoryHit): string {
-  const date = h.date ? h.date.slice(0, 10) : "";
+  const date = (h.date ?? "").slice(0, 10);
   return [h.author, date].filter(Boolean).join(" · ");
 }
 
 // HitRow is one section the search found: where it is, who wrote it and when, and what matched.
 function HitRow({ h }: { h: MemoryHit }) {
   const { openEntry } = useApp().memory;
-  const place = [
-    h.namespace === "" ? "" : h.namespace,
-    h.heading ? h.heading : "",
-  ]
-    .filter(Boolean)
-    .join(" › ");
+  const place = [h.namespace, h.heading].filter(Boolean).join(" › ");
   const by = byline(h);
   return (
     <li>
@@ -181,7 +176,7 @@ function HitRow({ h }: { h: MemoryHit }) {
         )}
         {(by !== "" || !!h.via) && (
           <div class="text-[11px] text-[#7a7a8c] truncate">
-            {[by, h.via ? tf("via {name}", { name: h.via }) : ""]
+            {[by, !!h.via && tf("via {name}", { name: h.via as string })]
               .filter(Boolean)
               .join(" · ")}
           </div>

@@ -108,6 +108,27 @@ export interface EntryFolder {
   entries: MemoryEntry[];
 }
 
+// joinPath puts name below dir, which is empty at the top.
+function joinPath(dir: string, name: string): string {
+  if (dir === "") {
+    return name;
+  }
+  return dir + "/" + name;
+}
+
+// trimSlashes takes the slashes off both ends of a folder name.
+function trimSlashes(s: string): string {
+  let a = 0;
+  let b = s.length;
+  while (a < b && s[a] === "/") {
+    a++;
+  }
+  while (b > a && s[b - 1] === "/") {
+    b--;
+  }
+  return s.slice(a, b);
+}
+
 // buildTree groups the entries (sorted by path, as the gateway sends them) into folders.
 export function buildTree(entries: MemoryEntry[]): EntryFolder {
   const root: EntryFolder = { name: "", path: "", folders: [], entries: [] };
@@ -116,7 +137,7 @@ export function buildTree(entries: MemoryEntry[]): EntryFolder {
     parts.pop();
     let at = root;
     for (const part of parts) {
-      const path = at.path ? at.path + "/" + part : part;
+      const path = joinPath(at.path, part);
       let next = at.folders.find((f) => f.path === path);
       if (!next) {
         next = { name: part, path, folders: [], entries: [] };
@@ -146,9 +167,11 @@ export function entryFileName(folder: string, title: string): string {
   if (cleaned === "") {
     return "";
   }
-  const dir = folder.replace(/^\/+|\/+$/g, "");
-  return (dir ? dir + "/" : "") + cleaned + ".md";
+  return joinPath(trimSlashes(folder), cleaned) + ".md";
 }
+
+const ENTRY_PREFIX = "#entry:";
+const NEW_PREFIX = "#new:";
 
 // WIKI matches a code span or fence (left alone) or a [[wiki link]].
 const WIKI = /(```[\s\S]*?```|`[^`\n]*`)|!?\[\[([^[\]\n]+)\]\]/g;
@@ -156,8 +179,12 @@ const WIKI = /(```[\s\S]*?```|`[^`\n]*`)|!?\[\[([^[\]\n]+)\]\]/g;
 // splitWiki takes "target#heading|alias" apart.
 function splitWiki(inner: string): { target: string; text: string } {
   const bar = inner.indexOf("|");
-  const left = bar < 0 ? inner : inner.slice(0, bar);
-  const alias = bar < 0 ? "" : inner.slice(bar + 1).trim();
+  let left = inner;
+  let alias = "";
+  if (bar >= 0) {
+    left = inner.slice(0, bar);
+    alias = inner.slice(bar + 1).trim();
+  }
   const target = left.split("#")[0].trim().replace(/\.md$/i, "");
   return { target, text: alias || left.trim() };
 }
@@ -182,8 +209,8 @@ export function wikiToMarkdown(body: string, links: EntryLink[]): string {
     }
     const path = resolved.get(target.toLowerCase());
     const href = path
-      ? "#entry:" + encodeURIComponent(path)
-      : "#new:" + encodeURIComponent(target);
+      ? ENTRY_PREFIX + encodeURIComponent(path)
+      : NEW_PREFIX + encodeURIComponent(target);
     return "[" + text.replace(/[[\]]/g, "") + "](" + href + ")";
   });
 }
@@ -196,11 +223,17 @@ export type EntryTarget =
 export function parseEntryHref(
   href: string | null | undefined,
 ): EntryTarget | null {
-  if (href?.startsWith("#entry:")) {
-    return { kind: "entry", path: decodeURIComponent(href.slice(7)) };
+  if (href?.startsWith(ENTRY_PREFIX)) {
+    return {
+      kind: "entry",
+      path: decodeURIComponent(href.slice(ENTRY_PREFIX.length)),
+    };
   }
-  if (href?.startsWith("#new:")) {
-    return { kind: "new", target: decodeURIComponent(href.slice(5)) };
+  if (href?.startsWith(NEW_PREFIX)) {
+    return {
+      kind: "new",
+      target: decodeURIComponent(href.slice(NEW_PREFIX.length)),
+    };
   }
   return null;
 }

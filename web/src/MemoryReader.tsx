@@ -227,7 +227,7 @@ function EntryToolbar() {
 
 // byline says who wrote an entry and when, "" when the entry says neither.
 function byline(entry: EntryView): string {
-  const date = entry.meta?.date ? entry.meta.date.slice(0, 10) : "";
+  const date = (entry.meta?.date ?? "").slice(0, 10);
   return [entry.meta?.author, date].filter(Boolean).join(" · ");
 }
 

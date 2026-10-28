@@ -1356,7 +1356,7 @@ test("the filters rerun the search, and the answer shows related entries, byline
         line: 1,
         snippet: "",
         block: "x",
-        date: "",
+
         score: 0.5,
       },
     ],

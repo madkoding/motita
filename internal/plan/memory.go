@@ -61,6 +61,18 @@ func memoryTools() []llm.Tool {
 	}
 }
 
+// searchQuery is the query with the collection and the graph option written as filters.
+func (a memoryArgs) searchQuery() string {
+	q := a.Query
+	if a.Namespace != "" {
+		q += " ns:" + strconv.Quote(a.Namespace)
+	}
+	if a.Graph {
+		q += " graph:1"
+	}
+	return q
+}
+
 // toolMemory runs one of the memory tools.
 func (p *Planner) toolMemory(name string, raw []byte) string {
 	var args memoryArgs
@@ -69,14 +81,7 @@ func (p *Planner) toolMemory(name string, raw []byte) string {
 	}
 	switch name {
 	case "search_memory":
-		q := args.Query
-		if args.Namespace != "" {
-			q += " ns:" + strconv.Quote(args.Namespace)
-		}
-		if args.Graph {
-			q += " graph:1"
-		}
-		return limitString(p.memory.SearchText(q), maxToolOutputBytes)
+		return limitString(p.memory.SearchText(args.searchQuery()), maxToolOutputBytes)
 	case "read_memory":
 		return limitString(p.memory.ReadText(args.Entry), maxToolOutputBytes)
 	case "write_memory":
