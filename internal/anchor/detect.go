@@ -418,7 +418,7 @@ func (a *Anchor) GateFingerprint() string {
 // on. Reporting an error instead would make an unreadable file somewhere in the tree
 // a reason the agent could not work at all.
 func readIfPresent(dir, name string) (string, bool) {
-	data, err := os.ReadFile(filepath.Join(dir, name))
+	data, err := os.ReadFile(filepath.Join(dir, name)) // #nosec G304 -- inside the anchor's directory, read-only.
 	if err != nil {
 		return "", false
 	}

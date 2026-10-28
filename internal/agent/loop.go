@@ -419,7 +419,7 @@ func (r *taskRun) execute() TaskResult {
 	// The project's gate as the task found it: a PASS from a gate the run itself rewrote is not
 	// taken without the user's word. A background agent keeps the one its main agent started with.
 	if !a.isChild || a.gate == "" {
-		a.gate, a.gateTests = a.gateFingerprint(), max(a.testCount(), a.testsFloor)
+		a.gate, a.gateTests = a.gateFingerprint(), max(a.testCount(), a.gateTests)
 	}
 	r.resume()
 	// workLog is what every round ran and printed, for the final answer: the synthesis used

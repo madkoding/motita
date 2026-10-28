@@ -318,3 +318,7 @@ func describePlan(p Plan) string {
 
 // secretsNote tells the model the names of the variables the user kept for it.
 func (a *Agent) secretsNote() string { return describeSecrets(a.sandbox.SecretNames()) }
+
+// SetTestsFloor tells the agent the most tests the project has had. A task never starts below it:
+// a PASS over fewer is refused even when the tests were deleted before the task began.
+func (a *Agent) SetTestsFloor(n int) { a.gateTests = n }
