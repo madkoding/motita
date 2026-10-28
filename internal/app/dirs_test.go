@@ -125,19 +125,6 @@ func TestThePeerFileLivesUnderTheHome(t *testing.T) {
 	}
 }
 
-// TestNotesVaultIsNilWithoutAHome: plan and task mode share the Notes window's folder, and have none
-// without a home.
-func TestNotesVaultIsNilWithoutAHome(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
-	if notesVault() == nil {
-		t.Error("with a home there is a vault")
-	}
-	t.Setenv("HOME", "")
-	if notesVault() != nil {
-		t.Error("without a home there is none")
-	}
-}
-
 // TestThePreferencesFileLivesBesideTheConfiguration: the web page's preferences are kept in the
 // program's own folder, and without a home they last as long as the process.
 func TestThePreferencesFileLivesBesideTheConfiguration(t *testing.T) {

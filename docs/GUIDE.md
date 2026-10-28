@@ -558,11 +558,11 @@ curl -X DELETE -H "Authorization: Bearer $TOKEN" \
 | `GET /v1/health`                                                                                               | the only one that needs no token: liveness                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                             |
 | `GET` `POST /v1/projects` · `DELETE /v1/projects/{id}`                                                         | the repositories motita works on; adding one runs `git init` when it is not a repository yet                                                                                                                                                                                                                                                                                                                                                                                                                                                                           |
 | `GET /v1/sessions/{id}/artifacts` · `GET` `PUT` `DELETE /v1/sessions/{id}/artifacts/{name}`                    | the files the agent saved for you under `.motita/artifacts/` (a report, a page, a diagram) or you uploaded (`PUT`, raw body), kept in `~/.motita/artifacts/` after the run ends and until the session is deleted; `?scope=project` reads what every session of the project saved; `?download=1` serves one as an attachment; `POST .../{name}/pin` (`{"pinned":true}`) exempts a file from the retention, and the list says when each unpinned one expires. A run's `done` event lists the artifacts it made. Limits: 50 files and 5 MB each per folder, 500 MB in all |
-| `GET /v1/notes` · `GET` `PUT` `DELETE /v1/notes/note?path=` · `POST /v1/notes/rename` · `GET /v1/notes/search?q=` | the note vault in `~/.motita/notes/`: the list of notes and the folder; one note with its `links` (each with the `path` it resolves to, absent while the note does not exist) and `backlinks`; `PUT` with `{"body":"…","create":true}` saves it (`create` refuses to replace one) and makes the folders; `rename` takes `{"from","to"}`, rewrites the `[[links]]` that led to the note and answers `{"updated":n}`; `search` ranks notes with the code index when it is on; `POST /v1/notes/scan` writes the project and session notes and answers what it did (`?first=1` only when the vault was never filled, `?summarize=1` to add model summaries of long sessions); `GET /v1/notes/graph` answers `nodes` (path, title, links in and out), `edges` and how many links point at notes that do not exist yet |
+| `GET /v1/memory` · `GET` `PUT` `DELETE /v1/memory/entry?path=` · `DELETE /v1/memory/folder?path=` · `POST /v1/memory/rename` · `GET /v1/memory/search?q=` · `GET /v1/memory/graph` | the memory in `~/.motita/memory/`: the list of entries with their `namespaces` and the folder; one entry with `meta` (author, date, tags), its `links` (each with the `path` it resolves to, absent while the entry does not exist) and `backlinks`; `PUT` with `{"body":"…","create":true}` saves it (`create` refuses to replace one) and makes the folders; `rename` takes `{"from","to"}`, rewrites the `[[links]]` that led to the entry and answers `{"updated":n}`; `search` answers `hits` (each with `namespace`, `heading`, `snippet`, the whole section as `block`, `author`, `date`), `related` (through links) and a `warning`; it takes `namespace`, `author`, `since`, `until`, `graph=1` and `limit`, which win over the same filters written inline in `q`; `graph` answers `nodes` (path, title, links in and out), `edges` and how many links point at entries that do not exist yet |
 | `GET /v1/boxes`, `DELETE /v1/boxes`, `DELETE /v1/boxes/{id}` | the service containers Motita started to test a project (`{"runtime": "podman", "boxes": [{id, name, image, status, created}]}`); remove one by id or name, or all of them. Only containers carrying the `motita.box` label are touched. Settings → Security shows them |
 | `GET /v1/fs/dirs?path=` | the folders inside `path` (the user's home when empty), `{path, parent, home, root, dirs:[{name,path,git}]}`: folders only, hidden ones left out, for the folder browser of the project dialogs. With `sandbox.disk_access: full` it reaches the whole disk; otherwise it only lists the workspace and answers 403 elsewhere; `sensitive` marks the system's own trees. On Windows `path=@drives` lists the drives (`C:\`, `D:\`…), the top of each drive has it above, and macOS and Linux share the one tree from `/`. `POST /v1/fs/dirs` `{"path","name"}` makes a folder inside one (full disk only) |
 | `POST /v1/projects` `{"path":"/abs/folder"}` · `PATCH /v1/projects/{id}` `{"path":…}` | a project in a folder outside the workspace, only with `sandbox.disk_access: full` (403 otherwise). The folder must exist and cannot be the disk's root, the workspace or another project's folder; it is used as it is (an empty one becomes a repository) and is never deleted with the project. `PATCH` re-anchors a project without moving anything: 409 while it has sessions or other repositories |
-| Main branch refresh | nothing updates a project's main branch by itself: the project menu's "Update main branch" (`POST /v1/projects/{id}/main/refresh`) brings it up to date from origin (fetch and fast-forward only). A clean checkout on the branch moves forward, a checkout on another branch has the branch advanced in place without switching, and one with uncommitted work or a diverged history is left untouched. Why it could not be done is `main_warning` in `GET /v1/projects`, and the sidebar marks the project as outdated. It answers 200 with the `main_warning` that remains, 404 for an unknown project, 409 while another update of it runs. When it brings new code into a vault that was scanned before, the notes are scanned again in the background. A project in a folder of the user's own outside the workspace (`sandbox.disk_access: full`) is not switched back to its main branch by itself when its last session closes either |
+| Main branch refresh | nothing updates a project's main branch by itself: the project menu's "Update main branch" (`POST /v1/projects/{id}/main/refresh`) brings it up to date from origin (fetch and fast-forward only). A clean checkout on the branch moves forward, a checkout on another branch has the branch advanced in place without switching, and one with uncommitted work or a diverged history is left untouched. Why it could not be done is `main_warning` in `GET /v1/projects`, and the sidebar marks the project as outdated. It answers 200 with the `main_warning` that remains, 404 for an unknown project, 409 while another update of it runs. A project in a folder of the user's own outside the workspace (`sandbox.disk_access: full`) is not switched back to its main branch by itself when its last session closes either |
 | `missing_deps` in `GET /v1/projects` | the dependency folders the project's repositories need and do not have, read live: `[{path,manager,dir,command}]` for a `composer.json` with no `vendor/` or a `package.json` with no `node_modules/` (at the root or one folder down; a manifest that lists no dependencies needs none). The sidebar shows a "no deps" notice with the commands, and the session's agent is told to install them first and, when it cannot (no network), to report the check as not run instead of faking a pass |
 | `no_gate`, `tests_lost` in `GET /v1/projects` · `POST /v1/projects/{id}/tests/accept` | `no_gate` (read live) marks a project whose folder declares no gate for the anchor (no `.motita/anchor`, Makefile `check`/`test`, `go.mod`, `package.json`, `Cargo.toml` or `pyproject.toml`): its sessions finish unverified, and the sidebar shows a "no gate" tag. `tests_lost` `{was,now}` appears when the tests the folder declares fell below the most it has had (`go test` over no tests exits 0, so deleting them is a green run); it is found on the 15-minute look at origin, shown as a "−N tests" tag and pushed to the phones once. `tests/accept` takes today's count as the new floor (the project menu's "Accept the lower test count"). Every task starts from that floor, so a PASS over fewer tests is refused even when they were lost between tasks. The gate also runs a Makefile `cover`/`coverage` target (when only `test` exists) and the `test:coverage`/`coverage` npm scripts, so lowering a coverage minimum fails the task |
 | `DELETE /v1/projects/{id}/main` | moves the project's own repository into a folder of its own (`<project>/<name>`) and leaves the project as a plain folder that holds its repositories, nothing deleted; refused with 409 while a session is running or has its own copy of the repository (merge or delete those sessions first) |
@@ -618,82 +618,62 @@ default. Some hosts widen that range (this one goes down to 1024), in which case
 fixed port can occasionally collide with an outgoing connection — if a start fails
 with `address already in use`, pick another with `-gateway 127.0.0.1:<port>`.
 
-### Notes: a vault Obsidian can open
+### Memory: collections, chunks and hybrid recall
 
-The **Notes** button in the web interface's sidebar opens a vault of Markdown notes. They are
-plain `.md` files in `~/.motita/notes/` (nothing else is kept: no database, no index file), so
-the same folder opens in Obsidian and what you change there is what motita shows.
+The **Memory** button in the web interface's sidebar opens what you and Motita want to remember
+(it replaces the old Notes window). It is still plain `.md` files, now in `~/.motita/memory/`
+(nothing else is kept on disk: no database, no index file), so the same folder opens in Obsidian.
+The first start after the upgrade renames `~/.motita/notes/` to `~/.motita/memory/`; nothing is
+rewritten and nothing is lost. The old scan that wrote project, session and architecture notes is
+gone: the memory holds what you or the agent write, and what the agent writes it signs.
 
-- **Tree and editor.** Folders and notes on the left; the open note is a preview you can switch
-  to a text editor. A draft is saved with the Save button, when you open another note and when
-  you close the window.
-- **Wiki links.** `[[Peru]]`, `[[trips/Peru]]`, `[[Peru#Food|the food]]` are resolved as Obsidian
-  does (a bare name matches a note of that name in any folder, the case does not matter, the
-  shallowest wins). A link to a note that does not exist yet creates it, next to the note you
-  are in. Links inside code are text.
-- **Backlinks.** Under each note, the notes that link to it, with the line that does.
-- **Projects.** The new-note form can put the note in a folder named after a project, so a
-  project's notes sit together; everything else lives at the top level.
-- **Search.** With the code index on (Settings, Indexing) the notes are searched with the same
-  index as code, ranked by meaning; with it off, every word must appear in the name or text.
-- **Map.** The Map button draws the notes as neon spheres joined by their links, in 3D where the
-  browser has WebGL and flat elsewhere (bigger spheres are linked from more notes). Drag to turn,
-  scroll to zoom. A legend names the colour of each part of the vault, the biggest parts first.
-  The search box lights the notes it finds and turns to the first. A click on a note shows it
-  beside the map, where its links lead to the next one; **Open the note** leaves the map for it.
-  Links to notes not written yet are counted, not drawn.
-- **Review notes.** The Review notes button opens a new conversation that asks the agent to run
-  the `reviewing-the-notes` skill over the whole vault: it reports notes that contradict each
-  other, look out of date, have no source, point nowhere or are orphans, and changes nothing
-  until you agree. After a scan, the same **Review notes** button appears in the Settings card.
-- **The agent reads and writes them too.** In plan mode the tools `search_notes`, `read_note`,
-  `write_note` and `append_note`; in task mode the actions `note_search`, `note_read`,
-  `note_write` and `note_append` (`"command": "note :: the Markdown"` for the last two). Reads
-  answer with `[[Title]] (path)` so the agent can cite the note, and with what the note links to
-  and what links to it. The prompts tell it to search the notes before answering about your own
-  facts or decisions, to cite them as `[[Title]]`, to say when notes contradict each other or say
-  nothing, and to record what is worth keeping. Writes never replace or delete: `write_note`
-  creates a new note and refuses an existing one, `append_note` adds to the end. Text written
-  goes through the secret redactor first.
-- **Rename.** The Rename button in the note's toolbar gives it another name in the same folder
-  and rewrites the `[[links]]` of the other notes that led to it, keeping headings, aliases and
-  embeds (links in code stay as they are).
-- **Second brain.** Settings, Indexing, **Scan now** runs in the background, with a bar that says
-  which project and which folder it is on (close the window and come back: it is still followed).
-  Once the vault has been scanned, new code brought in with the project menu's **Update main
-  branch** scans again by itself, and the project menu's **Rescan the notes** scans that project
-  again on demand, both with the model options of the last scan (kept in the vault, so a restart
-  keeps them). While a scan runs, a bar at the foot of the sidebar says how far it got. A scan writes a note for every project (`Projects/`)
-  and every session that has been used (`Sessions/`): folder, repository, description, a README
-  excerpt, the first request and the latest exchanges, with the session notes linked from their
-  project and back. Next to each project note goes `Projects/<name> - Architecture`, read from the
-  project's folder (no symlinks, no hidden or build folders, at most 4000 files): languages, build
-  files, the folders, the entry points and, for Go, every package with its doc line and the packages
-  of the module it imports, drawn as a Mermaid diagram; for Node, the scripts and main dependencies.
-  Each project also gets a **manual** written as a guide: `Projects/<name> - Manual/Start here`
-  says what the project is and how it is organised, with a line on what each folder is for, and every
-  folder (recursively, up to 400) has a chapter named by its path, such as `internal › gateway`. A
-  chapter reads top to bottom: what the folder is for (the model's explanation, or the package doc
-  or README), what is inside (its subfolders and files, each with the comment that says what it is),
-  how it connects (which folders it relies on and which use it) and, last, "For developers": every
-  exported Go type with its methods, function, constant and variable, and the exports of TypeScript,
-  JavaScript and Python files, with their doc comments. Chapters of folders that are gone are removed
-  when nothing but the scan wrote in them. The text goes through the secret redactor. Everything is
-  kept inside a
-  `<!-- motita:scan:start -->` block that a new scan rewrites; what you write around it stays.
-  The first time the Notes window opens on a vault that has no notes and was never scanned, the
-  scan runs by itself. With **Use the model to summarise sessions and explain projects** on (off by default),
-  sessions of six turns or more also get a short summary written by your summary model: at most
-  twenty per scan, and a session is summarised again only after it grew. Each architecture note also
-  gets "How it fits together" (modules, connections and flows, from those facts and the README): at
-  most ten per scan, asked again only when the project changed. Folders of the manuals get "What this
-  module does" (purpose, how it works, inputs and outputs, pitfalls), from the note and excerpts of
-  their source: thirty per scan by default, or 100 or all of them with **Folders the model explains
-  per scan**, asked again only when the folder changed (`POST /v1/notes/scan?summarize=1&modules=N`). That sends the text of those
-  sessions and the structure and README of those projects (secrets removed) to your model provider
-  and uses tokens. The built-in skills `using-the-notes` and `reviewing-the-notes` teach the agent to work from them; before changing a project, it reads that project's Architecture note as a map and confirms it in the code.
-- **Limits.** 5000 notes, 192 KB each; only `.md` files, no hidden folders, and no path that
-  leaves the vault, symbolic links included.
+How it is organised (a hybrid retrieval architecture):
+
+1. **Collections (namespaces).** The first folder of an entry is its collection, so `Engineering/`
+   and `HR/` never mix; entries at the top are `General`. A search can be limited to one
+   (`ns:HR` in the text, or the collection selector); with none, all are searched.
+2. **Contextual chunks and metadata.** An entry is cut into passages at its headings and every
+   passage is indexed with the entry title and its heading trail in front, so "Rollback" under
+   "Deploys" is found as such. Optional front matter gives **author**, **date** and **tags**
+   (`---` block; an entry without one uses the file's modified time). Filter with `author:Ana`,
+   `since:2026-01-01`, `until:2026-06-30`, or the filters of the window.
+3. **Parent-child.** The small passage (child, up to about 480 characters) is what is matched;
+   the answer carries the whole section it belongs to (parent, up to about 2400 characters), so
+   the agent reads context, not a fragment, and cites `[[Title]] (path) › Heading`.
+4. **Graph (optional).** `graph:1`, or **Follow links**, also returns the entries linked from the
+   best three answers (one hop, up to four), each marked with the entry it was reached through.
+
+Recall is **hybrid**: BM25 word search, a *holographic* memory and, when configured, neural
+embeddings, merged by reciprocal rank fusion. The holographic memory is a vector-symbolic
+(hyperdimensional) one: every word has a random 512-dimension code, a passage is the superposition
+of its words' contexts, and title and heading are bound to their role by element-wise product, so
+similar passages have a high cosine without any model, any download or any network. Neural
+embeddings reuse the **Indexing** settings of the code index (an explicit endpoint, or a local
+Ollama with `nomic-embed-text`); passage text leaves the machine only if that endpoint is remote.
+With none available the memory still works from BM25 and the holographic vectors, and says so.
+
+- **Tree and editor.** Collections and entries on the left; the open entry is a preview you can
+  switch to a text editor. A draft is saved with the Save button, when you open another entry and
+  when you close the window. A byline shows author and date.
+- **Wiki links.** `[[Peru]]`, `[[trips/Peru]]`, `[[Peru#Food|the food]]` resolve as in Obsidian
+  (a bare name matches an entry of that name in any folder, the shallowest wins). A link to an
+  entry that does not exist yet creates it. Backlinks are listed under each entry.
+- **Map.** The Map button draws the entries as spheres joined by their links (3D where the browser
+  has WebGL), coloured by collection.
+- **Review the memory.** Opens a conversation that runs the `reviewing-the-memory` skill over the
+  whole memory: contradictions, stale entries, no source, broken links, orphans. It changes
+  nothing until you agree.
+- **The agent reads and writes it too.** In plan mode the tools `search_memory` (with `query`,
+  `namespace`, `graph`), `read_memory`, `write_memory` and `append_memory`; in task mode the actions
+  `memory_search`, `memory_read`, `memory_write` and `memory_append` (`"command": "entry :: the
+  Markdown"` for the last two). Writes never replace or delete: `write_memory` creates a new entry
+  and refuses an existing one, `append_memory` adds to the end; both stamp `author: motita` and the
+  date, and text goes through the secret redactor first. The built-in skills `using-the-memory`
+  and `reviewing-the-memory` teach the agent when to search, cite and record.
+- **Rename.** Gives an entry another name in the same folder and rewrites the `[[links]]` that
+  led to it.
+- **Limits.** 5000 entries, 192 KB each; only `.md` files, no hidden folders, and no path that
+  leaves the memory, symbolic links included.
 
 ### Projects, sessions, and going back
 

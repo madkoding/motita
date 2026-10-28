@@ -8,8 +8,8 @@ import { useSessionList } from "./useSessionList";
 import { useChatScroll } from "./useChatScroll";
 import { useModelSwitcher } from "./useModelSwitcher";
 import { useSkills } from "./useSkills";
-import { useReviewNotes } from "./useReviewNotes";
-import { useNotes } from "./useNotes";
+import { useReviewMemory } from "./useReviewMemory";
+import { useMemory } from "./useMemory";
 import { useProjects } from "./useProjects";
 import { useArtifacts } from "./useArtifacts";
 import { useSchedules } from "./useSchedules";
@@ -62,7 +62,7 @@ export function useAppStore(api: Api, machine = "") {
   const projects = useProjects({ api, lists, setState, setToast });
   const projectHint = useProjectHint({ api, rs, lists, setToast });
   const artifacts = useArtifacts(api, rs.sessionId, setState);
-  const notes = useNotes(api, setState);
+  const memory = useMemory(api, setState);
   const schedules = useSchedules(api, setToast);
   const conv = useConversation({
     api,
@@ -190,9 +190,9 @@ export function useAppStore(api: Api, machine = "") {
     createSession: actions.createSession,
     submit: stream.submit,
   });
-  const reviewNotes = useReviewNotes(
+  const reviewMemory = useReviewMemory(
     actions.createSession,
-    notes.closeNotes,
+    memory.closeMemory,
     stream.submit,
     closeSettings,
   );
@@ -212,8 +212,8 @@ export function useAppStore(api: Api, machine = "") {
     projects,
     projectHint,
     artifacts,
-    notes,
-    reviewNotes,
+    memory,
+    reviewMemory,
     schedules,
     conv,
     actions,

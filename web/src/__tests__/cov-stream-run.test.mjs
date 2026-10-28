@@ -686,7 +686,8 @@ test("messages sent to a run in flight go to it, or are queued, and a queued one
   mock.timers.enable({ apis: ["setTimeout"] });
   try {
     const m = await mount({
-      "POST /v1/sessions/s1/steer": () => res(202, { steered: false, queued: true }),
+      "POST /v1/sessions/s1/steer": () =>
+        res(202, { steered: false, queued: true }),
       "POST /v1/sessions/s1/interrupt": () => res(200, {}),
     });
     const { h, cur, conv, toasts } = m;
@@ -718,7 +719,8 @@ test("messages sent to a run in flight go to it, or are queued, and a queued one
     });
     assert.equal(cur().rs.handoffRef.current, false);
     // An answer that is not JSON is read as not taken.
-    m.routes["POST /v1/sessions/s1/steer"] = () => res(202, new Error("not json"));
+    m.routes["POST /v1/sessions/s1/steer"] = () =>
+      res(202, new Error("not json"));
     await h.act(async () => {
       cur().stream.sendWhileRunning("odd");
       await tick();

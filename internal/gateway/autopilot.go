@@ -17,7 +17,7 @@ import (
 	"github.com/madkoding/motita/internal/gitforge"
 	"github.com/madkoding/motita/internal/gitx"
 	"github.com/madkoding/motita/internal/i18n"
-	"github.com/madkoding/motita/internal/notes"
+	"github.com/madkoding/motita/internal/memory"
 	"github.com/madkoding/motita/internal/schedule"
 	"github.com/madkoding/motita/internal/semantic"
 	"github.com/madkoding/motita/internal/webpush"
@@ -58,8 +58,8 @@ const (
 	autopilotAuditTitle = "Weekly audit"
 	// autopilotFixTitle is the title of the session of a draft pull request.
 	autopilotFixTitle = "Draft pull request"
-	// autopilotNotesFolder is the folder of the vault the audit reports are written in.
-	autopilotNotesFolder = "Weekly audits"
+	// autopilotMemoryFolder is the folder of the vault the audit reports are written in.
+	autopilotMemoryFolder = "Weekly audits"
 	// The size a change may have to be published as a draft: beyond it, a person should look first.
 	autopilotMaxFiles = 8
 	autopilotMaxLines = 200
@@ -324,31 +324,31 @@ func (s *Server) auditProject(ctx context.Context, cfg config.Config, p Project)
 // auditNoteFile is the vault path of the report of a project's audit of day, and auditNotePrefix the
 // folder holding all of that project's reports.
 func auditNoteFile(p Project, day time.Time) string {
-	return notes.FileName(autopilotNotesFolder, p.Title+"/"+day.Format("2006-01-02"))
+	return memory.FileName(autopilotMemoryFolder, p.Title+"/"+day.Format("2006-01-02"))
 }
 
 func auditNotePrefix(p Project) string {
-	return strings.TrimSuffix(notes.FileName(autopilotNotesFolder, p.Title+"/x"), "x.md")
+	return strings.TrimSuffix(memory.FileName(autopilotMemoryFolder, p.Title+"/x"), "x.md")
 }
 
 // writeAuditNote puts a report in the notes, when there is a vault. A failure is a warning: the
 // report is still in the audit session.
 func (s *Server) writeAuditNote(p Project, report string) {
-	if s.opts.NotesDir == "" {
+	if s.opts.MemoryDir == "" {
 		return
 	}
 	body := "# " + p.Title + "\n\n" + strings.TrimSpace(report) + "\n"
-	if _, err := notes.Open(s.opts.NotesDir).Write(auditNoteFile(p, time.Now()), body, false); err != nil {
+	if _, err := memory.Open(s.opts.MemoryDir).Write(auditNoteFile(p, time.Now()), body, false); err != nil {
 		s.warn("could not write the weekly audit note", "project", p.ID, "error", err.Error())
 	}
 }
 
 // latestAudit is the newest audit report of a project, cut to a size the agent can be shown.
 func (s *Server) latestAudit(p Project) string {
-	if s.opts.NotesDir == "" {
+	if s.opts.MemoryDir == "" {
 		return ""
 	}
-	v := notes.Open(s.opts.NotesDir)
+	v := memory.Open(s.opts.MemoryDir)
 	prefix := auditNotePrefix(p)
 	var mine []string
 	for _, n := range v.List() {

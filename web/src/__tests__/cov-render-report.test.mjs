@@ -392,7 +392,10 @@ test("a report with no lists draws only the verdict, and an unknown status reads
   );
   const fold = fine.root.querySelector("details.rpt-fold");
   assert.equal(fold.open, false);
-  assert.equal(text(fold.querySelector("summary")), "Files, checks and what was learned");
+  assert.equal(
+    text(fold.querySelector("summary")),
+    "Files, checks and what was learned",
+  );
   await fine.done();
   const none = await mount(h(ReportCard, { report: {} }));
   assert.equal(none.root.querySelector(".rpt").className, "rpt rpt-done");

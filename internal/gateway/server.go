@@ -169,9 +169,9 @@ type Options struct {
 	// ArtifactDir is the directory the files an agent produced are kept in, one folder per
 	// session. Empty means artifacts are not kept.
 	ArtifactDir string
-	// NotesDir is the folder of the note vault: plain Markdown files, opened as they are by
-	// Obsidian. Empty means there are no notes.
-	NotesDir string
+	// MemoryDir is the folder of the memory: plain Markdown files, opened as they are by
+	// Obsidian. Empty means there is no memory.
+	MemoryDir string
 	// ArtifactDays is how many days an artifact is kept. Zero keeps them for ever.
 	ArtifactDays int
 	// EvalsFile is the file the results of the model checks are kept in. Empty keeps them in memory
@@ -276,9 +276,6 @@ type Server struct {
 	// remoteWatch is what the periodic look at origin found; remoteWG tracks that goroutine. See remotewatch.go.
 	remoteWatch remoteWatchState
 	remoteWG    sync.WaitGroup
-
-	// scanJob is the progress of the notes scan running in the background, if any.
-	scanJob scanTracker
 
 	// intentGate rests auto mode's model call after it fails: one slow turn, not all. See runs.go.
 	intentGate modelGate

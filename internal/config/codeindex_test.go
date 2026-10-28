@@ -1,6 +1,7 @@
 package config
 
 import (
+	"context"
 	"os"
 	"path/filepath"
 	"strings"
@@ -80,5 +81,31 @@ func TestCodeIndexOptions(t *testing.T) {
 	}
 	if got := c.Options(); got != want {
 		t.Errorf("Options() = %+v", got)
+	}
+}
+
+func TestMemoryEmbedderFollowsTheCodeIndex(t *testing.T) {
+	ctx := context.Background()
+	if e, id := (CodeIndex{EmbeddingsURL: "http://x/v1", EmbeddingsModel: "m"}).MemoryEmbedder(ctx); e != nil || id != "" {
+		t.Errorf("an index that is off embeds nothing: %v %q", e, id)
+	}
+	e, id := (CodeIndex{Enabled: true, EmbeddingsURL: "http://x/v1", EmbeddingsModel: "m"}).MemoryEmbedder(ctx)
+	if e == nil || id != "m@http://x/v1" {
+		t.Errorf("configured = %v %q", e, id)
+	}
+	if e, _ := (CodeIndex{Enabled: true}).MemoryEmbedder(ctx); e != nil {
+		t.Error("nothing asked for")
+	}
+}
+
+// The memory is nil without a home, and with one it reads the embeddings of the code index.
+func TestOpenMemoryNeedsAHome(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	if OpenMemory(CodeIndex{}) == nil {
+		t.Error("with a home there is a memory")
+	}
+	t.Setenv("HOME", "")
+	if OpenMemory(CodeIndex{}) != nil {
+		t.Error("without a home there is none")
 	}
 }

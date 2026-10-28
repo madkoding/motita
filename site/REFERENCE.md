@@ -1656,7 +1656,7 @@ secrets masked. It only knows what it indexed, so a negative is confirmed with `
 
 Two independent switches in **Settings → Upkeep**, both **off** by default (the first spends model turns every week, the second publishes under your account):
 
-- **Weekly audit** runs a read-only plan in each project once a week and writes the findings that are new to the notes (`Weekly audits/<project>/<date>.md`). Each project keeps one "Weekly audit" session, so the agent remembers what it already reported. It touches no code.
+- **Weekly audit** runs a read-only plan in each project once a week and writes the findings that are new to the memory (`Weekly audits/<project>/<date>.md`). Each project keeps one "Weekly audit" session, so the agent remembers what it already reported. It touches no code.
 - **Draft pull requests** lets Motita make one small, safe change per project (a text, a missing test, a Sonar warning) in a worktree of its own and open it as a **draft**. The agent runs unattended and cannot push or open anything: the gateway does it, and only after checking the change. It never pushes to the main branch (only `motita/auto-<session>`, as a plain push), never merges, refuses a change over 8 files or 200 lines or one that touches `.github/`, dependency files or lockfiles, Dockerfiles or `.env`, needs a semantic commit subject, and opens nothing while `max_open_prs` of its own are already open. Needs the project's git host connected.
 
 ```yaml

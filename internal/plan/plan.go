@@ -19,7 +19,7 @@ import (
 	"time"
 
 	"github.com/madkoding/motita/internal/llm"
-	"github.com/madkoding/motita/internal/notes"
+	"github.com/madkoding/motita/internal/memory"
 	"github.com/madkoding/motita/internal/redact"
 	"github.com/madkoding/motita/internal/review"
 	"github.com/madkoding/motita/internal/reward"
@@ -118,8 +118,8 @@ type Planner struct {
 	review *review.Review
 	// index is what the search_index tool asks. Nil means the tool is not offered.
 	index IndexSearcher
-	// notes is the note vault. Nil means the note tools are not offered.
-	notes *notes.Vault
+	// memory is the person's memory. Nil means the memory tools are not offered.
+	memory *memory.Store
 	// web is what fetch_url reads pages with. Nil means the tool is not offered.
 	web WebReader
 	// session is the conversation this planner continues. Nil means "create one on
@@ -343,18 +343,18 @@ Three pathways create and maintain skills:
 3. CURATOR: periodically, skills unused 14d become stale, unused 30d are archived
    (recoverable). Pinned skills are exempt.
 
-## The person's notes (when offered)
+## The person's memory (when offered)
 
-search_notes, read_note, write_note and append_note reach the person's notes: plain Markdown they
-keep as a second brain. They are the record of THEIR facts, decisions and plans.
+search_memory, read_memory, write_memory and append_memory reach the person's memory: plain Markdown
+they keep as a second brain, in collections. It is the record of THEIR facts, decisions and plans.
 
 - Before answering anything about their own life, work, projects or past decisions, search the
-  notes, then read the ones that matter. Do not answer such a question from memory of the chat.
-- Say where a fact comes from: cite it as [[Title]]. When notes disagree with each other or with
-  what you are told now, say so, name both notes and let the person decide which holds.
-- If the notes do not say, say they do not. Never present a guess as something the notes state.
-- Record what is worth keeping with append_note (a decision, a fact, a source) and link notes
-  with [[Title]]. write_note only creates; nothing here replaces or deletes a note.
+  memory, then read the entries that matter. Do not answer such a question from recall of the chat.
+- Say where a fact comes from: cite it as [[Title]]. When entries disagree with each other or with
+  what you are told now, say so, name both entries and let the person decide which holds.
+- If the memory does not say, say it does not. Never present a guess as something it states.
+- Record what is worth keeping with append_memory (a decision, a fact, a source) and link entries
+  with [[Title]]. write_memory only creates; nothing here replaces or deletes an entry.
 
 ## How to work
 
@@ -427,8 +427,8 @@ func (p *Planner) tools() []llm.Tool {
 	if p.index != nil {
 		tools = append(tools, searchIndexTool())
 	}
-	if p.notes != nil {
-		tools = append(tools, noteTools()...)
+	if p.memory != nil {
+		tools = append(tools, memoryTools()...)
 	}
 	if p.web != nil {
 		tools = append(tools, fetchURLTool())
@@ -792,8 +792,8 @@ func (p *Planner) dispatchTool(ctx context.Context, tc llm.ToolCall) string {
 		return p.toolSearchInFiles(ctx, tc.Function.Arguments)
 	case "search_index":
 		return p.toolSearchIndex(ctx, tc.Function.Arguments)
-	case "search_notes", "read_note", "write_note", "append_note":
-		return p.toolNote(tc.Function.Name, tc.Function.Arguments)
+	case "search_memory", "read_memory", "write_memory", "append_memory":
+		return p.toolMemory(tc.Function.Name, tc.Function.Arguments)
 	case "fetch_url":
 		if p.web == nil {
 			return "Error: fetch_url is not available in this session."

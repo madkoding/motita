@@ -9,7 +9,6 @@ import (
 	"github.com/madkoding/motita/internal/config"
 	"github.com/madkoding/motita/internal/llm"
 	"github.com/madkoding/motita/internal/logx"
-	"github.com/madkoding/motita/internal/notes"
 	"github.com/madkoding/motita/internal/plan"
 	"github.com/madkoding/motita/internal/procedures"
 	"github.com/madkoding/motita/internal/review"
@@ -26,7 +25,7 @@ func (op Options) runPlan(
 	cfg.Agent.ReadOnly = true
 	ag := agent.New(cfg, log, engine, box, nil)
 	ag.SetLibrary(procs.Library)
-	ag.SetNotes(notesVault())
+	ag.SetMemory(config.OpenMemory(cfg.CodeIndex))
 	ag.SetReward(procs.Ledger)
 	ag.SetUsage(procs.Usage)
 
@@ -64,7 +63,7 @@ func (op Options) runPlan(
 		WithUsage(procs.Usage).
 		WithReview(reviewer).
 		WithCodeIndex(cfg.CodeIndex.Enabled, cfg.CodeIndex.Options()).
-		WithNotes(notesVault()).
+		WithMemory(config.OpenMemory(cfg.CodeIndex)).
 		// Reading a page follows the commands' network: closed in Settings → Security, closed here.
 		WithWeb(webfetch.New(networkClosed(cfg))).
 		WithTrace(func(format string, args ...any) { fmt.Fprintf(op.Err, format, args...) })
@@ -117,13 +116,4 @@ func buildSkillRunner(engine *llm.Client, procs *procedures.Store, soul string, 
 		WithSoul(soul)
 	p.IsReviewFork = true
 	return p
-}
-
-// notesVault is the person's note vault, or nil when there is no home to keep it in. Plan and task
-// mode read and write the same folder of Markdown files the Notes window shows.
-func notesVault() *notes.Vault {
-	if dir := config.NotesDir(); dir != "" {
-		return notes.Open(dir)
-	}
-	return nil
 }

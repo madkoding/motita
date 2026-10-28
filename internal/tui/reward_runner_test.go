@@ -13,7 +13,7 @@ import (
 	"github.com/madkoding/motita/internal/config"
 	"github.com/madkoding/motita/internal/llm"
 	"github.com/madkoding/motita/internal/logx"
-	"github.com/madkoding/motita/internal/notes"
+	"github.com/madkoding/motita/internal/memory"
 	"github.com/madkoding/motita/internal/reward"
 	"github.com/madkoding/motita/internal/sandbox"
 	"github.com/madkoding/motita/internal/skills"
@@ -195,7 +195,7 @@ type wiringAgent struct {
 	lib     *skills.Library
 	reward  *reward.Ledger
 	usage   *usage.Ledger
-	vault   *notes.Vault
+	vault   *memory.Store
 	threads func(string) string
 	read    map[string]int
 	runFail error
@@ -204,7 +204,7 @@ type wiringAgent struct {
 func (w *wiringAgent) SetLibrary(l *skills.Library)     { w.lib = l }
 func (w *wiringAgent) SetReward(r *reward.Ledger)       { w.reward = r }
 func (w *wiringAgent) SetUsage(u *usage.Ledger)         { w.usage = u }
-func (w *wiringAgent) SetNotes(v *notes.Vault)          { w.vault = v }
+func (w *wiringAgent) SetMemory(v *memory.Store)        { w.vault = v }
 func (w *wiringAgent) SetThreads(f func(string) string) { w.threads = f }
 func (w *wiringAgent) Consulted() map[string]int {
 	if w.read == nil {
@@ -249,7 +249,7 @@ func TestTaskModeGetsTheSameLibraryAndLedgerAsPlan(t *testing.T) {
 		t.Error("both modes must use the same library instance")
 	}
 	if wired.vault == nil {
-		t.Error("Task mode must be given the note vault")
+		t.Error("Task mode must be given the memory")
 	}
 	if wired.threads != nil {
 		t.Error("a runner nobody gave the thread action to must not hand one out")
@@ -407,16 +407,5 @@ func TestVerdictCallsIntoTheInterfaceReachTheRunner(t *testing.T) {
 	}
 	if _, err := os.Stat(filepath.Join(dir, ".scores.json")); err != nil {
 		t.Errorf("the verdict must be on disk: %v", err)
-	}
-}
-
-func TestNotesVaultIsNilWithoutAHome(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
-	if notesVault() == nil {
-		t.Error("with a home there is a vault")
-	}
-	t.Setenv("HOME", "")
-	if notesVault() != nil {
-		t.Error("without a home there is none")
 	}
 }

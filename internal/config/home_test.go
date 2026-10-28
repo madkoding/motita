@@ -383,16 +383,92 @@ func TestHomeDirWithAFailingOsCall(t *testing.T) {
 	}
 }
 
-// The note vault is plain Markdown under the motita home, so another program can open the folder.
-func TestNotesDirIsUnderTheHome(t *testing.T) {
+// The memory is plain Markdown under the motita home, so another program can open the folder.
+func TestMemoryDirIsUnderTheHome(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
-	if got, want := NotesDir(), filepath.Join(home, ".motita", "notes"); got != want {
-		t.Fatalf("NotesDir() = %q, want %q", got, want)
+	if got, want := MemoryDir(), filepath.Join(home, ".motita", "memory"); got != want {
+		t.Fatalf("MemoryDir() = %q, want %q", got, want)
 	}
 	t.Setenv("HOME", "")
-	if got := NotesDir(); got != "" {
-		t.Fatalf("NotesDir() = %q without a home, want empty", got)
+	if got := MemoryDir(); got != "" {
+		t.Fatalf("MemoryDir() = %q without a home, want empty", got)
+	}
+}
+
+// The notes folder of before the memory is renamed, with everything in it, and nothing is lost.
+func TestMemoryDirTakesOverTheLegacyNotesFolder(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	notes := filepath.Join(home, ".motita", "notes")
+	if err := os.MkdirAll(filepath.Join(notes, "Projects"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	for p, body := range map[string]string{"Projects/a.md": "mine", "top.md": "also mine", ".scanned": "x"} {
+		if err := os.WriteFile(filepath.Join(notes, p), []byte(body), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	want := filepath.Join(home, ".motita", "memory")
+	if got := MemoryDir(); got != want {
+		t.Fatalf("MemoryDir() = %q, want %q", got, want)
+	}
+	for p, body := range map[string]string{"Projects/a.md": "mine", "top.md": "also mine"} {
+		if got, err := os.ReadFile(filepath.Join(want, p)); err != nil || string(got) != body {
+			t.Errorf("%s = %q, %v", p, got, err)
+		}
+	}
+	if _, err := os.Stat(filepath.Join(want, ".scanned")); err == nil {
+		t.Error("the scan marker is dropped")
+	}
+	if _, err := os.Stat(notes); err == nil {
+		t.Error("the notes folder is gone")
+	}
+	// asked again, nothing moves
+	if got := MemoryDir(); got != want {
+		t.Errorf("second call = %q", got)
+	}
+}
+
+func TestMemoryDirLeavesAMemoryAndAFileAlone(t *testing.T) {
+	base := t.TempDir()
+	legacy, dir := filepath.Join(base, "notes"), filepath.Join(base, "memory")
+	if err := os.MkdirAll(legacy, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if got := migrateNotes(legacy, dir); got != dir {
+		t.Errorf("both exist = %q", got)
+	}
+	if _, err := os.Stat(legacy); err != nil {
+		t.Error("with a memory already there the notes folder is not touched")
+	}
+	other := filepath.Join(base, "other")
+	if got := migrateNotes(filepath.Join(base, "none"), other); got != other {
+		t.Errorf("nothing to migrate = %q", got)
+	}
+	file := filepath.Join(base, "file")
+	if err := os.WriteFile(file, nil, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if got := migrateNotes(file, other); got != other {
+		t.Errorf("a file is not a notes folder = %q", got)
+	}
+}
+
+func TestMemoryDirKeepsReadingTheNotesFolderThatCannotBeMoved(t *testing.T) {
+	base := t.TempDir()
+	legacy, dir := filepath.Join(base, "notes"), filepath.Join(base, "memory")
+	if err := os.MkdirAll(legacy, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	old := renameDir
+	defer func() { renameDir = old }()
+	renameDir = func(string, string) error { return errors.New("busy") }
+	if got := migrateNotes(legacy, dir); got != legacy {
+		t.Errorf("a notes folder that stays is what is read: %q", got)
 	}
 }
 

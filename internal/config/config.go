@@ -648,15 +648,6 @@ func Dir() string {
 	return ""
 }
 
-// NotesDir is the note vault: ~/.motita/notes, plain Markdown files another program (Obsidian)
-// can open. Empty without a home.
-func NotesDir() string {
-	if d := Dir(); d != "" {
-		return filepath.Join(d, "notes")
-	}
-	return ""
-}
-
 // defaultToolsDir is ~/.motita-tools: beside the program's own state, outside every repository
 // the agent works in, so what it installs survives the session and never lands in a commit.
 // With no home it is empty, which keeps the old layout rather than guessing a directory.

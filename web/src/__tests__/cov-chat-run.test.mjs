@@ -397,7 +397,7 @@ test("the agent's questions are answered once, or for the whole session", async 
   await s.hook.unmount();
 });
 
-test("an \"always allow\" a gateway did not keep is said, for the agent's questions and typed lines", async () => {
+test('an "always allow" a gateway did not keep is said, for the agent\'s questions and typed lines', async () => {
   const KEPT = { headers: { "Motita-Always-Allow": "kept" } };
   let kept = false;
   let asked = true;

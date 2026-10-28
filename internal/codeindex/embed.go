@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"sort"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -238,4 +239,35 @@ func localEmbedModel(ctx context.Context) string {
 		}
 	}
 	return ""
+}
+
+// The look-up for a local Ollama that Endpoint does, shared by every caller so a memory that is
+// searched on every keystroke asks the machine once a minute, not once a search.
+var (
+	endpointMu    sync.Mutex
+	endpointAt    time.Time
+	endpointModel string
+)
+
+// Endpoint is the embeddings client the options name, with the id its vectors are kept under: the
+// configured endpoint, or, with EmbedAuto and none configured, the Ollama on this machine when it
+// has the model. nil, "" when there is none. It is what the memory search uses, so a person who set
+// up embeddings for code search has them for memory too.
+func Endpoint(ctx context.Context, o Options) (Embedder, string) {
+	if strings.TrimSpace(o.EmbedURL) != "" {
+		return newEmbedder(o), o.embedID()
+	}
+	if !o.EmbedAuto {
+		return nil, ""
+	}
+	endpointMu.Lock()
+	defer endpointMu.Unlock()
+	if endpointAt.IsZero() || time.Since(endpointAt) >= probeEvery {
+		endpointAt, endpointModel = time.Now(), localEmbedModel(ctx)
+	}
+	if endpointModel == "" {
+		return nil, ""
+	}
+	o.EmbedURL, o.EmbedModel = ollamaBase+"/v1", endpointModel
+	return newEmbedder(o), o.embedID()
 }

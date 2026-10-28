@@ -5338,7 +5338,7 @@ html .project-bar button.project-new-session {
   background: linear-gradient(to top, rgb(var(--bg-rgb) / 0.6), transparent);
 }
 
-/* The map of the notes: a dark neon room, a canvas from three.js (or the flat drawing) and the
+/* The map of the memory: a dark neon room, a canvas from three.js (or the flat drawing) and the
    names of the notes floating over it as buttons. */
 .graph3d {
   background:
@@ -5409,20 +5409,20 @@ html .project-bar button.project-new-session {
   font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
 }
 
-/* The folders of the notes list: a chevron that turns when the folder opens. */
-.note-folder > summary {
+/* The folders of the memory list: a chevron that turns when the folder opens. */
+.entry-folder > summary {
   list-style: none;
 }
-.note-folder > summary::-webkit-details-marker {
+.entry-folder > summary::-webkit-details-marker {
   display: none;
 }
-.note-folder > summary::before {
+.entry-folder > summary::before {
   content: "›";
   width: 0.6rem;
   color: #7a7a8c;
   transition: transform 0.15s;
 }
-.note-folder[open] > summary::before {
+.entry-folder[open] > summary::before {
   transform: rotate(90deg);
 }
 
@@ -5452,7 +5452,7 @@ html .project-bar button.project-new-session {
   opacity: 1;
 }
 
-/* The legend of the map's colours and the note looked at beside it, as neon glass panels. */
+/* The legend of the map's colours and the entry looked at beside it, as neon glass panels. */
 .graph-legend-item {
   color: #c8c8d2;
   background: rgba(7, 1, 15, 0.72);
