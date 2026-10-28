@@ -193,7 +193,9 @@ type AppRunner struct {
 	// projectNote is what the gateway tells the agent about the project's other repositories,
 	// added after the runtime sentence and swapped with it. Guarded by sessionMu too.
 	projectNote string
-	threads     func(string) string // see runner_equip.go
+	// testsFloor is the most tests the project has had, from the gateway; each task starts from it.
+	testsFloor int
+	threads    func(string) string // see runner_equip.go
 
 	// toolsHome is the HOME, inside the tools directory, the sandbox gives this session's
 	// commands: one per project (see SetProjectScope), the shared one otherwise. rootDir is the
@@ -573,6 +575,13 @@ func (r *AppRunner) SetIsolateNetwork(on bool) {
 	if err := setBoxNetwork(box, on); err != nil && r.Log != nil {
 		r.Log.Warn("the commands keep the network: this machine cannot isolate them", "error", err.Error())
 	}
+}
+
+// SetTestsFloor sets the most tests the project has had: every task starts from it.
+func (r *AppRunner) SetTestsFloor(n int) {
+	r.sessionMu.Lock()
+	defer r.sessionMu.Unlock()
+	r.testsFloor = n
 }
 
 // SetProjectNote sets what the agent is told about the project it works in (its other
@@ -1077,6 +1086,12 @@ func (r *AppRunner) RunTask(ctx context.Context, task string, progress func(stri
 		note := r.projectContext()
 		r.sessionMu.Unlock()
 		setter.SetProjectNote(note)
+	}
+	if setter, ok := ag.(interface{ SetTestsFloor(int) }); ok {
+		r.sessionMu.Lock()
+		floor := r.testsFloor
+		r.sessionMu.Unlock()
+		setter.SetTestsFloor(floor)
 	}
 	// The background agents this turn starts run on the model their role is assigned, built by
 	// THIS runner: they are part of this session's team and of no other.

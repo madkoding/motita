@@ -481,3 +481,31 @@ func TestGateFingerprintCatchesAPlantedMakefile(t *testing.T) {
 		t.Error("a planted .npmrc must change the fingerprint")
 	}
 }
+
+// TestAutoAddsTheCoverageTargetBesideMakeTest: a project with only `test` that names a coverage
+// target has said it wants a minimum, so lowering it must fail; `check` is trusted to hold it.
+func TestAutoAddsTheCoverageTargetBesideMakeTest(t *testing.T) {
+	dir := t.TempDir()
+	writeFile(t, dir, "Makefile", "test:\n\t@echo gate\ncover:\n\t@echo min\ncoverage:\n\t@echo min\n")
+	checks := autoAnchor(dir).detectChecks()
+	if len(checks) != 3 || checks[1].Name != "cover" || checks[2].Name != "coverage" {
+		t.Fatalf("expected test, cover and coverage, got %+v", checks)
+	}
+	writeFile(t, dir, "Makefile", "check:\n\t@echo gate\ncover:\n\t@echo min\n")
+	if checks := autoAnchor(dir).detectChecks(); len(checks) != 1 || checks[0].Name != "check" {
+		t.Fatalf("check already holds the coverage, got %+v", checks)
+	}
+}
+
+// TestAutoDetectsTheNpmCoverageScripts: a coverage script is where a package keeps its minimum.
+func TestAutoDetectsTheNpmCoverageScripts(t *testing.T) {
+	dir := t.TempDir()
+	writeFile(t, dir, "package.json", `{"scripts":{"test":"vitest run","test:coverage":"c8 npm test","coverage":"true"}}`)
+	var names []string
+	for _, c := range autoAnchor(dir).detectChecks() {
+		names = append(names, c.Name)
+	}
+	if strings.Join(names, ",") != "npm test,npm test:coverage" {
+		t.Fatalf("expected test and test:coverage (a trivial script is no gate), got %v", names)
+	}
+}
