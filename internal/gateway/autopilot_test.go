@@ -40,7 +40,7 @@ func newAutopilotRig(t *testing.T, yaml string, mutate ...func(*Options)) *autop
 	srv, host := gitServerWith(t, append([]func(*Options){func(o *Options) {
 		o.ConfigPath = cfg
 		o.ScheduleDir = t.TempDir()
-		o.NotesDir = t.TempDir()
+		o.MemoryDir = t.TempDir()
 	}}, mutate...)...)
 	fs := withProjectsAndFake(t, srv, t.TempDir())
 	pid := makeProject(t, srv, "repo")
@@ -193,7 +193,7 @@ func TestAnAuditRunByHandWritesTheReportAndCountsAsTheWeeksRun(t *testing.T) {
 	if !strings.Contains(rec.LastOutcome, "audited 1 of 1 projects: 2 new findings") {
 		t.Fatalf("outcome = %q", rec.LastOutcome)
 	}
-	note := filepath.Join(rig.srv.opts.NotesDir, "Weekly audits", "repo", time.Now().Format("2006-01-02")+".md")
+	note := filepath.Join(rig.srv.opts.MemoryDir, "Weekly audits", "repo", time.Now().Format("2006-01-02")+".md")
 	body, err := os.ReadFile(note)
 	if err != nil || !strings.Contains(string(body), "# repo") || !strings.Contains(string(body), "NEW FINDINGS: 2") {
 		t.Fatalf("note = %q, %v", body, err)
@@ -332,7 +332,7 @@ func TestAnAuditThatCannotRunOrFinishIsReportedAndTheRestGoOn(t *testing.T) {
 }
 
 func TestAnAuditHasNowhereToWriteWithoutAVaultAndNothingToAuditWithoutProjects(t *testing.T) {
-	rig := newAutopilotRig(t, autoYAML, func(o *Options) { o.NotesDir = "" })
+	rig := newAutopilotRig(t, autoYAML, func(o *Options) { o.MemoryDir = "" })
 	rig.fs.plan = func(context.Context, string, func(string, ...any)) (string, error) { return "NEW FINDINGS: 0", nil }
 	cfg, _, _ := rig.srv.securityConfig()
 	if _, err := rig.srv.auditProject(context.Background(), cfg, rig.project); err != nil {
@@ -357,7 +357,7 @@ func TestAReportThatCannotBeWrittenIsAWarning(t *testing.T) {
 	if err := os.WriteFile(blocked, []byte("x"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	rig.srv.opts.NotesDir = blocked // a file where the vault folder should be
+	rig.srv.opts.MemoryDir = blocked // a file where the vault folder should be
 	rig.srv.writeAuditNote(rig.project, "report")
 	if _, err := os.Stat(filepath.Join(blocked, "Weekly audits")); err == nil {
 		t.Error("nothing can be written under a file")
@@ -367,7 +367,7 @@ func TestAReportThatCannotBeWrittenIsAWarning(t *testing.T) {
 func TestTheLatestAuditIsQuotedToTheAgentCut(t *testing.T) {
 	rig := newAutopilotRig(t, autoYAML)
 	day := func(d string) string { return auditNoteFile(rig.project, mustDay(t, d)) }
-	v := rig.srv.opts.NotesDir
+	v := rig.srv.opts.MemoryDir
 	write := func(rel, body string) {
 		full := filepath.Join(v, filepath.FromSlash(rel))
 		if err := os.MkdirAll(filepath.Dir(full), 0o755); err != nil {

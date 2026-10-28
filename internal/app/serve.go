@@ -271,8 +271,8 @@ func (op Options) startGateway(
 		ProjectDir: projectDir(),
 		// What an agent produced for the person is kept in ~/.motita/artifacts.
 		ArtifactDir: artifactDir(),
-		// The note vault is plain Markdown in ~/.motita/notes, so Obsidian can open it.
-		NotesDir:     config.NotesDir(),
+		// The memory is plain Markdown in ~/.motita/memory, so Obsidian can open it.
+		MemoryDir:    config.MemoryDir(),
 		EvalsFile:    config.EvalsFile(),
 		ArtifactDays: cfg.Gateway.ArtifactDays,
 		// Scheduled tasks persist to ~/.motita/schedules, and the resolution at which a

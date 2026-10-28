@@ -355,3 +355,33 @@ func TestDetectSwitchesTheEmbeddingsOnOnce(t *testing.T) {
 		}
 	}
 }
+
+func TestEndpointNamesTheConfiguredOrTheLocalEmbedder(t *testing.T) {
+	old, oldEvery, oldAt, oldModel := ollamaBase, probeEvery, endpointAt, endpointModel
+	t.Cleanup(func() { ollamaBase, probeEvery, endpointAt, endpointModel = old, oldEvery, oldAt, oldModel })
+	ctx := context.Background()
+
+	e, id := Endpoint(ctx, Options{EmbedURL: " http://x/v1/ ", EmbedModel: "m"})
+	if e == nil || id != "m@http://x/v1" {
+		t.Errorf("configured = %v %q", e, id)
+	}
+	if e, id := Endpoint(ctx, Options{}); e != nil || id != "" {
+		t.Errorf("nothing asked for = %v %q", e, id)
+	}
+
+	endpointAt = time.Time{}
+	probeEvery = time.Hour
+	ollamaBase = "http://127.0.0.1:1"
+	if e, _ := Endpoint(ctx, Options{EmbedAuto: true}); e != nil {
+		t.Error("no Ollama, no embedder")
+	}
+	ollamaBase = ollamaServer(t, `{"models":[{"name":"nomic-embed-text:latest"}]}`, 200).URL
+	if e, _ := Endpoint(ctx, Options{EmbedAuto: true}); e != nil {
+		t.Error("the look-up is remembered for a while")
+	}
+	probeEvery = 0
+	e, id = Endpoint(ctx, Options{EmbedAuto: true})
+	if e == nil || id != "nomic-embed-text:latest@"+ollamaBase+"/v1" {
+		t.Errorf("local = %v %q", e, id)
+	}
+}

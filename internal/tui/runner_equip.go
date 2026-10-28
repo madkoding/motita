@@ -1,7 +1,8 @@
 package tui
 
 import (
-	"github.com/madkoding/motita/internal/notes"
+	"github.com/madkoding/motita/internal/config"
+	"github.com/madkoding/motita/internal/memory"
 	"github.com/madkoding/motita/internal/reward"
 	"github.com/madkoding/motita/internal/skills"
 	"github.com/madkoding/motita/internal/usage"
@@ -18,8 +19,8 @@ func (r *AppRunner) equipAgent(ag AgentRunner) {
 			setter.SetLibrary(lib)
 		}
 	}
-	if setter, ok := ag.(interface{ SetNotes(*notes.Vault) }); ok {
-		setter.SetNotes(notesVault())
+	if setter, ok := ag.(interface{ SetMemory(*memory.Store) }); ok {
+		setter.SetMemory(config.OpenMemory(r.Cfg.CodeIndex))
 	}
 	r.equipThreads(ag)
 	if led := r.rewardOrNil(); led != nil {

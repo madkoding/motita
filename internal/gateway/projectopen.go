@@ -25,7 +25,7 @@ func (s *Server) openProjectStore() {
 // projectRoutes is the table of projects and their repositories; the notes have their own.
 func (s *Server) projectRoutes(mux *http.ServeMux, plain func(http.HandlerFunc) http.Handler) {
 	mux.Handle("GET /v1/projects", plain(s.handleListProjects))
-	s.notesRoutes(mux, plain)
+	s.memoryRoutes(mux, plain)
 	s.nestedRoutes(mux, plain)
 	mux.Handle("GET /v1/projects/{id}/code-index", plain(s.handleProjectCodeIndex))
 	mux.Handle("POST /v1/projects/{id}/code-index", plain(s.handleBuildProjectCodeIndex))

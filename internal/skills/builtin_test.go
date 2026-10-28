@@ -37,8 +37,8 @@ const (
 	prSkill       = "pull-requests-and-ci"
 	auditSkill    = "auditing-code"
 	vulnSkill     = "finding-vulnerabilities"
-	notesSkill    = "using-the-notes"
-	reviewSkill   = "reviewing-the-notes"
+	notesSkill    = "using-the-memory"
+	reviewSkill   = "reviewing-the-memory"
 )
 
 // shippedCore is what a fresh install is expected to carry, in one list: the tests that ask "does
@@ -154,17 +154,17 @@ func TestTheShippedProceduresAreFoundByTheWordsOfTheJob(t *testing.T) {
 			"check for exposed secrets and tokens",
 		}},
 		{notesSkill, []string{
-			"what did I write in my notes",
-			"save this decision in my notes",
-			"search the notes for my trip plans",
-			"cite the note a fact came from",
-			"how does this project fit together",
+			"what did I write in my memory",
+			"save this decision in my memory",
+			"search the memory for my trip plans",
+			"cite the entry a fact came from",
+			"which collection does this belong in",
 		}},
 		{reviewSkill, []string{
-			"which of my notes are out of date",
-			"do my notes contradict each other",
-			"fact check my notes",
-			"find orphan notes and broken links",
+			"which of my entries are out of date",
+			"do my memory entries contradict each other",
+			"fact check my memory",
+			"find orphan entries and broken links",
 		}},
 		{verifySkill, []string{
 			"did it actually work",

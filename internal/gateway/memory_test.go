@@ -1,0 +1,291 @@
+package gateway
+
+import (
+	"encoding/json"
+	"net/http"
+	"net/http/httptest"
+	"net/url"
+	"os"
+	"path/filepath"
+	"strings"
+	"testing"
+
+	"github.com/madkoding/motita/internal/memory"
+)
+
+func memoryServer(t *testing.T, mutators ...func(*Options)) (*Server, string) {
+	t.Helper()
+	dir := filepath.Join(t.TempDir(), "memory")
+	srv := newTestServer(
+		t, &fakeService{}, append([]func(*Options){func(o *Options) { o.MemoryDir = dir }}, mutators...)...,
+	)
+	return srv, dir
+}
+
+func memoryCall(t *testing.T, srv *Server, method, path, body string) *httptest.ResponseRecorder {
+	t.Helper()
+	return sendNetwork(t, srv, method, path, body)
+}
+
+func entryPath(p string) string { return "/v1/memory/entry?path=" + url.QueryEscape(p) }
+
+func TestEntriesAreCreatedReadLinkedAndDeleted(t *testing.T) {
+	srv, dir := memoryServer(t)
+	w := memoryCall(t, srv, http.MethodGet, "/v1/memory", "")
+	if w.Code != http.StatusOK || !strings.Contains(w.Body.String(), `"entries":[]`) {
+		t.Fatalf("empty memory: %d %s", w.Code, w.Body)
+	}
+	w = memoryCall(t, srv, http.MethodPut, entryPath("Japan.md"), `{"body":"# Japan\nSee [[Peru]]","create":true}`)
+	if w.Code != http.StatusOK {
+		t.Fatalf("create: %d %s", w.Code, w.Body)
+	}
+	body := "---\nauthor: Ana\ndate: 2026-03-10\n---\nBack to [[Japan]]"
+	b, _ := json.Marshal(map[string]any{"body": body, "create": true})
+	w = memoryCall(t, srv, http.MethodPut, entryPath("trips/Peru.md"), string(b))
+	if w.Code != http.StatusOK {
+		t.Fatalf("create in a folder: %d %s", w.Code, w.Body)
+	}
+	w = memoryCall(t, srv, http.MethodPut, entryPath("Japan.md"), `{"body":"x","create":true}`)
+	if w.Code != http.StatusConflict {
+		t.Errorf("create twice: %d", w.Code)
+	}
+	if _, err := os.Stat(filepath.Join(dir, "trips", "Peru.md")); err != nil {
+		t.Errorf("the entry is a plain file: %v", err)
+	}
+
+	var list struct {
+		Root       string
+		Entries    []struct{ Path, Title string }
+		Namespaces []memory.NamespaceInfo
+	}
+	w = memoryCall(t, srv, http.MethodGet, "/v1/memory", "")
+	err := json.Unmarshal(w.Body.Bytes(), &list)
+	if err != nil || len(list.Entries) != 2 || list.Root != dir || list.Entries[0].Title != "Japan" ||
+		len(list.Namespaces) != 2 || list.Namespaces[1].Name != "trips" {
+		t.Fatalf("list = %s", w.Body)
+	}
+
+	var view struct {
+		Body      string
+		Meta      memory.Meta
+		Links     []struct{ Target, Path string }
+		Backlinks []struct{ Path, Context string }
+	}
+	w = memoryCall(t, srv, http.MethodGet, entryPath("Japan.md"), "")
+	if err := json.Unmarshal(w.Body.Bytes(), &view); err != nil ||
+		view.Links[0].Path != "trips/Peru.md" ||
+		len(view.Backlinks) != 1 ||
+		view.Backlinks[0].Path != "trips/Peru.md" {
+		t.Fatalf("view = %s", w.Body)
+	}
+	w = memoryCall(t, srv, http.MethodGet, entryPath("trips/Peru.md"), "")
+	if err := json.Unmarshal(w.Body.Bytes(), &view); err != nil || view.Meta.Author != "Ana" ||
+		view.Meta.Date.Format("2006-01-02") != "2026-03-10" {
+		t.Fatalf("meta = %s", w.Body)
+	}
+
+	w = memoryCall(t, srv, http.MethodPost, "/v1/memory/rename", `{"from":"Japan.md","to":"Nippon.md"}`)
+	if w.Code != http.StatusOK || !strings.Contains(w.Body.String(), `"updated":1`) {
+		t.Fatalf("rename: %d %s", w.Code, w.Body)
+	}
+	w = memoryCall(t, srv, http.MethodPost, "/v1/memory/rename", `{"from":"Japan.md","to":"x.md"}`)
+	if w.Code != http.StatusNotFound {
+		t.Errorf("rename a missing entry: %d", w.Code)
+	}
+	if w := memoryCall(t, srv, http.MethodPost, "/v1/memory/rename", `{`); w.Code != http.StatusBadRequest {
+		t.Errorf("rename not json: %d", w.Code)
+	}
+	if w := memoryCall(t, srv, http.MethodDelete, entryPath("trips/Peru.md"), ""); w.Code != http.StatusNoContent {
+		t.Fatalf("delete: %d", w.Code)
+	}
+	if w := memoryCall(t, srv, http.MethodDelete, entryPath("trips/Peru.md"), ""); w.Code != http.StatusNotFound {
+		t.Errorf("delete twice: %d", w.Code)
+	}
+}
+
+func TestEntryRefusalsHaveTheirOwnStatus(t *testing.T) {
+	srv, _ := memoryServer(t)
+	for name, c := range map[string]struct {
+		method, path, body string
+		want               int
+	}{
+		"path outside":  {http.MethodGet, entryPath("../etc/passwd.md"), "", http.StatusBadRequest},
+		"not markdown":  {http.MethodGet, entryPath("a.txt"), "", http.StatusBadRequest},
+		"missing":       {http.MethodGet, entryPath("nope.md"), "", http.StatusNotFound},
+		"save not json": {http.MethodPut, entryPath("a.md"), "{", http.StatusBadRequest},
+		"save bad path": {http.MethodPut, entryPath("../a.md"), `{"body":""}`, http.StatusBadRequest},
+		"too big": {
+			http.MethodPut, entryPath("a.md"), `{"body":"` + strings.Repeat("x", 200<<10) + `"}`,
+			http.StatusRequestEntityTooLarge,
+		},
+		"delete bad path": {http.MethodDelete, entryPath(""), "", http.StatusBadRequest},
+	} {
+		if w := memoryCall(t, srv, c.method, c.path, c.body); w.Code != c.want {
+			t.Errorf("%s: %d %s, want %d", name, w.Code, w.Body, c.want)
+		}
+	}
+}
+
+func TestMemoryErrorStatuses(t *testing.T) {
+	for err, want := range map[error]int{
+		memory.ErrTooBig:  http.StatusRequestEntityTooLarge,
+		memory.ErrTooMany: http.StatusConflict,
+		os.ErrPermission:  http.StatusInternalServerError,
+	} {
+		w := httptest.NewRecorder()
+		writeMemoryError(w, err)
+		if w.Code != want {
+			t.Errorf("%v: %d, want %d", err, w.Code, want)
+		}
+	}
+}
+
+func TestMemoryNeedsAFolder(t *testing.T) {
+	srv := newTestServer(t, &fakeService{})
+	for _, c := range [][2]string{
+		{http.MethodGet, "/v1/memory"}, {http.MethodGet, entryPath("a.md")}, {http.MethodPut, entryPath("a.md")},
+		{http.MethodDelete, entryPath("a.md")}, {http.MethodPost, "/v1/memory/rename"},
+		{http.MethodGet, "/v1/memory/search?q=a"}, {http.MethodGet, "/v1/memory/graph"},
+		{http.MethodDelete, "/v1/memory/folder?path=A"},
+	} {
+		if w := memoryCall(t, srv, c[0], c[1], `{}`); w.Code != http.StatusNotImplemented {
+			t.Errorf("%s %s: %d", c[0], c[1], w.Code)
+		}
+	}
+}
+
+func TestMemoryNeedsTheToken(t *testing.T) {
+	srv, _ := memoryServer(t)
+	if w := get(t, srv, "/v1/memory", ""); w.Code != http.StatusUnauthorized {
+		t.Errorf("no token: %d", w.Code)
+	}
+}
+
+func TestDeletingAFolderRemovesItsEntries(t *testing.T) {
+	srv, dir := memoryServer(t)
+	memoryCall(t, srv, http.MethodPut, entryPath("HR/a.md"), `{"body":"a"}`)
+	memoryCall(t, srv, http.MethodPut, entryPath("HR/deep/b.md"), `{"body":"b"}`)
+	memoryCall(t, srv, http.MethodPut, entryPath("Eng/c.md"), `{"body":"c"}`)
+	w := memoryCall(t, srv, http.MethodDelete, "/v1/memory/folder?path=HR", "")
+	if w.Code != http.StatusOK || !strings.Contains(w.Body.String(), `"deleted":2`) {
+		t.Fatalf("delete: %d %s", w.Code, w.Body)
+	}
+	if _, err := os.Stat(filepath.Join(dir, "HR")); err == nil {
+		t.Error("the collection's folder is still there")
+	}
+	if _, err := os.Stat(filepath.Join(dir, "Eng", "c.md")); err != nil {
+		t.Errorf("another collection lost its entry: %v", err)
+	}
+	if w := memoryCall(t, srv, http.MethodDelete, "/v1/memory/folder?path=..%2Fx", ""); w.Code != http.StatusBadRequest {
+		t.Errorf("a bad path: %d", w.Code)
+	}
+	if w := memoryCall(t, srv, http.MethodDelete, "/v1/memory/folder?path=Nope", ""); w.Code != http.StatusNotFound {
+		t.Errorf("a missing folder: %d", w.Code)
+	}
+}
+
+func TestMemorySearchRecallsByCollectionAuthorAndDate(t *testing.T) {
+	srv, _ := memoryServer(t)
+	put := func(p, body string) {
+		b, _ := json.Marshal(map[string]any{"body": body})
+		if w := memoryCall(t, srv, http.MethodPut, entryPath(p), string(b)); w.Code != http.StatusOK {
+			t.Fatalf("put %s: %d %s", p, w.Code, w.Body)
+		}
+	}
+	put("HR/Hiring.md", "---\nauthor: Ana\ndate: 2026-03-10\n---\n# Hiring\n\n## Salary bands\n\nSenior engineers top out at 90k. See [[Onboarding]].")
+	put("HR/Onboarding.md", "---\nauthor: Luis\ndate: 2025-01-05\n---\n# Onboarding\n\nFirst week: laptop and salary forms.")
+	put("Eng/Salary notes.md", "# Salary notes\n\nSalary bands of the platform team.")
+	search := func(q string) (out struct {
+		Hits, Related []memory.Hit
+		Edges         []memory.Edge
+		Warning       string
+	}) {
+		w := memoryCall(t, srv, http.MethodGet, "/v1/memory/search?"+q, "")
+		if err := json.Unmarshal(w.Body.Bytes(), &out); err != nil || w.Code != http.StatusOK {
+			t.Fatalf("%s: %d %s", q, w.Code, w.Body)
+		}
+		return out
+	}
+	if hits := search("q=salary+bands").Hits; len(hits) != 3 {
+		t.Errorf("all = %+v", hits)
+	}
+	got := search("q=salary+bands&namespace=HR").Hits
+	if len(got) != 2 || got[0].Namespace != "HR" || got[1].Namespace != "HR" {
+		t.Errorf("namespace = %+v", got)
+	}
+	for _, h := range got {
+		if h.Path == "HR/Hiring.md" && (h.Author != "Ana" || h.Heading != "Salary bands") {
+			t.Errorf("hiring = %+v", h)
+		}
+	}
+	if got := search("q=salary&author=luis").Hits; len(got) != 1 || got[0].Path != "HR/Onboarding.md" {
+		t.Errorf("author = %+v", got)
+	}
+	if got := search("q=salary&since=2026-01-01&namespace=HR").Hits; len(got) != 1 || got[0].Path != "HR/Hiring.md" {
+		t.Errorf("since = %+v", got)
+	}
+	if got := search("q=salary&until=2025-12-31&namespace=HR").Hits; len(got) != 1 || got[0].Path != "HR/Onboarding.md" {
+		t.Errorf("until = %+v", got)
+	}
+	// filters can be written in the query itself, and the parameters win over them
+	if got := search("q=salary+ns%3AEng").Hits; len(got) != 1 || got[0].Path != "Eng/Salary notes.md" {
+		t.Errorf("inline = %+v", got)
+	}
+	if got := search("q=salary+ns%3AEng&namespace=HR").Hits; len(got) == 0 || got[0].Namespace != "HR" {
+		t.Errorf("param wins = %+v", got)
+	}
+	g := search("q=senior+engineers&limit=1&graph=1&namespace=HR")
+	if len(g.Hits) != 1 || len(g.Related) != 1 || g.Related[0].Path != "HR/Onboarding.md" || len(g.Edges) != 1 {
+		t.Errorf("graph = %+v", g)
+	}
+	if got := search("q=").Hits; len(got) != 0 {
+		t.Errorf("blank = %+v", got)
+	}
+}
+
+func TestMemorySearchUsesTheEmbeddingsOfTheCodeIndex(t *testing.T) {
+	sea := func(w http.ResponseWriter, r *http.Request) {
+		var req struct{ Input []string }
+		_ = json.NewDecoder(r.Body).Decode(&req)
+		data := make([]map[string]any, len(req.Input))
+		for i, s := range req.Input {
+			v := []float32{0.01, 1}
+			if strings.Contains(s, "waves") || strings.Contains(s, "ocean") {
+				v = []float32{1, 0.01}
+			}
+			data[i] = map[string]any{"embedding": v, "index": i}
+		}
+		_ = json.NewEncoder(w).Encode(map[string]any{"data": data})
+	}
+	emb := httptest.NewServer(http.HandlerFunc(sea))
+	t.Cleanup(emb.Close)
+	cfg := networkConfig(t, "llm:\n  provider: openai\ncode_index:\n  enabled: true\n  embeddings_auto: false\n  embeddings_url: "+
+		emb.URL+"\n  embeddings_model: m\n  cache_dir: "+t.TempDir()+"\n")
+	srv, _ := memoryServer(t, func(o *Options) { o.ConfigPath = cfg })
+	memoryCall(t, srv, http.MethodPut, entryPath("Sea.md"), `{"body":"# Sea\n\nThe waves were calm."}`)
+	memoryCall(t, srv, http.MethodPut, entryPath("Garden.md"), `{"body":"# Garden\n\nTomatoes need water."}`)
+	var out struct{ Hits []memory.Hit }
+	w := memoryCall(t, srv, http.MethodGet, "/v1/memory/search?q=ocean", "")
+	if err := json.Unmarshal(w.Body.Bytes(), &out); err != nil || len(out.Hits) == 0 || out.Hits[0].Path != "Sea.md" {
+		t.Fatalf("ocean = %s", w.Body)
+	}
+	// a configuration that cannot be read leaves the memory searched by words and vectors
+	broken := networkConfig(t, "llm: [\n")
+	bsrv, _ := memoryServer(t, func(o *Options) { o.ConfigPath = broken })
+	memoryCall(t, bsrv, http.MethodPut, entryPath("bread.md"), `{"body":"dough"}`)
+	w = memoryCall(t, bsrv, http.MethodGet, "/v1/memory/search?q=dough", "")
+	if !strings.Contains(w.Body.String(), "bread.md") {
+		t.Errorf("fallback = %s", w.Body)
+	}
+}
+
+func TestMemoryGraphListsEntriesAndLinks(t *testing.T) {
+	srv, _ := memoryServer(t)
+	memoryCall(t, srv, http.MethodPut, entryPath("a.md"), `{"body":"[[b]] [[ghost]]"}`)
+	memoryCall(t, srv, http.MethodPut, entryPath("b.md"), `{"body":"x"}`)
+	var g memory.Graph
+	w := memoryCall(t, srv, http.MethodGet, "/v1/memory/graph", "")
+	if err := json.Unmarshal(w.Body.Bytes(), &g); err != nil || len(g.Nodes) != 2 || len(g.Edges) != 1 || g.Missing != 1 {
+		t.Fatalf("graph = %s", w.Body)
+	}
+}

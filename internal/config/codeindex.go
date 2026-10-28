@@ -1,11 +1,13 @@
 package config
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"path/filepath"
 
 	"github.com/madkoding/motita/internal/codeindex"
+	"github.com/madkoding/motita/internal/memory"
 )
 
 // CodeIndex is the built-in index behind the search_index tool: motita reads the workspace once,
@@ -50,6 +52,31 @@ func (c CodeIndex) Options() codeindex.Options {
 		EmbedURL: c.EmbeddingsURL, EmbedModel: c.EmbeddingsModel, EmbedKey: c.EmbeddingsAPIKey,
 		EmbedAuto: c.EmbeddingsAuto,
 	}
+}
+
+// MemoryEmbedder is the embeddings client the memory search adds to its recall: the one the code
+// index is set up with (an endpoint of the person's, or an Ollama on this machine), when the index
+// is on. nil and "" when there is none, and the memory is searched by words and its own vectors.
+func (c CodeIndex) MemoryEmbedder(ctx context.Context) (memory.Embedder, string) {
+	if !c.Enabled {
+		return nil, ""
+	}
+	e, id := codeindex.Endpoint(ctx, c.Options())
+	if e == nil {
+		return nil, ""
+	}
+	return e, id
+}
+
+// OpenMemory is the person's memory, in MemoryDir, with the embeddings of the code index (ci) added
+// to its recall. nil when there is no home to keep it in. Plan and task mode, the interface and
+// the gateway read and write the same folder of Markdown files.
+func OpenMemory(ci CodeIndex) *memory.Store {
+	dir := MemoryDir()
+	if dir == "" {
+		return nil
+	}
+	return memory.Open(dir).WithEmbedder(ci.MemoryEmbedder)
 }
 
 // Defaults of the code_index block.

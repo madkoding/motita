@@ -33,7 +33,7 @@ import (
 	"github.com/madkoding/motita/internal/execx"
 	"github.com/madkoding/motita/internal/llm"
 	"github.com/madkoding/motita/internal/logx"
-	"github.com/madkoding/motita/internal/notes"
+	"github.com/madkoding/motita/internal/memory"
 	"github.com/madkoding/motita/internal/policy"
 	"github.com/madkoding/motita/internal/redact"
 	"github.com/madkoding/motita/internal/reward"
@@ -90,9 +90,9 @@ type Agent struct {
 	// JSON — so the four operations are named by the action's "kind" instead of by a tool name.
 	library *skills.Library
 
-	// notes is the note vault, when there is one: the same folder of Markdown files the Notes
-	// window shows. Task mode reaches it through note_* actions.
-	notes *notes.Vault
+	// memory is the person's memory, when there is one: the same folder of Markdown files the
+	// Memory window shows. Task mode reaches it through memory_* actions.
+	memory *memory.Store
 
 	// threads hands work to the project's threads. It is set only on the main session of a project
 	// (a thread cannot open threads), and Task mode reaches it through the thread action.
@@ -200,8 +200,8 @@ func (a *Agent) SetLibrary(lib *skills.Library) { a.library = lib }
 // what the model is shown. Nil, the default, means this session cannot open threads.
 func (a *Agent) SetThreads(route func(command string) string) { a.threads = route }
 
-// SetNotes installs the note vault.
-func (a *Agent) SetNotes(v *notes.Vault) { a.notes = v }
+// SetMemory installs the memory.
+func (a *Agent) SetMemory(m *memory.Store) { a.memory = m }
 
 // SetReward installs the long-term value ledger.
 func (a *Agent) SetReward(l *reward.Ledger) { a.reward = l }

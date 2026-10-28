@@ -22,7 +22,6 @@ import { NotifySetting } from "./NotifySettings";
 import { VoiceSettings, type VoiceSettingsProps } from "./VoiceSettings";
 import { SpeechSettings, type SpeechSettingsProps } from "./SpeechSettings";
 import { CodeIndexSettings } from "./CodeIndexSettings";
-import { NotesScanSettings } from "./NotesScanSettings";
 import { AutopilotSettings } from "./AutopilotSettings";
 import { NetworkSettings } from "./NetworkSettings";
 import { SecuritySettings } from "./SecuritySettings";
@@ -189,13 +188,7 @@ const PANES: Record<Tab, (p: Props) => ComponentChildren> = {
     ),
   secrets: (p) => p.secrets && <SecretsSettings api={p.secrets.api} />,
   journal: (p) => p.friction && <FrictionSettings api={p.friction.api} />,
-  codeindex: (p) =>
-    p.codeIndex && (
-      <>
-        <CodeIndexSettings api={p.codeIndex.api} />
-        <NotesScanSettings api={p.codeIndex.api} />
-      </>
-    ),
+  codeindex: (p) => p.codeIndex && <CodeIndexSettings api={p.codeIndex.api} />,
   autopilot: (p) => p.autopilot && <AutopilotSettings api={p.autopilot.api} />,
   network: (p) => p.network && <NetworkSettings api={p.network.api} />,
   providers: (p) => p.llm && <ProviderSettings {...p.llm} />,

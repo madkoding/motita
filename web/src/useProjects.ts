@@ -7,7 +7,6 @@ import { folderNameOf } from "./appParse";
 import { newProjectDraft } from "./newProjectDraft";
 import { useFolderPicker } from "./useFolderPicker";
 import { createdToast } from "./projectToast";
-import { SCAN_STARTED_EVENT } from "./notesApi";
 import type { SessionList } from "./useSessionList";
 import type { Api } from "./prApi";
 import type {
@@ -346,12 +345,7 @@ function useCreateProject(
 const MAIN_FAILED = "could not update the main branch";
 
 // useProjectAdmin changes and deletes projects that already exist.
-function useProjectAdmin(
-  api: Api,
-  lists: SessionList,
-  setState: SetStatus,
-  setToast: SetToast,
-) {
+function useProjectAdmin(api: Api, lists: SessionList, setState: SetStatus) {
   const { fetchProjects, fetchSessions } = lists;
 
   // refreshProjectMain asks the gateway to bring the project's main branch up to date now, the
@@ -427,34 +421,6 @@ function useProjectAdmin(
     [api, setState, fetchProjects],
   );
 
-  // rescanNotes writes the notes of one project again in the background, with the model options
-  // of the last scan; the sidebar shows how far it got.
-  const rescanNotes = useCallback(
-    async (id: string) => {
-      try {
-        const res = await api(
-          "/v1/notes/scan?again=1&project=" + encodeURIComponent(id),
-          { method: "POST" },
-        );
-        if (!res.ok) {
-          const err = await res.json().catch(() => ({}));
-          setState(err.error || "could not rescan the notes", true);
-          return;
-        }
-        setToast({
-          message: t(
-            "Rescanning the notes of this project in the background. The sidebar shows how far it got.",
-          ),
-          type: "success",
-        });
-        window.dispatchEvent(new Event(SCAN_STARTED_EVENT));
-      } catch {
-        setState("could not rescan the notes", true);
-      }
-    },
-    [api, setState, setToast],
-  );
-
   // deleteProject removes a project from the gateway.
   // `discard` carries the user's answer, exactly as it does for a session: a project
   // whose sessions hold uncommitted work is refused without it. `wipe` asks to remove the
@@ -487,7 +453,7 @@ function useProjectAdmin(
     [fetchProjects, fetchSessions],
   );
 
-  return { refreshProjectMain, acceptTests, rescanNotes, deleteProject };
+  return { refreshProjectMain, acceptTests, deleteProject };
 }
 
 export function useProjects({ api, lists, setState, setToast }: Deps) {
@@ -502,7 +468,7 @@ export function useProjects({ api, lists, setState, setToast }: Deps) {
     setState,
     setToast,
   );
-  const admin = useProjectAdmin(api, lists, setState, setToast);
+  const admin = useProjectAdmin(api, lists, setState);
   const folders = useFolderPicker(
     api,
     form.showNewProject || !!edit.editProject,
@@ -533,7 +499,6 @@ export function useProjects({ api, lists, setState, setToast }: Deps) {
     ...git,
     refreshProjectMain: admin.refreshProjectMain,
     acceptTests: admin.acceptTests,
-    rescanNotes: admin.rescanNotes,
     creatingProject: form.creatingProject,
     createProject,
     deleteProject: admin.deleteProject,

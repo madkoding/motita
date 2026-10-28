@@ -9,13 +9,7 @@ import { useLongPress } from "./domHooks";
 import { projectTooltip } from "./appFormat";
 import { NewSessionButton } from "./NewSessionButton";
 import { DeleteItem, RowMenu, SessionRow } from "./SessionRow";
-import {
-  IconDots,
-  IconEdit,
-  IconFolder,
-  IconNotes,
-  IconRefresh,
-} from "./icons";
+import { IconDots, IconEdit, IconFolder, IconRefresh } from "./icons";
 import type { ProjectInfo } from "./appTypes";
 import { EDIT_PROJECT } from "./appConst";
 import { NestedRepos } from "./NestedRepos";
@@ -71,21 +65,6 @@ function ProjectMenu({ p }: { p: ProjectInfo }) {
           {t("Accept the lower test count")}
         </button>
       )}
-      <button
-        class={ITEM_PLAIN}
-        data-testid="rescan-notes"
-        title={t(
-          "Writes the notes and the manual of this project again, in the background; the sidebar shows how far it got.",
-        )}
-        onClick={(e) => {
-          e.stopPropagation();
-          void projects.rescanNotes(p.id);
-          menus.closeRowMenu();
-        }}
-      >
-        <IconNotes size={14} class="flex-none" />
-        {t("Rescan the notes")}
-      </button>
       <DeleteItem type="project" id={p.id} title={p.title} />
     </RowMenu>
   );

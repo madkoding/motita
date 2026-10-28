@@ -58,7 +58,6 @@ function store({
       projects: {
         openEditProject: rec("edit"),
         refreshProjectMain: rec("refreshMain"),
-        rescanNotes: rec("rescan"),
         acceptTests: rec("acceptTests"),
       },
       repoGit: {
@@ -292,15 +291,6 @@ test("a project that is only a folder has no main branch to update", async () =>
   const s = store({ rowMenu: { id: "p1" } });
   const m = await mount(AppCtx, s.value, h(ProjectGroup, { p: P }));
   assert.equal(m.q("[data-testid=refresh-main]"), null);
-  assert.ok(m.q("[data-testid=rescan-notes]"), "the rest of the menu stays");
-  await m.unmount();
-});
-
-test("the menu rescans the notes of its project", async () => {
-  const s = store({ rowMenu: { id: "p1" } });
-  const m = await mount(AppCtx, s.value, h(ProjectGroup, { p: P }));
-  await click(m.q("[data-testid=rescan-notes]"));
-  assert.deepEqual(s.log, [["rescan", "p1"], ["closeMenu"]]);
   await m.unmount();
 });
 

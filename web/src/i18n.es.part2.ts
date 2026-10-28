@@ -804,91 +804,19 @@ const more: Record<string, string> = {
   "Let Motita control this computer's desktop?":
     "¿Dejar que Motita controle el escritorio de este equipo?",
   "Allow desktop control": "Permitir el control del escritorio",
-  Notes: "Notas",
-  "New note name": "Nombre de la nota nueva",
-  "No folder": "Sin carpeta",
-  "Search the notes": "Buscar en las notas",
-  "No notes yet. Write the first one above.":
-    "Todavía no hay notas. Escribe la primera arriba.",
   "Nothing matches that.": "Nada coincide con eso.",
-  "Mentioned in ({n})": "Mencionada en ({n})",
-  "No other note mentions this one yet.":
-    "Ninguna otra nota menciona esta todavía.",
-  "Note text": "Texto de la nota",
   Edit: "Editar",
   "Click again to delete": "Pulsa otra vez para borrar",
-  "Pick a note, or write a new one.": "Elige una nota o escribe una nueva.",
-  "Each project has a manual: open its folder and start with Start here. Link notes with [[double brackets]].":
-    "Cada proyecto tiene un manual: abre su carpeta y empieza por Start here. Enlaza notas con [[dobles corchetes]].",
-  "They are plain .md files: open this folder in Obsidian and they are all there.":
-    "Son archivos .md normales: abre esta carpeta en Obsidian y estarán todas.",
-  "Saved in {root}": "Guardadas en {root}",
-  "Your second brain: projects, sessions and your own ideas.":
-    "Tu segundo cerebro: proyectos, sesiones y tus propias ideas.",
   Map: "Mapa",
   "Close map": "Cerrar mapa",
-  "Find a note on the map": "Buscar una nota en el mapa",
   "{n} found": "{n} encontradas",
   "1 found": "1 encontrada",
   "Colours of the map": "Colores del mapa",
-  "Loose notes": "Notas sueltas",
-  "Close the note": "Cerrar la nota",
-  "Open the note": "Abrir la nota",
   "Drag to turn, scroll to zoom, click a name to look at it.":
     "Arrastra para girar, usa la rueda para acercar y haz clic en un nombre para verlo.",
-  "could not load the notes": "no se pudieron cargar las notas",
-  "could not open the note": "no se pudo abrir la nota",
-  "could not save the note": "no se pudo guardar la nota",
-  "could not create the note": "no se pudo crear la nota",
-  "could not delete the note": "no se pudo borrar la nota",
-  "could not rename the note": "no se pudo renombrar la nota",
   "New name": "Nombre nuevo",
-  "Second brain": "Segundo cerebro",
-  "Scan sessions and projects": "Escanear sesiones y proyectos",
-  "Writes a note for every project and every session you have used, linked to each other, and a manual of each project with a note per folder: its files, its API, what it uses and what uses it. Run it again to refresh them; what you add around the generated block stays.":
-    "Escribe una nota por cada proyecto y cada sesión que has usado, enlazadas entre sí, y un manual de cada proyecto con una nota por carpeta: sus archivos, su API, qué usa y quién la usa. Vuelve a ejecutarlo para actualizarlas; lo que agregues alrededor del bloque generado se conserva.",
-  "Scan now": "Escanear ahora",
-  "Scanning…": "Escaneando…",
-  "Writing the notes of your sessions…":
-    "Escribiendo las notas de tus sesiones…",
-  "Mapping {project} ({n} of {total})": "Mapeando {project} ({n} de {total})",
-  "folder {n} of {total}": "carpeta {n} de {total}",
-  "Use the model to summarise sessions and explain projects":
-    "Usar el modelo para resumir sesiones y explicar proyectos",
-  "Adds a short summary to sessions of six turns or more (at most twenty per scan), explains how each project fits together (at most ten per scan) and documents each folder of the projects' manuals (as many per scan as you choose below). Each is only asked again when the session, project or folder changed. The text of those sessions and the structure, README and source excerpts of those projects are sent to your model provider and use tokens.":
-    "Agrega un resumen corto a las sesiones de seis turnos o más (hasta veinte por escaneo), explica cómo encaja cada proyecto (hasta diez por escaneo) y documenta cada carpeta de los manuales de los proyectos (tantas por escaneo como elijas abajo). Cada uno se pide de nuevo solo cuando la sesión, el proyecto o la carpeta cambió. El texto de esas sesiones y la estructura, el README y extractos del código de esos proyectos se envían a tu proveedor de modelos y gastan tokens.",
-  "{n} long sessions summarised.": "{n} sesiones largas resumidas.",
-  "{mapped} projects mapped into {documented} manual notes, {explained} explained by the model.":
-    "{mapped} proyectos mapeados en {documented} notas de manual, {explained} explicados por el modelo.",
-  "notes created from your sessions and projects":
-    "notas creadas a partir de tus sesiones y proyectos",
-  "{projects} projects and {sessions} sessions scanned: {created} notes created, {updated} updated, {unchanged} unchanged, {skipped} skipped.":
-    "{projects} proyectos y {sessions} sesiones escaneados: {created} notas creadas, {updated} actualizadas, {unchanged} sin cambios, {skipped} omitidas.",
-  "give the note a name": "ponle un nombre a la nota",
-  "a note with that name already exists": "ya existe una nota con ese nombre",
   "could not load the graph": "no se pudo cargar el grafo",
-  "Review notes": "Revisar notas",
-  "Folders the model explains per scan":
-    "Carpetas que el modelo explica por escaneo",
-  All: "Todas",
-  "Each folder is one model call, so more folders take longer and use more tokens. A folder already explained is only asked again when it changed.":
-    "Cada carpeta es una llamada al modelo: más carpetas tardan más y gastan más tokens. Una carpeta ya explicada solo se pide de nuevo cuando cambió.",
-  "Review the notes": "Revisar las notas",
-  "Opens a conversation where the agent checks the notes for contradictions, stale notes, missing sources and broken links. It changes nothing until you agree.":
-    "Abre una conversación donde el agente revisa las notas en busca de contradicciones, notas desactualizadas, fuentes faltantes y enlaces rotos. No cambia nada hasta que aceptes.",
-  "Ask the agent to find contradictions, stale notes and broken links":
-    "Pide al agente que busque contradicciones, notas desactualizadas y enlaces rotos",
   "Nothing to draw yet.": "Todavía no hay nada que dibujar.",
-  "Graph of linked notes": "Grafo de notas enlazadas",
-  "{notes} notes · {links} links · {missing} to notes not written yet":
-    "{notes} notas · {links} enlaces · {missing} a notas aún sin escribir",
-  "Rescan the notes": "Reescanear las notas",
-  "Writes the notes and the manual of this project again, in the background; the sidebar shows how far it got.":
-    "Vuelve a escribir las notas y el manual de este proyecto en segundo plano; la barra lateral muestra cuánto lleva.",
-  "could not rescan the notes": "no se pudieron reescanear las notas",
-  "Rescanning the notes of this project in the background. The sidebar shows how far it got.":
-    "Reescaneando las notas de este proyecto en segundo plano. La barra lateral muestra cuánto lleva.",
-  "Scanning the notes": "Escaneando las notas",
   "New repository": "Nuevo repositorio",
   "No repositories": "Sin repositorios",
   "New session in repository": "Nueva sesión en el repositorio",
@@ -930,68 +858,84 @@ const more: Record<string, string> = {
   "It stays in the journal on this computer; nothing is sent anywhere.":
     "Queda en el diario de este equipo; no se envía a ningún lado.",
   "could not note it": "no se pudo anotar",
-  "Guides to your projects, your conversations and your own ideas.":
-    "Guías de tus proyectos, tus conversaciones y tus propias ideas.",
-  "See how the notes connect to each other":
-    "Mira cómo se conectan las notas entre sí",
-  "Start here": "Empieza aquí",
-  "Technical overview of {name}": "Resumen técnico de {name}",
-  "Project page: {name}": "Página del proyecto {name}",
-  Conversations: "Conversaciones",
-  "Update this guide": "Actualizar esta guía",
-  "Update these notes": "Actualizar estas notas",
-  "Writes them again from your project, in the background":
-    "Las vuelve a escribir a partir de tu proyecto, en segundo plano",
-  "Delete this guide": "Eliminar esta guía",
   "Delete this folder": "Eliminar esta carpeta",
   "Options for {name}": "Opciones de {name}",
-  "Guide · {pages}": "Guía · {pages}",
-  "1 page": "1 página",
-  "{n} pages": "{n} páginas",
-  "Deletes its 1 note": "Elimina su única nota",
-  "Deletes its {n} notes": "Elimina sus {n} notas",
-  "What is the note about?": "¿De qué trata la nota?",
-  "Updating the guides": "Actualizando las guías",
-  "More options for the notes": "Más opciones para las notas",
-  "Update the guides": "Actualizar las guías",
-  "Writes the guide of every project again":
-    "Vuelve a escribir la guía de cada proyecto",
-  "Write a new note": "Escribir una nota nueva",
   "Pages that link here ({n})": "Páginas que enlazan aquí ({n})",
-  "Options for this note": "Opciones de esta nota",
-  "Links from other notes follow the new name":
-    "Los enlaces de otras notas siguen el nuevo nombre",
   "Asks before deleting it": "Pregunta antes de eliminarla",
-  "Welcome to your notes": "Bienvenido a tus notas",
-  "Here Motita keeps what it learns about your projects, and you can write your own notes.":
-    "Aquí Motita guarda lo que aprende de tus proyectos, y tú puedes escribir tus propias notas.",
-  "Start with a guide: it explains a project in plain words, one chapter for each part.":
-    "Empieza por una guía: explica un proyecto con palabras sencillas, con un capítulo para cada parte.",
-  "Open the guide of {name}": "Abrir la guía de {name}",
-  "There are no guides yet. Motita can write one for each of your projects.":
-    "Todavía no hay guías. Motita puede escribir una para cada uno de tus proyectos.",
-  "Write the guides now": "Escribir las guías ahora",
-  "Where are my notes kept?": "¿Dónde se guardan mis notas?",
-  "They are ordinary text files, so other programs such as Obsidian can open them too. The folder is {root}":
-    "Son archivos de texto normales, así que otros programas como Obsidian también pueden abrirlas. La carpeta es {root}",
-  "The note is deleted for good, with everything written in it.":
-    "La nota se elimina para siempre, con todo lo que tiene escrito.",
-  "Everything in it is deleted, including what you wrote in these notes. Motita can write it again from your project when you update the guides.":
-    "Se elimina todo lo que contiene, incluido lo que hayas escrito en estas notas. Motita puede volver a escribirlo a partir de tu proyecto cuando actualices las guías.",
-  "Everything in it is deleted, including what you wrote in these notes. This cannot be undone.":
-    "Se elimina todo lo que contiene, incluido lo que hayas escrito en estas notas. No se puede deshacer.",
-  "Delete this folder of notes?": "¿Eliminar esta carpeta de notas?",
-  "Delete this note?": "¿Eliminar esta nota?",
-  "Delete the note": "Eliminar la nota",
   "Keep it": "Conservarla",
-  "1 note will be deleted.": "Se eliminará 1 nota.",
-  "{n} notes will be deleted.": "Se eliminarán {n} notas.",
-  "Delete 1 note": "Eliminar 1 nota",
-  "Delete {n} notes": "Eliminar {n} notas",
   "could not delete the folder": "no se pudo eliminar la carpeta",
-  "1 note deleted": "1 nota eliminada",
-  "{n} notes deleted": "{n} notas eliminadas",
-  "could not update the notes": "no se pudieron actualizar las notas",
+  "1 entry deleted": "1 entrada eliminada",
+  "1 entry will be deleted.": "Se eliminará 1 entrada.",
+  "All collections": "Todas las colecciones",
+  "Also show the entries linked to the best answers":
+    "Muestra también las entradas enlazadas con las mejores respuestas",
+  "Ask the agent to find contradictions, stale entries and broken links":
+    "Pide al agente que busque contradicciones, entradas desactualizadas y enlaces rotos",
+  Author: "Autor",
+  "Close the entry": "Cerrar la entrada",
+  Collection: "Colección",
+  "Collection (optional)": "Colección (opcional)",
+  "Delete 1 entry": "Eliminar 1 entrada",
+  "Delete the entry": "Eliminar la entrada",
+  "Delete this entry?": "¿Eliminar esta entrada?",
+  "Delete this folder of entries?": "¿Eliminar esta carpeta de entradas?",
+  "Delete {n} entries": "Eliminar {n} entradas",
+  "Deletes its 1 entry": "Elimina su única entrada",
+  "Deletes its {n} entries": "Elimina sus {n} entradas",
+  "Each top-level folder is a collection, so engineering and HR never mix. Link entries with [[double brackets]] and the map shows how they relate.":
+    "Cada carpeta de primer nivel es una colección, así que ingeniería y RR. HH. nunca se mezclan. Enlaza entradas con [[dobles corchetes]] y el mapa muestra cómo se relacionan.",
+  "Entry text": "Texto de la entrada",
+  "Everything in it is deleted, including what you wrote in these entries. This cannot be undone.":
+    "Se elimina todo lo que contiene, incluido lo que hayas escrito en estas entradas. No se puede deshacer.",
+  "Find an entry on the map": "Buscar una entrada en el mapa",
+  "Follow links": "Seguir enlaces",
+  "Graph of linked entries": "Grafo de entradas enlazadas",
+  "Here Motita keeps what you and it want to remember. Search it by words or by meaning, and the answer is the whole section, with who wrote it and when.":
+    "Aquí Motita guarda lo que tú y ella quieren recordar. Búscalo por palabras o por significado, y la respuesta es la sección completa, con quién la escribió y cuándo.",
+  "It is ordinary text files, so other programs such as Obsidian can open them too. The folder is {root}":
+    "Son archivos de texto normales, así que otros programas como Obsidian también pueden abrirlos. La carpeta es {root}",
+  "Links from other entries follow the new name":
+    "Los enlaces de otras entradas siguen el nuevo nombre",
+  Memory: "Memoria",
+  "More filters": "Más filtros",
+  "More options for the memory": "Más opciones para la memoria",
+  "New entry name": "Nombre de la entrada nueva",
+  "No other entry mentions this one yet.":
+    "Ninguna otra entrada menciona esta todavía.",
+  "Nothing in the memory yet. Write the first entry above.":
+    "Todavía no hay nada en la memoria. Escribe la primera entrada arriba.",
+  "Open the entry": "Abrir la entrada",
+  "Options for this entry": "Opciones de esta entrada",
+  "Related through links": "Relacionadas por enlaces",
+  "Review the memory": "Revisar la memoria",
+  "Search the memory": "Buscar en la memoria",
+  "See how the entries connect to each other":
+    "Mira cómo se conectan las entradas entre sí",
+  "The entry is deleted for good, with everything written in it.":
+    "La entrada se elimina para siempre, con todo lo que tiene escrito.",
+  "Welcome to your memory": "Bienvenido a tu memoria",
+  "What is the entry about?": "¿De qué trata la entrada?",
+  "What you and Motita want to remember, found by meaning.":
+    "Lo que tú y Motita quieren recordar, encontrado por significado.",
+  "Where is my memory kept?": "¿Dónde se guarda mi memoria?",
+  "Write a new entry": "Escribir una entrada nueva",
+  "Written since": "Escrita desde",
+  "Written until": "Escrita hasta",
+  "an entry with that name already exists":
+    "ya existe una entrada con ese nombre",
+  "could not create the entry": "no se pudo crear la entrada",
+  "could not delete the entry": "no se pudo borrar la entrada",
+  "could not load the memory": "no se pudo cargar la memoria",
+  "could not open the entry": "no se pudo abrir la entrada",
+  "could not rename the entry": "no se pudo renombrar la entrada",
+  "could not save the entry": "no se pudo guardar la entrada",
+  "give the entry a name": "ponle un nombre a la entrada",
+  "via {name}": "vía {name}",
+  "{entries} entries · {links} links · {missing} to entries not written yet":
+    "{entries} entradas · {links} enlaces · {missing} a entradas aún sin escribir",
+  "{name} ({n})": "{name} ({n})",
+  "{n} entries deleted": "{n} entradas eliminadas",
+  "{n} entries will be deleted.": "Se eliminarán {n} entradas.",
 };
 
 export default more;

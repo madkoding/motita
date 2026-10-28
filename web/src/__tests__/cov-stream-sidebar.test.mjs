@@ -68,7 +68,7 @@ function store(over = {}) {
     updates: { updateInfo: null, openUpgrade: on("openUpgrade") },
     skills: { setShowSkillLibrary: rec("setShowSkillLibrary") },
     artifacts: { openArtifacts: on("openArtifacts") },
-    notes: { openNotes: on("openNotes") },
+    memory: { openMemory: on("openMemory") },
     schedules: { openScheduledTasks: on("openScheduledTasks") },
     openSettings: on("openSettings"),
   };
@@ -498,7 +498,7 @@ test("the sidebar has its header, buttons, lists and footer", async () => {
   assert.equal(text(upgrade.querySelector(".font-mono")), "v1.3.0");
   await click(upgrade);
   await click(buttonNamed(root, "Skills"));
-  await click(root.querySelector("[data-testid=notes-button]"));
+  await click(root.querySelector("[data-testid=memory-button]"));
   const art = root.querySelector("[data-testid=artifacts-button]");
   assert.equal(art.disabled, true, "no session: no artifacts");
   await click(buttonNamed(root, "Pull requests"));
@@ -509,7 +509,7 @@ test("the sidebar has its header, buttons, lists and footer", async () => {
     ["openNewProject"],
     ["openUpgrade"],
     ["setShowSkillLibrary", true],
-    ["openNotes"],
+    ["openMemory"],
     ["openScheduledTasks"],
     ["openSettings"],
   ]);

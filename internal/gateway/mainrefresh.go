@@ -78,7 +78,6 @@ func (s *Server) refreshMain(ctx context.Context, p *Project, explicit bool) str
 	// A folder of the user's own, outside the workspace, is theirs to update: only an explicit "update
 	// now" moves its branch.
 	if main := mainBranchOf(ctx, p); main != "" && projectIsRepo(ctx, p.Dir) && (explicit || !s.usersFolder(p.Dir)) {
-		before := gitx.BranchCommit(ctx, p.Dir, main)
 		err := gitx.RefreshBranch(ctx, p.Dir, main)
 		if err != nil && !errors.Is(err, gitx.ErrBranchDirty) {
 			// A session opening creates its worktree at the same moment, and a fetch that reads
@@ -89,10 +88,6 @@ func (s *Server) refreshMain(ctx context.Context, p *Project, explicit bool) str
 		}
 		if err != nil {
 			warning = main + ": " + err.Error()
-		}
-		// New code on the main branch: the manuals in the notes catch up with it by themselves.
-		if err == nil && gitx.BranchCommit(ctx, p.Dir, main) != before {
-			s.scanAfterMainMoved()
 		}
 	}
 	s.syncSharedRepos(ctx, p)
