@@ -52,7 +52,7 @@ func TestReadOnlyRefusesWritingCommands(t *testing.T) {
 		"sed -n 'e id' f",
 		`awk 'BEGIN{"id"|getline}'`,
 		"rg --pre ./x pattern",
-		"go test ./...",
+		"go test -exec ./x ./...",
 		"git branch -D main",
 	} {
 		p := a.planRequest(line)

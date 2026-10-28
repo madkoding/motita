@@ -82,7 +82,7 @@ func TestReadOnlyModeRefusesEveryKnownBypass(t *testing.T) {
 		{"git", "config", "unset", "user.name"}, {"git", "config", "--unset", "user.name"},
 		{"git", "config", "user.name", "x"}, {"git", "push"}, {"git", "commit", "-m", "x"},
 		// go: test, fmt, -vettool, -toolexec, env -w.
-		{"go", "test", "./..."}, {"go", "fmt", "./..."}, {"go", "vet", "-vettool=./x", "./..."},
+		{"go", "test", "-exec", "x", "./..."}, {"go", "fmt", "./..."}, {"go", "vet", "-vettool=./x", "./..."},
 		{"go", "list", "-toolexec=./x"}, {"go", "env", "-w", "GOFLAGS=x"},
 	} {
 		if d := Check(c[0], c[1:]); d.Allowed {
@@ -185,7 +185,7 @@ func TestTheRefusalsNameWhatTheyFound(t *testing.T) {
 		{argv{"sed", "s/a/b/w x", "f"}, "flag writes a file"},
 		{argv{"awk", `BEGIN{"id"|getline}`}, "pipe"}, {argv{"awk", "{getline}"}, "getline"},
 		{argv{"rg", "--pre=x", "p"}, "rg --pre runs"},
-		{argv{"go", "test"}, "runs the package's code"},
+		{argv{"go", "test", "-c"}, "writes a file"},
 		{argv{"git", "grep", "-Ox"}, "runs a program"},
 		{argv{"./evil/cat", "f"}, "bare name"},
 	} {

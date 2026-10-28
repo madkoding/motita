@@ -2259,8 +2259,11 @@ with `;`, `&&` and `||` and end one in a pipe into `head`, `tail`, `wc` or `grep
 (motita runs those itself; every program is checked before any of them runs).
 `git fetch` (remote-tracking refs only), `gh` reporting verbs (`gh pr view`,
 `gh api` as a GET), `npm ls`, `pip list`, `kubectl config get-contexts` and
-version queries (`node --version`) are read-only too. Destructive
-commands are refused before they run.
+version queries (`node --version`) are read-only too. **Test runs are
+allowed** (`go test`, `npm test`, `pytest`, `cargo test`, `make test`, ...) because a plan
+that cannot run the suite cannot say whether it is green; options that run a program,
+load a plugin, write a file (`--junitxml`) or watch forever are refused (`go test -coverprofile=NAME.out` is allowed for a bare file name),
+and the run stays in the sandbox. Destructive commands are refused before they run.
 
 **Graceful shutdown:** `Ctrl+C` (or `SIGINT`/`SIGTERM`) works everywhere. The first
 signal cancels the current work in progress, returns from the TUI or `motita config`

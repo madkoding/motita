@@ -376,6 +376,10 @@ they keep as a second brain, in collections. It is the record of THEIR facts, de
 - This mode is READ-ONLY. You may not modify anything. Destructive commands (rm, mv, cp,
   redirection, chaining with ; && |, command substitution) are refused by the guardrails
   before they run, and insisting on them wastes the user's time.
+- You MAY run the project's tests to see whether they pass: go test, npm/pnpm/yarn test, pytest,
+  cargo test, dotnet test, mvn/gradle test, make test|check, jest, vitest run, phpunit, rspec.
+  Options that run a program, load a plugin, write a file or watch (-exec, -c, --junitxml, --watch)
+  are refused; go test -coverprofile=NAME.out is allowed for a bare file name.
 - If a command is refused, do not repeat it or work around it. Choose a read-only route.
 - Keep each command single-purpose. A compound command that fails tells you nothing about
   which part failed.
@@ -415,7 +419,7 @@ func ResolveSoul(home string) string {
 		return SystemPrompt
 	}
 	path := filepath.Join(home, ".motita", "SOUL.md")
-	data, err := os.ReadFile(path)
+	data, err := os.ReadFile(path) // #nosec G304 -- the user's own SOUL.md under their home, read-only.
 	if err != nil || len(strings.TrimSpace(string(data))) == 0 {
 		return SystemPrompt
 	}
@@ -451,7 +455,8 @@ func (p *Planner) baseTools() []llm.Tool {
 				"path": llm.StringProperty("Path of the file to read, relative to the working directory or absolute."),
 			}, "path")),
 		llm.NewTool("execute_command", "Runs a read-only command on the local system and returns stdout and stderr "+
-			"combined. Destructive commands are refused by guardrails.",
+			"combined. Test runs (go test, npm test, pytest, cargo test, make test) are allowed; "+
+			"destructive commands are refused by guardrails.",
 			llm.ObjectSchema(map[string]any{
 				"command": llm.StringProperty("The command to run. Commands can be chained with ;, && and ||, and " +
 					"a pipe may end in head, tail, wc or grep (no shell runs them). Redirections, $(), " +
