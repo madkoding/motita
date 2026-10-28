@@ -725,7 +725,7 @@ func scopeProceduresTo(svc Service, projectDir string) {
 func applyRuntimeTo(svc Service, p *Project, workspace string) {
 	// The project itself, and its other repositories, so the agent knows what it works on, where
 	// that is, and that each repository is committed on its own.
-	if setter, ok := svc.(interface{ SetTestsFloor(int) }); ok {
+	if setter, ok := svc.(interface{ SetTestsFloor(int) }); ok && p != nil {
 		setter.SetTestsFloor(p.TestsFloor)
 	}
 	if setter, ok := svc.(interface{ SetProjectNote(string) }); ok {

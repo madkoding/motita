@@ -281,4 +281,5 @@ func TestTheAgentIsToldTheProjectsTestFloor(t *testing.T) {
 	if svc.floor != 7 {
 		t.Errorf("the floor must reach the agent, got %d", svc.floor)
 	}
+	applyRuntimeTo(svc, nil, "") // a session of no project has no floor and must not panic
 }
