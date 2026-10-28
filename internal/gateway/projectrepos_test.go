@@ -170,7 +170,8 @@ func TestAttachingARepositoryThatCannotBranch(t *testing.T) {
 // noteService records what the session's agent is told about the project.
 type noteService struct {
 	fakeService
-	note string
+	note  string
+	floor int
 }
 
 func (n *noteService) SetProjectNote(note string) { n.note = note }
@@ -270,4 +271,15 @@ func TestAddingARepositoryOverAFolderIsRefused(t *testing.T) {
 	if code, _ := addRepo(t, srv, id, `{"git_url":"`+sourceRepo(t)+`","name":"taken"}`); code != http.StatusConflict {
 		t.Errorf("a repository over an existing folder: %d", code)
 	}
+}
+
+func (n *noteService) SetTestsFloor(f int) { n.floor = f }
+
+func TestTheAgentIsToldTheProjectsTestFloor(t *testing.T) {
+	svc := &noteService{}
+	applyRuntimeTo(svc, &Project{TestsFloor: 7}, "")
+	if svc.floor != 7 {
+		t.Errorf("the floor must reach the agent, got %d", svc.floor)
+	}
+	applyRuntimeTo(svc, nil, "") // a session of no project has no floor and must not panic
 }

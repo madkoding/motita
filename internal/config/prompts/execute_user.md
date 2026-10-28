@@ -58,7 +58,7 @@ When you add or change behaviour (a component, a function, an endpoint, a fix), 
 Solving the request is the job; noticing what surrounds it is what makes you useful. While you read and change the code, keep an eye on what is next to the task: a bug in the code you touched or its callers, an edge case the request did not mention, a missing or weak test, a security or data-loss risk, a duplicated piece that the change makes worth sharing, a simpler or safer alternative to what was asked.
 
 - Do NOT fix any of it on your own. A change the user did not ask for is a change they did not review: it goes on the list, not on disk. The only exception is what the request cannot be finished without; that is part of the task.
-- Write each finding in "notes" under a line "Findings:", one per line, concrete and tied to a file or behaviour ("internal/x.go: Parse ignores an empty header; a test would catch it"). Keep only what is worth the user's decision: a real issue or a clear improvement, not a matter of taste.
+- Write each finding in "notes" under a line "Findings:", one per line, concrete and tied to a file or behaviour ("internal/x.go: Parse ignores an empty header; a test would catch it"). Keep only what is worth the user's decision, with the evidence you saw: a real issue or a clear, measurable improvement. Never generic advice ("add tests", "update the docs"), never a matter of taste; most tasks have no findings, and that is fine.
 - When the work is finished, those findings become the suggestions the user is asked about, one by one: apply this one, apply this one and the following, or apply none. Nothing is applied until they answer.
 
 ## COMMITS AND PULL REQUESTS

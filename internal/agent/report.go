@@ -68,7 +68,35 @@ type ReportSuggestion struct {
 
 // maxSuggestions bounds the proposals of one report. Past a few the user is reading a backlog,
 // not deciding, and the ones that matter get lost among the ones that do not.
-const maxSuggestions = 5
+const maxSuggestions = 3
+
+// genericSuggestions are the proposals that fit any task: with no file, symbol or behaviour in
+// the title they say nothing the user could decide on, so they are dropped.
+var genericSuggestions = []string{
+	"add more tests", "add tests", "add unit tests", "improve test coverage", "write more tests",
+	"update the documentation", "update documentation", "improve documentation", "add documentation",
+	"review the documentation", "add comments", "improve error handling", "add error handling",
+	"refactor the code", "refactor", "clean up the code", "improve performance", "add logging",
+	"agrega más tests", "agregar más tests", "agregar tests", "agrega tests", "más pruebas",
+	"añadir pruebas", "agregar pruebas", "actualizar la documentación", "mejorar la documentación",
+	"revisar la documentación", "agregar comentarios", "mejorar el manejo de errores",
+	"refactorizar el código", "refactorizar", "limpiar el código", "mejorar el rendimiento",
+}
+
+// isGenericSuggestion reports whether the title is one of the boilerplate proposals and names
+// nothing concrete (a path, a symbol in backticks, a number).
+func isGenericSuggestion(title string) bool {
+	t := strings.Trim(strings.ToLower(title), " .!:;")
+	if strings.ContainsAny(t, "`/\\_.0123456789") {
+		return false
+	}
+	for _, g := range genericSuggestions {
+		if t == g {
+			return true
+		}
+	}
+	return false
+}
 
 // ReportDecision is one choice taken without asking.
 type ReportDecision struct {
@@ -148,12 +176,12 @@ func (r *Report) normalize(pass bool) {
 	r.Suggestions = normalizeSuggestions(r.Suggestions)
 }
 
-// normalizeSuggestions keeps the proposals that name something, up to maxSuggestions.
+// normalizeSuggestions keeps the proposals that name something concrete, up to maxSuggestions.
 func normalizeSuggestions(in []ReportSuggestion) []ReportSuggestion {
 	out := make([]ReportSuggestion, 0, len(in))
 	for _, s := range in {
 		s.Title, s.Detail = strings.TrimSpace(s.Title), strings.TrimSpace(s.Detail)
-		if s.Title == "" {
+		if s.Title == "" || isGenericSuggestion(s.Title) {
 			continue
 		}
 		s.WhyNeeded = strings.TrimSpace(s.WhyNeeded)
