@@ -81,3 +81,11 @@ func TestSearchMemoryToolPassesTheCollectionAndTheGraph(t *testing.T) {
 		t.Errorf("graph = %q", graph)
 	}
 }
+
+func TestThePromptTellsThePlannerToSaveToTheMemory(t *testing.T) {
+	for _, want := range []string{"SAVE, do not only read", "append_memory", "remember"} {
+		if !strings.Contains(SystemPrompt, want) {
+			t.Errorf("the plan prompt must tell the model when to save to the memory; missing %q", want)
+		}
+	}
+}

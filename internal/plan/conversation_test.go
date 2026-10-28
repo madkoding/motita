@@ -260,12 +260,12 @@ func TestTheContextIsCompactedBetweenToolRounds(t *testing.T) {
 	//
 	// Measured on this test's own fixture: the original 3200 window with a ~500-token
 	// prompt satisfied both conditions. The soul (embedded personality) enlarged the
-	// prompt from ~500 to ~1900 tokens, so the window was raised to 8000 and the tool
+	// prompt from ~500 to ~1900 tokens, so the window was raised to 8000 (8400 once the memory-saving rule joined the prompt) and the tool
 	// output scaled to ~3400 tokens per round, keeping the same proportional relationship
 	// that let the tool rounds cross the 45% trigger while the prompt alone stayed below it.
 	p := New(newClient(t, srv), a).
 		WithLoops(8).
-		WithSessionPolicy("gpt-4o", 8000, 100, 0.45, 2)
+		WithSessionPolicy("gpt-4o", 8400, 100, 0.45, 2)
 
 	out, err := p.Run(context.Background(), "a task that uses several tools")
 	if err != nil {
