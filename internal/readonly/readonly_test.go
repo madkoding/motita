@@ -171,8 +171,8 @@ func TestSystemctlDependsOnItsSubcommand(t *testing.T) {
 	}
 }
 
-// TestGoDependsOnItsSubcommand: the go subcommands that only look are allowed; `go test` runs
-// the package's own code and `go fmt` rewrites files, so read-only mode refuses both, and so are
+// TestGoDependsOnItsSubcommand: the go subcommands that only look are allowed. `go test` has its
+// own rule (testrun.go) and `go fmt` rewrites files, so the forms below are refused, and so are
 // the options that hand go a program to run or a file to write.
 func TestGoDependsOnItsSubcommand(t *testing.T) {
 	for _, args := range [][]string{
@@ -185,7 +185,7 @@ func TestGoDependsOnItsSubcommand(t *testing.T) {
 	}
 	for _, args := range [][]string{
 		{"install", "x"}, {"get", "x"}, {"mod", "tidy"}, {"generate"},
-		{"run", "."}, {"build"}, {"test", "./..."}, {"test", "-run", "TestX", "./..."},
+		{"run", "."}, {"build"}, {"test", "-exec", "x"},
 		{"test", "-c"}, {"fmt", "./..."}, {"fmt", "-w"},
 		{"vet", "-vettool=./x", "./..."}, {"vet", "-vettool", "./x"}, {"vet", "--vettool=./x"},
 		{"list", "-toolexec", "./x", "./..."}, {"vet", "-exec=./x"},

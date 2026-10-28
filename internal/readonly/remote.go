@@ -17,6 +17,9 @@ import (
 // reason the explanation.
 func PlanRead(command string, args []string) (allowed bool, reason string, ok bool) {
 	name := strings.ToLower(baseOf(command))
+	if allowed, why, ok := testRun(name, args); ok {
+		return allowed, why, true
+	}
 	if rule, runtime := runtimes[name]; runtime {
 		return verdict(rule, args, "only its version is asked")
 	}

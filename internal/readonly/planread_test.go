@@ -39,6 +39,11 @@ func TestPlanReadsAreAllowedAndTheirWritingFormsAreNot(t *testing.T) {
 		"kubectl rollout status deploy/x", "kubectl rollout history deploy/x", "kubectl events",
 		"kubectl -n kube-system get pods", "kubectl --namespace x get pods", "kubectl -A get pods",
 		"docker context ls", "docker events", "podman context inspect x",
+		"go test ./...", "go test -count=1 -cover ./internal/x", "go test -p 4 -run X ./...", "go test -race -v ./...",
+		"npm test", "npm t", "npm test -- --coverage", "npm run test:unit", "npm run-script test", "pnpm test",
+		"yarn test", "npm run coverage", "cargo test", "cargo test --release", "dotnet test", "mvn test",
+		"gradle test", "make test", "make check", "make -j4 test", "pytest", "pytest -q tests/", "pytest -- -p", "pytest -p4",
+		"python -m pytest tests", "python3 -m unittest", "jest", "jest -w 2", "vitest run", "phpunit", "rspec",
 	}
 	for _, line := range allowed {
 		if d := check(t, line); !d.Allowed {
@@ -65,6 +70,13 @@ func TestPlanReadsAreAllowedAndTheirWritingFormsAreNot(t *testing.T) {
 		"kubectl config use-context x", "kubectl config set x y", "kubectl auth reconcile -f x",
 		"kubectl rollout restart deploy/x", "kubectl delete pod x", "kubectl",
 		"docker context rm x", "docker context use x",
+		"go test -exec evil ./...", "go test -toolexec evil ./...", "go test -coverprofile=go.mod ./...",
+		"go test -c", "go test -fuzz=F", "go test -cpuprofile=x", "go test -o x",
+		"npm test --watchAll", "npm run test:unit --junitxml=x", "npm run build", "npm run lint",
+		"cargo build", "dotnet build", "make build", "make test SHELL=evil", "make -f other test", "make",
+		"pytest -p evilplugin", "pytest -c evil.ini", "pytest --junitxml=x", "pytest --basetemp=/etc",
+		"python -m pytest -p evil", "python -m http.server", "python -m", "jest --config evil.js", "jest -c x",
+		"jest --watch", "vitest", "vitest --watch", "vitest run --junit-xml=x", "phpunit --plugin x",
 	}
 	for _, line := range refused {
 		if d := check(t, line); d.Allowed {
