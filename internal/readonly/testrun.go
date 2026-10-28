@@ -60,10 +60,20 @@ func scriptName(args []string) string {
 			}
 		}
 	}
-	if sub == "t" || sub == "tst" || sub == "test" || strings.HasPrefix(sub, "test:") || sub == "coverage" {
+	if isTestScript(sub) {
 		return sub
 	}
 	return ""
+}
+
+// isTestScript reports whether a script name is the project's tests: test, test:unit, coverage.
+func isTestScript(name string) bool {
+	switch name {
+	case "t", "tst", "test", "coverage":
+		return true
+	default:
+		return strings.HasPrefix(name, "test:")
+	}
 }
 
 // makeTarget is the test target `make test` or `make check` names, or "".
@@ -186,11 +196,16 @@ func makeTestRule(args []string) (string, bool) {
 		if strings.Contains(a, "=") {
 			return "make " + a + " overrides what the recipe runs", true
 		}
-		if strings.HasPrefix(a, "-") && a != "-j" && !strings.HasPrefix(a, "-j") && a != "-k" && a != "-s" {
+		if strings.HasPrefix(a, "-") && !makeFlagIsHarmless(a) {
 			return "make " + a + " changes how make runs, and read-only mode cannot check it", true
 		}
 	}
 	return "", false
+}
+
+// makeFlagIsHarmless reports the make options that only set parallelism or how much it says.
+func makeFlagIsHarmless(a string) bool {
+	return strings.HasPrefix(a, "-j") || a == "-k" || a == "-s"
 }
 
 // vitestRule allows `vitest run`; bare `vitest` watches, which never ends.

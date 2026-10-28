@@ -419,7 +419,7 @@ func ResolveSoul(home string) string {
 		return SystemPrompt
 	}
 	path := filepath.Join(home, ".motita", "SOUL.md")
-	data, err := os.ReadFile(path)
+	data, err := os.ReadFile(path) // #nosec G304 -- the user's own SOUL.md under their home, read-only.
 	if err != nil || len(strings.TrimSpace(string(data))) == 0 {
 		return SystemPrompt
 	}
