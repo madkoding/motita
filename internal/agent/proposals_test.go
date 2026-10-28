@@ -131,3 +131,14 @@ func TestAskAllSuggestionsClearsNeeded(t *testing.T) {
 		t.Errorf("%+v", r.Suggestions[0])
 	}
 }
+
+// Boilerplate proposals that fit any task are dropped; the same words tied to a file or symbol stay.
+func TestNormalizeSuggestionsDropsGenericAdvice(t *testing.T) {
+	got := normalizeSuggestions([]ReportSuggestion{
+		{Title: "Add more tests."}, {Title: "Mejorar la documentación"}, {Title: "add tests"},
+		{Title: "add tests for internal/x.go Parse"}, {Title: "refactor `Parse`"},
+	})
+	if len(got) != 2 || got[0].Title != "add tests for internal/x.go Parse" || got[1].Title != "refactor `Parse`" {
+		t.Fatalf("got %+v", got)
+	}
+}
