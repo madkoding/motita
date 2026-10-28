@@ -221,7 +221,8 @@ func TestIndexFollowsTheFiles(t *testing.T) {
 	if got := paths(v.Search(ctx, Query{Text: "delta"}).Hits); got != "" {
 		t.Errorf("a changed file is searched as it is now: %q", got)
 	}
-	if v.index() != v.index() {
+	first := v.index()
+	if first != v.index() {
 		t.Error("an unchanged memory keeps its index")
 	}
 }
