@@ -260,7 +260,7 @@ func TestTheContextIsCompactedBetweenToolRounds(t *testing.T) {
 	//
 	// Measured on this test's own fixture: the original 3200 window with a ~500-token
 	// prompt satisfied both conditions. The soul (embedded personality) enlarged the
-	// prompt from ~500 to ~1900 tokens, so the window was raised to 8000 (8400 once the memory-saving rule joined the prompt) and the tool
+	// prompt from ~500 to ~1900 tokens, so the window was raised to 8000 (8400 with the memory-saving rule) and the tool
 	// output scaled to ~3400 tokens per round, keeping the same proportional relationship
 	// that let the tool rounds cross the 45% trigger while the prompt alone stayed below it.
 	p := New(newClient(t, srv), a).
