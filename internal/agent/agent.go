@@ -168,6 +168,9 @@ type Agent struct {
 	// gateTests is how many tests the tree declared when the task started (see anchor.TestCount):
 	// a PASS over fewer is a PASS the run may have bought by deleting tests.
 	gateTests int
+	// testsFloor is the most tests the project has had (see SetTestsFloor): a task starts from it, so
+	// tests lost between tasks fail the next PASS as well.
+	testsFloor int
 }
 
 // SetObserver allows external callers (such as the TUI) to register a callback
@@ -240,6 +243,10 @@ func (a *Agent) consult(name string) {
 	}
 	a.consulted[name]++
 }
+
+// SetTestsFloor tells the agent the most tests the project has had. A task never starts below it:
+// a PASS over fewer is refused even when the tests were deleted before the task began.
+func (a *Agent) SetTestsFloor(n int) { a.testsFloor = n }
 
 // SetProjectNote sets what the agent is told about the project it works in (see projectNote).
 func (a *Agent) SetProjectNote(note string) { a.projectNote = strings.TrimSpace(note) }

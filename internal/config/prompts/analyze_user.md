@@ -24,6 +24,10 @@ Return a JSON object with this exact shape:
 
 When "kind" is "task" and the work adds or changes behaviour, at least one entry of "success_criteria" is the PROOF, not the change: the test that will exist and pass for the new behaviour, or the command whose output shows it working. "The component is added" is not a criterion; "a test renders the component and passes" is. Existing gates passing does not count as proof of code they do not exercise.
 
+## WHAT THE USER DEMANDED OF THE CHECKS IS A CRITERION
+
+When the request names a requirement on tests, coverage, lint or any other check ("with tests", "keep coverage at 100 %", "it must pass the typecheck"), or the project declares one (a coverage minimum in its Makefile, package.json or CI), it is its own entry in "success_criteria", written with the command that measures it and the number it must reach. Lowering a minimum, deleting tests or skipping a check to get there never meets it. If the requirement cannot be measured here, the criterion says so and the final report says "NOT verified" instead of claiming it.
+
 ## PLAN IT HERE, IN THE SAME ANSWER
 
 When "kind" is "task", write the steps of the work in "plan": three to seven short lines, each

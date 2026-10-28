@@ -178,7 +178,8 @@ func TestDropEnginesForgetsEveryEngine(t *testing.T) {
 // noteAgent records the project note a turn hands it.
 type noteAgent struct {
 	askingAgent
-	note string
+	note  string
+	floor int
 }
 
 func (a *noteAgent) SetProjectNote(note string) { a.note = note }
@@ -341,5 +342,23 @@ func TestSetCustomModelRebuildsTheEngines(t *testing.T) {
 	}
 	if cfg.CustomModel.Model != "mine" || cfg.LLM.Custom.MaxTokens != 2048 || cfg.LLM.Custom.ContextWindow != 64000 {
 		t.Errorf("custom model: %+v %+v", cfg.CustomModel, cfg.LLM.Custom)
+	}
+}
+
+func (a *noteAgent) SetTestsFloor(n int) { a.floor = n }
+
+// A task turn starts from the project's test floor.
+func TestRunTaskHandsTheAgentTheTestFloor(t *testing.T) {
+	r, _ := modelsRunner(t, config.Models{})
+	ag := &noteAgent{askingAgent: askingAgent{res: agent.TaskResult{Pass: true, Summary: "done"}}}
+	r.newAgent = func(config.Config, *logx.Logger, *llm.Client, *sandbox.Sandbox, task.Source, bool) AgentRunner {
+		return ag
+	}
+	r.SetTestsFloor(9)
+	if _, err := r.RunTask(context.Background(), "do it", func(string, ...any) {}); err != nil {
+		t.Fatal(err)
+	}
+	if ag.floor != 9 {
+		t.Errorf("the agent was not given the floor: %d", ag.floor)
 	}
 }

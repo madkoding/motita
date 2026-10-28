@@ -162,7 +162,7 @@ func (a *Anchor) makefileChecks(timeout time.Duration) []config.Check {
 	}
 	for _, name := range []string{"check", "test"} {
 		if targets[name] {
-			return []config.Check{{
+			checks := []config.Check{{
 				Name:    name,
 				Command: "make",
 				// `-f <makefile>` names the file the target was read from. Without it `make`
@@ -174,9 +174,29 @@ func (a *Anchor) makefileChecks(timeout time.Duration) []config.Check {
 				Timeout:    timeout,
 				ExpectExit: 0,
 			}}
+			// `check` is the fuller gate and is trusted to hold the coverage too; a project that only
+			// has `test` and names a coverage target has said it wants a minimum, so it is part of the gate.
+			if name == "test" {
+				checks = append(checks, a.coverageTargets(makefile, targets, timeout)...)
+			}
+			return checks
 		}
 	}
 	return nil
+}
+
+// coverageTargets are the coverage targets of a makefile, which fail under the project's own minimum.
+func (a *Anchor) coverageTargets(makefile string, targets map[string]bool, timeout time.Duration) []config.Check {
+	var out []config.Check
+	for _, name := range []string{"cover", "coverage"} {
+		if targets[name] {
+			out = append(out, config.Check{
+				Name: name, Command: "make", Args: []string{"-f", makefile, name},
+				Timeout: timeout, ExpectExit: 0,
+			})
+		}
+	}
+	return out
 }
 
 // trivialCommand says whether a command line does nothing that could fail: empty, `true`, `:`,
@@ -261,7 +281,7 @@ func (a *Anchor) goChecks(timeout time.Duration) []config.Check {
 // npmChecks uses the scripts the project's package.json declares.
 //
 // The three script names are the ones that mean "a gate" rather than "a build
-// step": lint, typecheck and test. `build` is deliberately NOT among them - a
+// step": lint, typecheck, test and the coverage script. `build` is deliberately NOT among them - a
 // project can have a build that needs credentials, a network or five minutes of
 // compilation, and a validator that cannot run is a run that cannot finish.
 func (a *Anchor) npmChecks(timeout time.Duration) []config.Check {
@@ -276,7 +296,8 @@ func (a *Anchor) npmChecks(timeout time.Duration) []config.Check {
 		return nil
 	}
 	var out []config.Check
-	for _, name := range []string{"lint", "typecheck", "test"} {
+	// test:coverage and coverage are where a project keeps its minimum: a task that lowers it must fail.
+	for _, name := range []string{"lint", "typecheck", "test", "test:coverage", "coverage"} {
 		if script, declared := pkg.Scripts[name]; declared && !trivialCommand(script) {
 			out = append(out, config.Check{
 				Name:       "npm " + name,

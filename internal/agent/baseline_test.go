@@ -459,3 +459,17 @@ func TestARunCannotBuyAPassByDeletingTests(t *testing.T) {
 		t.Error("a configured anchor has no test floor")
 	}
 }
+
+// TestATaskStartsFromTheProjectsTestFloor: tests deleted BEFORE the task began still fail its PASS,
+// because the task is held to the most tests the project has had.
+func TestATaskStartsFromTheProjectsTestFloor(t *testing.T) {
+	e := mount(t, idleServer(t), config.Anchor{Kind: "auto", Timeout: 10 * time.Second}, nil)
+	a := e.agent
+	a.SetTestsFloor(5)
+	if a.testsFloor != 5 {
+		t.Fatalf("floor not kept: %d", a.testsFloor)
+	}
+	if got := max(a.testCount(), a.testsFloor); got != 5 {
+		t.Fatalf("a tree below the floor starts at the floor, got %d", got)
+	}
+}

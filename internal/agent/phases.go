@@ -290,7 +290,11 @@ func (a *Agent) describeAutoRules() string {
 	sb.WriteString("- Run these same commands yourself BEFORE claiming done and fix what they report: a claim the gate " +
 		"refuses costs one of your limited attempts, and running them first costs nothing.\n" +
 		"- Do not change the gate itself (.motita/anchor, the Makefile, package.json scripts): a PASS from a changed " +
-		"gate is not accepted without the user's approval.\n")
+		"gate is not accepted without the user's approval.\n" +
+		"- Never lower a test or coverage minimum, delete or skip tests to get a green run: fewer tests than the " +
+		"project had is refused. New or changed code comes with its tests, and a requirement the user stated about " +
+		"tests or coverage is met and measured, not assumed. Run the tests and the coverage again after every fix.\n" +
+		"- If a check cannot be run here, say so in the report as NOT verified; never present it as passed.\n")
 	return sb.String()
 }
 
