@@ -120,7 +120,49 @@ func goTestRule(args []string) (string, bool) {
 			return why, true
 		}
 	}
-	return flagTestRule(args, goTestExtra...)
+	return flagTestRule(withoutCoverProfile(args), goTestExtra...)
+}
+
+// coverProfileExts are the extensions a coverage profile may have: `coverage.out`, `cover.cov`.
+var coverProfileExts = []string{".out", ".cov", ".coverprofile"}
+
+// withoutCoverProfile drops `-coverprofile NAME` (or `=NAME`) when NAME is a bare file name with a
+// profile extension, so measuring coverage in plan mode is possible and cannot name `go.mod`, a path
+// outside the folder or a hidden file. Any other target is left in args, where it is refused.
+func withoutCoverProfile(args []string) []string {
+	var out []string
+	for i := 0; i < len(args); i++ {
+		name, value, glued := strings.Cut(strings.TrimLeft(args[i], "-"), "=")
+		if !strings.HasPrefix(args[i], "-") || name != "coverprofile" {
+			out = append(out, args[i])
+			continue
+		}
+		next := i + 1
+		if !glued && next < len(args) {
+			value = args[next]
+		}
+		if !coverProfileName(value) {
+			out = append(out, args[i])
+			continue
+		}
+		if !glued {
+			i++
+		}
+	}
+	return out
+}
+
+// coverProfileName reports whether name is a bare, visible file name with a profile extension.
+func coverProfileName(name string) bool {
+	if name == "" || strings.HasPrefix(name, ".") || strings.ContainsAny(name, `/\:`) {
+		return false
+	}
+	for _, e := range coverProfileExts {
+		if strings.HasSuffix(name, e) {
+			return true
+		}
+	}
+	return false
 }
 
 // scriptTestRule allows `npm test`, `npm run test:unit` and their pnpm and yarn forms; the
