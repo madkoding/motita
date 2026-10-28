@@ -11,7 +11,8 @@ func TestCutBuildsParentsPerSectionAndChildrenPerParagraph(t *testing.T) {
 	if len(parents) != 3 {
 		t.Fatalf("parents = %+v", parents)
 	}
-	if got := strings.Join(parents[2].trail, "|"); got != "Hiring|Offers|Bands" || parents[2].line != 15 || parents[2].entry != 7 {
+	third := parents[2]
+	if got := strings.Join(third.trail, "|"); got != "Hiring|Offers|Bands" || third.line != 15 || third.entry != 7 {
 		t.Errorf("third parent = %+v", parents[2])
 	}
 	if len(kids) != 3 || kids[0].text != "How we hire." || kids[0].line != 7 || kids[0].parent != 0 {
@@ -64,8 +65,10 @@ func TestLongSectionsAndParagraphsAreCut(t *testing.T) {
 			t.Errorf("a child of %d runes", n)
 		}
 	}
-	pieces := splitRunes(strings.Repeat("ab ", 400), 100)
-	for _, p := range pieces {
+}
+
+func TestSplitRunesCutsAtSpacesAndHardWhenThereIsNone(t *testing.T) {
+	for _, p := range splitRunes(strings.Repeat("ab ", 400), 100) {
 		if len([]rune(p)) > 100 || strings.HasSuffix(p, " ") {
 			t.Errorf("piece %q", p)
 		}

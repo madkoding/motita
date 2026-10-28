@@ -47,7 +47,8 @@ func fold(r rune) rune {
 var stopwords = func() map[string]bool {
 	m := map[string]bool{}
 	english := "the an of and to in is it for on with as at by or be are was this that from"
-	spanish := "de la el los las un una unos unas y o en que por para con se del al es lo su sus como mas pero sin sobre" // spanish-fixture: stopwords of the second language of the memory
+	spanish := "de la el los las un una unos unas y o en que por para " + // spanish-fixture: stopwords
+		"con se del al es lo su sus como mas pero sin sobre" // spanish-fixture: stopwords
 	for _, w := range strings.Fields(english + " " + spanish) {
 		m[w] = true
 	}

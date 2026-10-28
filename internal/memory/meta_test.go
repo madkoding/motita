@@ -7,7 +7,8 @@ import (
 
 func TestParseMetaReadsFrontMatter(t *testing.T) {
 	mod := time.Date(2020, 1, 1, 0, 0, 0, 0, time.UTC)
-	body := "---\nauthor: \"Ana\"\nDate: 2026-03-10\ntags: [salary, #offers, \"x\"]\nno colon here\nmood: fine\n---\n# Title\n"
+	body := "---\nauthor: \"Ana\"\nDate: 2026-03-10\ntags: [salary, #offers, \"x\"]\n" +
+		"no colon here\nmood: fine\n---\n# Title\n"
 	m, rest, skipped := ParseMeta(body, mod)
 	if m.Author != "Ana" || m.Date.Format("2006-01-02") != "2026-03-10" || len(m.Tags) != 3 || m.Tags[1] != "offers" {
 		t.Errorf("meta = %+v", m)
@@ -90,7 +91,9 @@ func TestTermsFoldAccentsStopwordsAndPlurals(t *testing.T) {
 			t.Errorf("terms[%d] = %q, want %q", i, got[i], want[i])
 		}
 	}
-	if got := terms("áéíóú àèìòù äëïöü âêîôû"); got[0] != "aeiou" || got[1] != "aeiou" || got[2] != "aeiou" || got[3] != "aeiou" {
-		t.Errorf("folded = %v", got)
+	for i, w := range terms("áéíóú àèìòù äëïöü âêîôû") { // spanish-fixture: accent folding
+		if w != "aeiou" {
+			t.Errorf("folded[%d] = %q", i, w)
+		}
 	}
 }

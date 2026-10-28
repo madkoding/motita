@@ -20,8 +20,10 @@ func corpus(t *testing.T) *Store {
 		"The first week: laptop, accounts, buddy. Payroll forms are signed on day one. Back to [[Hiring]].\n")
 	write(t, v, "Engineering/Deploys.md", "# Deploys\n\n## Rollback\n\nTo roll back a release run the rollback script "+
 		"and check the dashboards. Incident reviews are written in [[Postmortems]].\n")
-	write(t, v, "Engineering/Postmortems.md", "# Postmortems\n\nAfter every outage we write what failed. The rollback of 2026-02 took ten minutes.\n")
-	write(t, v, "Inbox.md", "Pick up the política de vacaciones from the office. Café con Ana.\n") // spanish-fixture: accent folding
+	write(t, v, "Engineering/Postmortems.md",
+		"# Postmortems\n\nAfter every outage we write what failed. The rollback of 2026-02 took ten minutes.\n")
+	write(t, v, "Inbox.md", // spanish-fixture: accent folding
+		"Pick up the política de vacaciones from the office. Café con Ana.\n") // spanish-fixture: accent folding
 	return v
 }
 
@@ -140,7 +142,10 @@ func TestGraphAddsTheEntriesLinkedToTheBestOnes(t *testing.T) {
 	if len(res.Hits) != 1 || res.Hits[0].Path != "Engineering/Deploys.md" {
 		t.Fatalf("hits = %+v", res.Hits)
 	}
-	if len(res.Related) != 1 || res.Related[0].Path != "Engineering/Postmortems.md" || res.Related[0].Via != "[[Deploys]]" {
+	if len(res.Related) != 1 {
+		t.Fatalf("related = %+v", res.Related)
+	}
+	if r := res.Related[0]; r.Path != "Engineering/Postmortems.md" || r.Via != "[[Deploys]]" {
 		t.Fatalf("related = %+v", res.Related)
 	}
 	if len(res.Edges) != 1 || res.Edges[0] != (Edge{"Engineering/Deploys.md", "Engineering/Postmortems.md"}) {
@@ -356,7 +361,10 @@ func TestEmbeddingCapAndMismatchedVectors(t *testing.T) {
 func TestNamespacesListTheCollections(t *testing.T) {
 	v := corpus(t)
 	got := v.Namespaces()
-	if len(got) != 3 || got[0].Name != "" || got[1].Name != "Engineering" || got[1].Entries != 2 || got[2].Name != "HR" {
+	if len(got) != 3 {
+		t.Fatalf("namespaces = %+v", got)
+	}
+	if got[0].Name != "" || got[1].Name != "Engineering" || got[2].Name != "HR" || got[1].Entries != 2 {
 		t.Errorf("namespaces = %+v", got)
 	}
 	if got[2].Modified.IsZero() || got[2].Modified.After(time.Now().Add(time.Minute)) {
@@ -367,15 +375,20 @@ func TestNamespacesListTheCollections(t *testing.T) {
 	}
 }
 
+// letters is a short distinct name for the i-th generated entry or section.
+func letters(i int) string {
+	return string(rune('a'+i%26)) + string(rune('a'+i/26))
+}
+
 func TestGroupingUsesTheBestChildAndThePool(t *testing.T) {
 	v := Open(t.TempDir())
 	var b strings.Builder
 	for i := 0; i < pool+20; i++ {
-		b.WriteString("## S" + string(rune('A'+i%26)) + string(rune('a'+i/26)) + "\n\nshared token alpha " + strings.Repeat("filler ", i%7) + "\n\n")
+		b.WriteString("## S" + letters(i) + "\n\nshared token alpha " + strings.Repeat("filler ", i%7) + "\n\n")
 	}
 	write(t, v, "Many.md", b.String())
 	for i := 0; i < 30; i++ {
-		write(t, v, "e"+string(rune('a'+i%26))+string(rune('a'+i/26))+".md", "shared token alpha beta"+strings.Repeat(" more", i))
+		write(t, v, "e"+letters(i)+".md", "shared token alpha beta"+strings.Repeat(" more", i))
 	}
 	res := v.Search(context.Background(), Query{Text: "shared token alpha beta", Limit: MaxLimit})
 	if len(res.Hits) == 0 || len(res.Hits) > MaxLimit {
@@ -393,8 +406,12 @@ func TestSnippetsAreClipped(t *testing.T) {
 	v := Open(t.TempDir())
 	write(t, v, "Long.md", "# Long\n\n"+strings.Repeat("needle ", 100))
 	res := v.Search(context.Background(), Query{Text: "needle"})
-	if len(res.Hits) != 1 || !strings.HasSuffix(res.Hits[0].Snippet, "…") || len([]rune(res.Hits[0].Snippet)) > snippetRunes+1 {
-		t.Errorf("snippet = %q", res.Hits[0].Snippet)
+	if len(res.Hits) != 1 {
+		t.Fatalf("hits = %+v", res.Hits)
+	}
+	snippet := res.Hits[0].Snippet
+	if !strings.HasSuffix(snippet, "…") || len([]rune(snippet)) > snippetRunes+1 {
+		t.Errorf("snippet = %q", snippet)
 	}
 }
 

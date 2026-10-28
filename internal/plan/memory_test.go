@@ -72,10 +72,12 @@ func TestSearchMemoryToolPassesTheCollectionAndTheGraph(t *testing.T) {
 		fn := llm.FunctionCall{Name: "search_memory", Arguments: raw(args)}
 		return p.dispatchTool(context.Background(), llm.ToolCall{Function: fn})
 	}
-	if out := call(`{"query":"salary bands","namespace":"HR"}`); !strings.Contains(out, "HR/Hiring.md") || strings.Contains(out, "Eng/") {
+	out := call(`{"query":"salary bands","namespace":"HR"}`)
+	if !strings.Contains(out, "HR/Hiring.md") || strings.Contains(out, "Eng/") {
 		t.Errorf("namespace = %q", out)
 	}
-	if out := call(`{"query":"salary bands","namespace":"HR","graph":true}`); !strings.Contains(out, "Related through links") {
-		t.Errorf("graph = %q", out)
+	graph := call(`{"query":"salary bands","namespace":"HR","graph":true}`)
+	if !strings.Contains(graph, "Related through links") {
+		t.Errorf("graph = %q", graph)
 	}
 }

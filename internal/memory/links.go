@@ -130,6 +130,20 @@ func contextOf(body string, l Link) string {
 	return ""
 }
 
+// movedLink answers, for the target of a link, the new target when it led to the entry src: the
+// full path for a link written with one, the bare name otherwise.
+func movedLink(before []Entry, src, full, bare string) func(string) (string, bool) {
+	return func(target string) (string, bool) {
+		if got, ok := Resolve(before, target); !ok || got != src {
+			return "", false
+		}
+		if strings.Contains(target, "/") {
+			return full, true
+		}
+		return bare, true
+	}
+}
+
 // RenameLinked moves an entry like Rename and rewrites the [[links]] of the other entries that led to
 // it, so none of them is left pointing nowhere. It returns how many entries it rewrote. Links in
 // code and the heading and alias of a link are kept.
@@ -156,15 +170,7 @@ func (v *Store) RenameLinked(from, to string) (int, error) {
 		if err != nil {
 			continue
 		}
-		next := rewriteLinks(body, func(target string) (string, bool) {
-			if got, ok := Resolve(before, target); !ok || got != src {
-				return "", false
-			}
-			if strings.Contains(target, "/") {
-				return full, true
-			}
-			return bare, true
-		})
+		next := rewriteLinks(body, movedLink(before, src, full, bare))
 		if next == body {
 			continue
 		}

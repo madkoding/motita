@@ -26,27 +26,8 @@ func embedded(ctx context.Context, ix *index, e Embedder, id, query string, keep
 	if c.id != id {
 		c.id, c.m = id, map[uint64]vec{}
 	}
-	var missing []string
-	var keys []uint64
-	for _, k := range ix.kids {
-		text := k.embedText()
-		key := textKey(text)
-		if _, ok := c.m[key]; !ok && len(c.m)+len(missing) < maxEmbedded {
-			missing, keys = append(missing, text), append(keys, key)
-		}
-	}
-	for start := 0; start < len(missing); start += embedBatch {
-		end := min(start+embedBatch, len(missing))
-		vs, err := e.Embed(ctx, missing[start:end])
-		if err != nil {
-			return nil, err
-		}
-		if len(vs) != end-start {
-			return nil, errors.New("the endpoint answered a different number of vectors than it was sent texts")
-		}
-		for i, v := range vs {
-			c.m[keys[start+i]] = unitOf(v)
-		}
+	if err := fillMissing(ctx, ix, e, c); err != nil {
+		return nil, err
 	}
 	qs, err := e.Embed(ctx, []string{query})
 	if err != nil {
@@ -67,6 +48,33 @@ func embedded(ctx context.Context, ix *index, e Embedder, id, query string, keep
 		}
 	}
 	return rank(score), nil
+}
+
+// fillMissing sends the passages the cache has no vector for, in batches, up to maxEmbedded kept.
+func fillMissing(ctx context.Context, ix *index, e Embedder, c *embedCache) error {
+	var missing []string
+	var keys []uint64
+	for _, k := range ix.kids {
+		text := k.embedText()
+		key := textKey(text)
+		if _, ok := c.m[key]; !ok && len(c.m)+len(missing) < maxEmbedded {
+			missing, keys = append(missing, text), append(keys, key)
+		}
+	}
+	for start := 0; start < len(missing); start += embedBatch {
+		end := min(start+embedBatch, len(missing))
+		vs, err := e.Embed(ctx, missing[start:end])
+		if err != nil {
+			return err
+		}
+		if len(vs) != end-start {
+			return errors.New("the endpoint answered a different number of vectors than it was sent texts")
+		}
+		for i, v := range vs {
+			c.m[keys[start+i]] = unitOf(v)
+		}
+	}
+	return nil
 }
 
 // unitOf is v scaled to length one (a zero vector stays zero).

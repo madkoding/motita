@@ -29,13 +29,11 @@ func memoryCall(t *testing.T, srv *Server, method, path, body string) *httptest.
 
 func entryPath(p string) string { return "/v1/memory/entry?path=" + url.QueryEscape(p) }
 
-func TestEntriesAreCreatedReadLinkedAndDeleted(t *testing.T) {
+// seedEntries makes the memory of two entries that link to each other, one of them in a folder.
+func seedEntries(t *testing.T) (*Server, string) {
+	t.Helper()
 	srv, dir := memoryServer(t)
-	w := memoryCall(t, srv, http.MethodGet, "/v1/memory", "")
-	if w.Code != http.StatusOK || !strings.Contains(w.Body.String(), `"entries":[]`) {
-		t.Fatalf("empty memory: %d %s", w.Code, w.Body)
-	}
-	w = memoryCall(t, srv, http.MethodPut, entryPath("Japan.md"), `{"body":"# Japan\nSee [[Peru]]","create":true}`)
+	w := memoryCall(t, srv, http.MethodPut, entryPath("Japan.md"), `{"body":"# Japan\nSee [[Peru]]","create":true}`)
 	if w.Code != http.StatusOK {
 		t.Fatalf("create: %d %s", w.Code, w.Body)
 	}
@@ -45,6 +43,16 @@ func TestEntriesAreCreatedReadLinkedAndDeleted(t *testing.T) {
 	if w.Code != http.StatusOK {
 		t.Fatalf("create in a folder: %d %s", w.Code, w.Body)
 	}
+	return srv, dir
+}
+
+func TestEntriesAreCreatedAndListed(t *testing.T) {
+	empty, _ := memoryServer(t)
+	w := memoryCall(t, empty, http.MethodGet, "/v1/memory", "")
+	if w.Code != http.StatusOK || !strings.Contains(w.Body.String(), `"entries":[]`) {
+		t.Fatalf("empty memory: %d %s", w.Code, w.Body)
+	}
+	srv, dir := seedEntries(t)
 	w = memoryCall(t, srv, http.MethodPut, entryPath("Japan.md"), `{"body":"x","create":true}`)
 	if w.Code != http.StatusConflict {
 		t.Errorf("create twice: %d", w.Code)
@@ -52,39 +60,53 @@ func TestEntriesAreCreatedReadLinkedAndDeleted(t *testing.T) {
 	if _, err := os.Stat(filepath.Join(dir, "trips", "Peru.md")); err != nil {
 		t.Errorf("the entry is a plain file: %v", err)
 	}
-
 	var list struct {
 		Root       string
 		Entries    []struct{ Path, Title string }
 		Namespaces []memory.NamespaceInfo
 	}
 	w = memoryCall(t, srv, http.MethodGet, "/v1/memory", "")
-	err := json.Unmarshal(w.Body.Bytes(), &list)
-	if err != nil || len(list.Entries) != 2 || list.Root != dir || list.Entries[0].Title != "Japan" ||
-		len(list.Namespaces) != 2 || list.Namespaces[1].Name != "trips" {
+	if err := json.Unmarshal(w.Body.Bytes(), &list); err != nil {
 		t.Fatalf("list = %s", w.Body)
 	}
+	if len(list.Entries) != 2 || list.Root != dir || list.Entries[0].Title != "Japan" {
+		t.Errorf("list = %s", w.Body)
+	}
+	if len(list.Namespaces) != 2 || list.Namespaces[1].Name != "trips" {
+		t.Errorf("namespaces = %s", w.Body)
+	}
+}
 
+func TestEntriesAreReadWithLinksBacklinksAndMeta(t *testing.T) {
+	srv, _ := seedEntries(t)
 	var view struct {
 		Body      string
 		Meta      memory.Meta
 		Links     []struct{ Target, Path string }
 		Backlinks []struct{ Path, Context string }
 	}
-	w = memoryCall(t, srv, http.MethodGet, entryPath("Japan.md"), "")
-	if err := json.Unmarshal(w.Body.Bytes(), &view); err != nil ||
-		view.Links[0].Path != "trips/Peru.md" ||
-		len(view.Backlinks) != 1 ||
-		view.Backlinks[0].Path != "trips/Peru.md" {
+	w := memoryCall(t, srv, http.MethodGet, entryPath("Japan.md"), "")
+	if err := json.Unmarshal(w.Body.Bytes(), &view); err != nil {
 		t.Fatalf("view = %s", w.Body)
 	}
+	if len(view.Links) != 1 || view.Links[0].Path != "trips/Peru.md" {
+		t.Errorf("links = %s", w.Body)
+	}
+	if len(view.Backlinks) != 1 || view.Backlinks[0].Path != "trips/Peru.md" {
+		t.Errorf("backlinks = %s", w.Body)
+	}
 	w = memoryCall(t, srv, http.MethodGet, entryPath("trips/Peru.md"), "")
-	if err := json.Unmarshal(w.Body.Bytes(), &view); err != nil || view.Meta.Author != "Ana" ||
-		view.Meta.Date.Format("2006-01-02") != "2026-03-10" {
+	if err := json.Unmarshal(w.Body.Bytes(), &view); err != nil || view.Meta.Author != "Ana" {
 		t.Fatalf("meta = %s", w.Body)
 	}
+	if view.Meta.Date.Format("2006-01-02") != "2026-03-10" {
+		t.Errorf("date = %s", w.Body)
+	}
+}
 
-	w = memoryCall(t, srv, http.MethodPost, "/v1/memory/rename", `{"from":"Japan.md","to":"Nippon.md"}`)
+func TestEntriesAreRenamedAndDeleted(t *testing.T) {
+	srv, _ := seedEntries(t)
+	w := memoryCall(t, srv, http.MethodPost, "/v1/memory/rename", `{"from":"Japan.md","to":"Nippon.md"}`)
 	if w.Code != http.StatusOK || !strings.Contains(w.Body.String(), `"updated":1`) {
 		t.Fatalf("rename: %d %s", w.Code, w.Body)
 	}
@@ -184,7 +206,25 @@ func TestDeletingAFolderRemovesItsEntries(t *testing.T) {
 	}
 }
 
-func TestMemorySearchRecallsByCollectionAuthorAndDate(t *testing.T) {
+type searchAnswer struct {
+	Hits, Related []memory.Hit
+	Edges         []memory.Edge
+	Warning       string
+}
+
+// memorySearcher asks the memory of srv and decodes the answer.
+func memorySearcher(t *testing.T, srv *Server) func(q string) searchAnswer {
+	return func(q string) (out searchAnswer) {
+		w := memoryCall(t, srv, http.MethodGet, "/v1/memory/search?"+q, "")
+		if err := json.Unmarshal(w.Body.Bytes(), &out); err != nil || w.Code != http.StatusOK {
+			t.Fatalf("%s: %d %s", q, w.Code, w.Body)
+		}
+		return out
+	}
+}
+
+// seedHR fills the memory with two collections and returns its searcher.
+func seedHR(t *testing.T) func(q string) searchAnswer {
 	srv, _ := memoryServer(t)
 	put := func(p, body string) {
 		b, _ := json.Marshal(map[string]any{"body": body})
@@ -192,20 +232,16 @@ func TestMemorySearchRecallsByCollectionAuthorAndDate(t *testing.T) {
 			t.Fatalf("put %s: %d %s", p, w.Code, w.Body)
 		}
 	}
-	put("HR/Hiring.md", "---\nauthor: Ana\ndate: 2026-03-10\n---\n# Hiring\n\n## Salary bands\n\nSenior engineers top out at 90k. See [[Onboarding]].")
-	put("HR/Onboarding.md", "---\nauthor: Luis\ndate: 2025-01-05\n---\n# Onboarding\n\nFirst week: laptop and salary forms.")
+	put("HR/Hiring.md", "---\nauthor: Ana\ndate: 2026-03-10\n---\n# Hiring\n\n## Salary bands\n\n"+
+		"Senior engineers top out at 90k. See [[Onboarding]].")
+	put("HR/Onboarding.md", "---\nauthor: Luis\ndate: 2025-01-05\n---\n# Onboarding\n\n"+
+		"First week: laptop and salary forms.")
 	put("Eng/Salary notes.md", "# Salary notes\n\nSalary bands of the platform team.")
-	search := func(q string) (out struct {
-		Hits, Related []memory.Hit
-		Edges         []memory.Edge
-		Warning       string
-	}) {
-		w := memoryCall(t, srv, http.MethodGet, "/v1/memory/search?"+q, "")
-		if err := json.Unmarshal(w.Body.Bytes(), &out); err != nil || w.Code != http.StatusOK {
-			t.Fatalf("%s: %d %s", q, w.Code, w.Body)
-		}
-		return out
-	}
+	return memorySearcher(t, srv)
+}
+
+func TestMemorySearchStaysInACollectionAndSignsItsAnswers(t *testing.T) {
+	search := seedHR(t)
 	if hits := search("q=salary+bands").Hits; len(hits) != 3 {
 		t.Errorf("all = %+v", hits)
 	}
@@ -218,24 +254,30 @@ func TestMemorySearchRecallsByCollectionAuthorAndDate(t *testing.T) {
 			t.Errorf("hiring = %+v", h)
 		}
 	}
-	if got := search("q=salary&author=luis").Hits; len(got) != 1 || got[0].Path != "HR/Onboarding.md" {
-		t.Errorf("author = %+v", got)
-	}
-	if got := search("q=salary&since=2026-01-01&namespace=HR").Hits; len(got) != 1 || got[0].Path != "HR/Hiring.md" {
-		t.Errorf("since = %+v", got)
-	}
-	if got := search("q=salary&until=2025-12-31&namespace=HR").Hits; len(got) != 1 || got[0].Path != "HR/Onboarding.md" {
-		t.Errorf("until = %+v", got)
-	}
+}
+
+func TestMemorySearchFiltersByAuthorAndDate(t *testing.T) {
+	search := seedHR(t)
 	// filters can be written in the query itself, and the parameters win over them
-	if got := search("q=salary+ns%3AEng").Hits; len(got) != 1 || got[0].Path != "Eng/Salary notes.md" {
-		t.Errorf("inline = %+v", got)
+	for q, want := range map[string]string{
+		"q=salary&author=luis":                   "HR/Onboarding.md",
+		"q=salary&since=2026-01-01&namespace=HR": "HR/Hiring.md",
+		"q=salary&until=2025-12-31&namespace=HR": "HR/Onboarding.md",
+		"q=salary+ns%3AEng":                      "Eng/Salary notes.md",
+	} {
+		if got := search(q).Hits; len(got) != 1 || got[0].Path != want {
+			t.Errorf("%s = %+v, want %s", q, got, want)
+		}
 	}
 	if got := search("q=salary+ns%3AEng&namespace=HR").Hits; len(got) == 0 || got[0].Namespace != "HR" {
 		t.Errorf("param wins = %+v", got)
 	}
+}
+
+func TestMemorySearchFollowsLinksOnRequest(t *testing.T) {
+	search := seedHR(t)
 	g := search("q=senior+engineers&limit=1&graph=1&namespace=HR")
-	if len(g.Hits) != 1 || len(g.Related) != 1 || g.Related[0].Path != "HR/Onboarding.md" || len(g.Edges) != 1 {
+	if len(g.Hits) != 1 || len(g.Related) != 1 || len(g.Edges) != 1 || g.Related[0].Path != "HR/Onboarding.md" {
 		t.Errorf("graph = %+v", g)
 	}
 	if got := search("q=").Hits; len(got) != 0 {
@@ -259,8 +301,9 @@ func TestMemorySearchUsesTheEmbeddingsOfTheCodeIndex(t *testing.T) {
 	}
 	emb := httptest.NewServer(http.HandlerFunc(sea))
 	t.Cleanup(emb.Close)
-	cfg := networkConfig(t, "llm:\n  provider: openai\ncode_index:\n  enabled: true\n  embeddings_auto: false\n  embeddings_url: "+
-		emb.URL+"\n  embeddings_model: m\n  cache_dir: "+t.TempDir()+"\n")
+	cfg := networkConfig(t, "llm:\n  provider: openai\ncode_index:\n  enabled: true\n"+
+		"  embeddings_auto: false\n  embeddings_url: "+emb.URL+
+		"\n  embeddings_model: m\n  cache_dir: "+t.TempDir()+"\n")
 	srv, _ := memoryServer(t, func(o *Options) { o.ConfigPath = cfg })
 	memoryCall(t, srv, http.MethodPut, entryPath("Sea.md"), `{"body":"# Sea\n\nThe waves were calm."}`)
 	memoryCall(t, srv, http.MethodPut, entryPath("Garden.md"), `{"body":"# Garden\n\nTomatoes need water."}`)

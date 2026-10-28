@@ -33,8 +33,10 @@ func memoryTools() []llm.Tool {
 			"plans or projects. Narrow it with namespace (a collection) or with author:, since: and until: in the "+
 			"query; set graph for a question about how things relate, to also get the entries linked to the best answers.",
 			llm.ObjectSchema(map[string]any{
-				"query":     llm.StringProperty("The words to look for, with optional author:Name since:2026-01-31 until:2026-12-31."),
-				"namespace": llm.StringProperty("Only this collection (the first folder of an entry), for example \"Engineering\"."),
+				"query": llm.StringProperty(
+					"The words to look for, with optional author:Name since:2026-01-31 until:2026-12-31."),
+				"namespace": llm.StringProperty(
+					"Only this collection (the first folder of an entry), for example \"Engineering\"."),
 				"graph": map[string]any{
 					"type": "boolean", "description": "Also return the entries linked to the best answers.",
 				},

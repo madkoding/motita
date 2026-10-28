@@ -90,12 +90,7 @@ func ParseQuery(raw string) Query {
 		case ok && k == "author" && val != "":
 			q.Author = val
 		case ok && (k == "since" || k == "until") && isDate(val):
-			t, _ := ParseDate(val)
-			if k == "since" {
-				q.Since = t
-			} else {
-				q.Until = t.Add(24*time.Hour - time.Nanosecond)
-			}
+			q.setDate(k, val)
 		case ok && k == "graph" && (val == "1" || val == "true"):
 			q.Graph = true
 		default:
@@ -106,7 +101,20 @@ func ParseQuery(raw string) Query {
 	return q
 }
 
-func isDate(s string) bool { _, ok := ParseDate(s); return ok }
+// setDate sets the since or until bound (key) from a date; until takes the whole of its day.
+func (q *Query) setDate(key, val string) {
+	t, _ := ParseDate(val)
+	if key == "since" {
+		q.Since = t
+		return
+	}
+	q.Until = t.Add(24*time.Hour - time.Nanosecond)
+}
+
+func isDate(s string) bool {
+	_, ok := ParseDate(s)
+	return ok
+}
 
 // splitQuery splits on spaces but keeps a quoted value, as in ns:"Two words", in one token.
 func splitQuery(s string) []string {
@@ -311,6 +319,23 @@ func (ix *index) related(hits []Hit, fused map[int]float64, q Query) ([]Hit, []E
 	for i, e := range ix.entries {
 		at[e.Path] = i
 	}
+	seeds, seen := seedsOf(hits, at)
+	touch, via := ix.neighbours(seeds, seen, q)
+	var related []Hit
+	for _, n := range mostTouched(touch) {
+		p, kid := ix.bestParent(n, fused)
+		if p < 0 {
+			continue
+		}
+		h := ix.hit(p, kid, fused[kid])
+		h.Via = "[[" + ix.entries[via[n]].Title + "]]"
+		related = append(related, h)
+	}
+	return related, ix.edgesAmong(hits, related, at)
+}
+
+// seedsOf are the first entries the hits belong to (at most graphSeeds), and the set of them.
+func seedsOf(hits []Hit, at map[string]int) ([]int, map[int]bool) {
 	var seeds []int
 	seen := map[int]bool{}
 	for _, h := range hits {
@@ -319,8 +344,13 @@ func (ix *index) related(hits []Hit, fused map[int]float64, q Query) ([]Hit, []E
 			seeds = append(seeds, i)
 		}
 	}
-	touch := map[int]int{}
-	via := map[int]int{}
+	return seeds, seen
+}
+
+// neighbours counts, for each entry linked to or from a seed, how many seeds touch it, and names
+// the first seed that did.
+func (ix *index) neighbours(seeds []int, seen map[int]bool, q Query) (touch, via map[int]int) {
+	touch, via = map[int]int{}, map[int]int{}
 	for _, sd := range seeds {
 		for _, n := range append(append([]int{}, ix.out[sd]...), ix.in[sd]...) {
 			if seen[n] || !q.allows(ix.entries[n]) {
@@ -332,6 +362,11 @@ func (ix *index) related(hits []Hit, fused map[int]float64, q Query) ([]Hit, []E
 			touch[n]++
 		}
 	}
+	return touch, via
+}
+
+// mostTouched orders the entries touching most seeds first, at most graphExtra of them.
+func mostTouched(touch map[int]int) []int {
 	cands := make([]int, 0, len(touch))
 	for n := range touch {
 		cands = append(cands, n)
@@ -345,17 +380,7 @@ func (ix *index) related(hits []Hit, fused map[int]float64, q Query) ([]Hit, []E
 	if len(cands) > graphExtra {
 		cands = cands[:graphExtra]
 	}
-	var related []Hit
-	for _, n := range cands {
-		p, kid := ix.bestParent(n, fused)
-		if p < 0 {
-			continue
-		}
-		h := ix.hit(p, kid, fused[kid])
-		h.Via = "[[" + ix.entries[via[n]].Title + "]]"
-		related = append(related, h)
-	}
-	return related, ix.edgesAmong(hits, related, at)
+	return cands
 }
 
 // bestParent is the parent of entry n whose child scored best, or its first parent.

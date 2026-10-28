@@ -78,7 +78,10 @@ func headingLevel(line string) (int, string) {
 	for n < len(line) && line[n] == '#' {
 		n++
 	}
-	if n == 0 || n > 6 || len(line) <= n || (line[n] != ' ' && line[n] != '\t') {
+	if n == 0 || n > 6 || len(line) <= n {
+		return 0, ""
+	}
+	if line[n] != ' ' && line[n] != '\t' {
 		return 0, ""
 	}
 	return n, strings.TrimSpace(strings.TrimRight(strings.TrimSpace(line[n:]), "#"))
