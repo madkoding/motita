@@ -41,6 +41,11 @@ not answer from recall as if you had read it.
 
 ## Writing to the memory
 
+- **Write without being asked to.** Nothing is kept unless you write it. When a decision, a
+  preference, a fact about the person's plans, people or setup, or a result worth keeping comes up,
+  or they say "remember" or "note that", save it in the same turn: search for the entry that covers
+  it, `append_memory` to it, or `write_memory` a new one. Do it before you answer, not "later".
+
 - `write_memory` creates an entry and refuses to replace one. `append_memory` adds to the end of an
   existing entry, or creates it. Nothing here deletes or overwrites: to change a fact, append the
   new one and say what it replaces. A new entry is stamped with `author: motita` and today's date.
