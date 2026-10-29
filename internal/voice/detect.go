@@ -35,8 +35,8 @@ const maxDetectBody = 64 << 10
 const maxDetectModels = 20
 
 // DetectSpeech looks for OpenAI-compatible speech servers on this machine: DetectPorts and ports
-// (voice.tts.detect_ports) on the loopback, with and without the /v1 prefix, and extra (the configured base_url) when it too is on
-// the loopback. A candidate is probed with OPTIONS {base}/audio/speech and GET {base}/models, and
+// (voice.tts.detect_ports) on the loopback, with and without the /v1 prefix, and extra (the
+// configured base_url) when it too is on the loopback. A candidate is probed with OPTIONS {base}/audio/speech and GET {base}/models, and
 // neither carries any text: nothing the person wrote ever reaches a server that was only looked at.
 // A base is never followed through a redirect. The result is in probe order, without repeats.
 func DetectSpeech(ctx context.Context, ports []int, extra ...string) []Endpoint {
