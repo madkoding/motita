@@ -123,36 +123,50 @@ func (c Config) TTSVoices() []string {
 	return out
 }
 
-// validateTTS checks the tts block. A disabled block is not checked.
-func (c *Config) validateTTS() error {
-	t := &c.Voice.TTS
+// normalize trims the tts block and fills what only the API's name implies.
+func (t *TTS) normalize() {
 	t.Model, t.Voice = strings.TrimSpace(t.Model), strings.TrimSpace(t.Voice)
 	t.Format = strings.ToLower(strings.TrimSpace(t.Format))
 	t.API = strings.ToLower(strings.TrimSpace(t.API))
 	if t.API == "" {
 		t.API = TTSAPIOpenAI
 	}
-	if t.API == TTSAPIDashScope {
-		// Only the API was named: the OpenAI defaults of the model and the voice mean nothing here.
-		if t.Model == defaultTTSModel {
-			t.Model = dashScopeTTSModel
-		}
-		if t.Voice == defaultTTSVoice {
-			t.Voice = dashScopeTTSVoice
-		}
-		if t.MaxChars == defaultTTSMaxChars {
-			t.MaxChars = dashScopeTTSMaxChars
-		}
+	if t.API != TTSAPIDashScope {
+		return
 	}
+	// Only the API was named: the OpenAI defaults of the model, voice and cap mean nothing here.
+	if t.Model == defaultTTSModel {
+		t.Model = dashScopeTTSModel
+	}
+	if t.Voice == defaultTTSVoice {
+		t.Voice = dashScopeTTSVoice
+	}
+	if t.MaxChars == defaultTTSMaxChars {
+		t.MaxChars = dashScopeTTSMaxChars
+	}
+}
+
+// validateAPI checks the protocol and what only it limits.
+func (t TTS) validateAPI() error {
+	switch {
+	case t.API != TTSAPIOpenAI && t.API != TTSAPIDashScope:
+		return fmt.Errorf("voice.tts.api %q is not one of %s, %s", t.API, TTSAPIOpenAI, TTSAPIDashScope)
+	case t.API == TTSAPIDashScope && t.MaxChars > dashScopeTTSMaxChars:
+		return fmt.Errorf("voice.tts.max_chars is %d: DashScope takes at most %d characters per request",
+			t.MaxChars, dashScopeTTSMaxChars)
+	}
+	return nil
+}
+
+// validateTTS checks the tts block. A disabled block is not checked.
+func (c *Config) validateTTS() error {
+	t := &c.Voice.TTS
+	t.normalize()
 	if !t.Enabled {
 		return nil
 	}
-	if t.API != TTSAPIOpenAI && t.API != TTSAPIDashScope {
-		return fmt.Errorf("voice.tts.api %q is not one of %s, %s", t.API, TTSAPIOpenAI, TTSAPIDashScope)
-	}
-	if t.API == TTSAPIDashScope && t.MaxChars > dashScopeTTSMaxChars {
-		return fmt.Errorf("voice.tts.max_chars is %d: DashScope takes at most %d characters per request",
-			t.MaxChars, dashScopeTTSMaxChars)
+	if err := t.validateAPI(); err != nil {
+		return err
 	}
 	if t.MaxChars < 0 {
 		return fmt.Errorf("voice.tts.max_chars is %d: it cannot be negative (0 means the built-in default)", t.MaxChars)

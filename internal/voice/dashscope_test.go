@@ -37,7 +37,10 @@ func TestSpeakDashScopeFetchesTheAudioURL(t *testing.T) {
 		}
 	}))
 	defer srv.Close()
-	s := Speaker{API: "dashscope", BaseURL: srv.URL + "/api/v1/", APIKey: "k", Model: "qwen3-tts-flash", Client: srv.Client()}
+	s := Speaker{
+		API: "dashscope", BaseURL: srv.URL + "/api/v1/", APIKey: "k",
+		Model: "qwen3-tts-flash", Client: srv.Client(),
+	}
 	audio, ctype, err := s.Speak(context.Background(), "Hola.", "Cherry")
 	if err != nil || string(audio) != "RIFF" || ctype != "audio/wav" {
 		t.Fatalf("got %q %q %v", audio, ctype, err)
@@ -58,7 +61,9 @@ func TestSpeakDashScopeReportsWhatWentWrong(t *testing.T) {
 			_, _ = w.Write([]byte("nope"))
 		}},
 		{"not json", "not JSON", func(w http.ResponseWriter, _ *http.Request) { _, _ = w.Write([]byte("x")) }},
-		{"no url", "no audio address", func(w http.ResponseWriter, _ *http.Request) { _, _ = w.Write([]byte(`{"output":{}}`)) }},
+		{"no url", "no audio address", func(w http.ResponseWriter, _ *http.Request) {
+			_, _ = w.Write([]byte(`{"output":{}}`))
+		}},
 		{"bad scheme", "no audio address", func(w http.ResponseWriter, _ *http.Request) {
 			_, _ = w.Write([]byte(`{"output":{"audio":{"url":"file:///etc/passwd"}}}`))
 		}},
@@ -100,7 +105,8 @@ func TestSpeakDashScopeAudioFailures(t *testing.T) {
 			t.Errorf("%s: want an error", name)
 		}
 	}
-	if _, _, err := (Speaker{API: "dashscope", BaseURL: "http://127.0.0.1:1"}).Speak(context.Background(), "x", "v"); err == nil {
+	unreachable := Speaker{API: "dashscope", BaseURL: "http://127.0.0.1:1"}
+	if _, _, err := unreachable.Speak(context.Background(), "x", "v"); err == nil {
 		t.Error("an unreachable endpoint must fail")
 	}
 }

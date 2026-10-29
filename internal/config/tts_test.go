@@ -75,8 +75,14 @@ func TestValidateTTS(t *testing.T) {
 		{"clear text remote without key", func(c *Config) { c.Voice.TTS.BaseURL = "http://tts.example.com/v1" }, ""},
 		{"api unknown", func(c *Config) { c.Voice.TTS.API = "polly" }, "voice.tts.api"},
 		{"dashscope", func(c *Config) { c.Voice.TTS.API, c.Voice.TTS.APIKey = " DashScope ", "dk" }, ""},
-		{"dashscope no key", func(c *Config) { c.Voice.TTS.API = "dashscope"; t.Setenv("DASHSCOPE_API_KEY", "") }, "voice.tts.api_key is empty"},
-		{"dashscope key from env", func(c *Config) { c.Voice.TTS.API = "dashscope"; t.Setenv("DASHSCOPE_API_KEY", " ek ") }, ""},
+		{"dashscope no key", func(c *Config) {
+			c.Voice.TTS.API = "dashscope"
+			t.Setenv("DASHSCOPE_API_KEY", "")
+		}, "voice.tts.api_key is empty"},
+		{"dashscope key from env", func(c *Config) {
+			c.Voice.TTS.API = "dashscope"
+			t.Setenv("DASHSCOPE_API_KEY", " ek ")
+		}, ""},
 		{"dashscope too long", func(c *Config) {
 			c.Voice.TTS.API, c.Voice.TTS.APIKey, c.Voice.TTS.MaxChars = "dashscope", "dk", 601
 		}, "at most 600"},
