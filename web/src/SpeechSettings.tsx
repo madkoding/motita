@@ -214,21 +214,21 @@ function engineOptions(
 ): EngineOption[] {
   // Each engine is named by where its voice comes from, and said what that means for the text.
   const engines: EngineOption[] = [];
+  if (hasGateway) {
+    engines.push({
+      value: "gateway",
+      label: t("Voice service"),
+      about: t(
+        "The speech service set up on the gateway, such as Qwen3-TTS: it makes the audio and sends it to this browser, the same voice on every device, with nothing to download. The text of each answer read goes to that service.",
+      ),
+    });
+  }
   if (device) {
     engines.push({
       value: "device",
       label: t("System voices"),
       about: t(
         "The voices this device or browser already has. Nothing leaves the browser.",
-      ),
-    });
-  }
-  if (hasGateway) {
-    engines.push({
-      value: "gateway",
-      label: t("Voice service"),
-      about: t(
-        "The speech service set up on the gateway: the same voice on every device. The text of each answer read goes to that service.",
       ),
     });
   }
@@ -254,9 +254,11 @@ interface EngineOption {
 function EngineAbout({
   engines,
   shown,
+  hasGateway,
 }: {
   engines: EngineOption[];
   shown: SpeechEngine;
+  hasGateway: boolean;
 }) {
   return (
     <ul
@@ -271,6 +273,13 @@ function EngineAbout({
           <span class="font-medium">{e.label}:</span> {e.about}
         </li>
       ))}
+      {!hasGateway && (
+        <li data-testid="settings-speech-gateway-hint">
+          {t(
+            "To read with Qwen3-TTS from the gateway's PC, turn on voice.tts in the configuration.",
+          )}
+        </li>
+      )}
     </ul>
   );
 }
@@ -410,7 +419,13 @@ export function SpeechSettings({
             id="settings-speech-engine"
             label={t("Who speaks")}
             stack
-            hint={<EngineAbout engines={engines} shown={engineShown} />}
+            hint={
+              <EngineAbout
+                engines={engines}
+                shown={engineShown}
+                hasGateway={hasGateway}
+              />
+            }
           >
             <Segmented<SpeechEngine>
               name="settings-speech-engine"
