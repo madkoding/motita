@@ -83,9 +83,6 @@ func TestValidateTTS(t *testing.T) {
 			c.Voice.TTS.API = "dashscope"
 			t.Setenv("DASHSCOPE_API_KEY", " ek ")
 		}, ""},
-		{"dashscope too long", func(c *Config) {
-			c.Voice.TTS.API, c.Voice.TTS.APIKey, c.Voice.TTS.MaxChars = "dashscope", "dk", 601
-		}, "at most 600"},
 		{"clear text local with key", func(c *Config) {
 			c.Voice.TTS.BaseURL, c.Voice.TTS.APIKey = "http://localhost:8880/v1", "tk"
 		}, ""},
@@ -162,8 +159,15 @@ func TestTTSDashScopeDefaults(t *testing.T) {
 		t.Fatal(err)
 	}
 	tts := c.Voice.TTS
-	if tts.Model != "qwen3-tts-flash" || tts.Voice != "Cherry" || c.TTSMaxChars() != 600 {
+	if tts.Model != "qwen3-tts-flash" || tts.Voice != "Cherry" {
 		t.Errorf("defaults = %+v, max %d", tts, c.TTSMaxChars())
+	}
+	if v := c.TTSVoices(); v[0] != "Cherry" || len(v) < 20 {
+		t.Errorf("voices = %v", v)
+	}
+	c.Voice.TTS.Voices = []string{"Ethan"}
+	if v := c.TTSVoices(); len(v) != 2 {
+		t.Errorf("listed voices win: %v", v)
 	}
 	if c.TTSBaseURL() != "https://dashscope-intl.aliyuncs.com/api/v1" || c.TTSAPIKey() != "dk" {
 		t.Errorf("endpoint = %q key %q", c.TTSBaseURL(), c.TTSAPIKey())
@@ -171,13 +175,5 @@ func TestTTSDashScopeDefaults(t *testing.T) {
 	c.Voice.TTS.BaseURL = "https://dashscope.aliyuncs.com/api/v1/"
 	if c.TTSBaseURL() != "https://dashscope.aliyuncs.com/api/v1" {
 		t.Errorf("own base = %q", c.TTSBaseURL())
-	}
-}
-
-func TestTTSMaxCharsDashScopeDefault(t *testing.T) {
-	c := Default()
-	c.Voice.TTS.API, c.Voice.TTS.MaxChars = "dashscope", 0
-	if c.TTSMaxChars() != 600 {
-		t.Errorf("max = %d", c.TTSMaxChars())
 	}
 }

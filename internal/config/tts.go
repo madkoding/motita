@@ -51,13 +51,20 @@ const (
 	TTSAPIDashScope = "dashscope"
 
 	// DashScope's Qwen3-TTS: the international endpoint (the key of the Beijing region is another
-	// one, and its base_url is named in the file), its model, its default voice and the longest
-	// text it takes in one request.
-	dashScopeTTSBaseURL  = "https://dashscope-intl.aliyuncs.com/api/v1"
-	dashScopeTTSModel    = "qwen3-tts-flash"
-	dashScopeTTSVoice    = "Cherry"
-	dashScopeTTSMaxChars = 600
+	// one, and its base_url is named in the file), its model and its default voice. A request
+	// takes 600 characters at most: the speaker splits longer texts itself.
+	dashScopeTTSBaseURL = "https://dashscope-intl.aliyuncs.com/api/v1"
+	dashScopeTTSModel   = "qwen3-tts-flash"
+	dashScopeTTSVoice   = "Cherry"
 )
+
+// dashScopeTTSVoices are the Qwen3-TTS-Flash voices (Model Studio's voice list) the settings offer
+// when voice.tts.voices names none: the system voices that speak every language, and the dialects.
+var dashScopeTTSVoices = []string{
+	"Cherry", "Serena", "Ethan", "Chelsie", "Momo", "Vivian", "Moon", "Maia", "Kai", "Nofish", "Bella",
+	"Jennifer", "Ryan", "Katerina", "Aiden", "Mia", "Vincent", "Neil", "Elias", "Arthur", "Nini",
+	"Sohee", "Alek", "Andre", "Dylan", "Sunny", "Rocky",
+}
 
 // TTSFormats are the formats the OpenAI speech API answers that every browser can play or that a
 // local server is likely to offer.
@@ -104,9 +111,6 @@ func (c Config) TTSAPIKey() string {
 // TTSMaxChars is the longest text one request may carry.
 func (c Config) TTSMaxChars() int {
 	if c.Voice.TTS.MaxChars == 0 {
-		if c.Voice.TTS.API == TTSAPIDashScope {
-			return dashScopeTTSMaxChars
-		}
 		return defaultTTSMaxChars
 	}
 	return c.Voice.TTS.MaxChars
@@ -115,7 +119,11 @@ func (c Config) TTSMaxChars() int {
 // TTSVoices are the voices the settings offer: the listed ones, with the default first.
 func (c Config) TTSVoices() []string {
 	out := []string{c.Voice.TTS.Voice}
-	for _, v := range c.Voice.TTS.Voices {
+	listed := c.Voice.TTS.Voices
+	if len(listed) == 0 && c.Voice.TTS.API == TTSAPIDashScope {
+		listed = dashScopeTTSVoices
+	}
+	for _, v := range listed {
 		if v = strings.TrimSpace(v); v != "" && !slices.Contains(out, v) {
 			out = append(out, v)
 		}
@@ -134,26 +142,19 @@ func (t *TTS) normalize() {
 	if t.API != TTSAPIDashScope {
 		return
 	}
-	// Only the API was named: the OpenAI defaults of the model, voice and cap mean nothing here.
+	// Only the API was named: the OpenAI defaults of the model and voice mean nothing here.
 	if t.Model == defaultTTSModel {
 		t.Model = dashScopeTTSModel
 	}
 	if t.Voice == defaultTTSVoice {
 		t.Voice = dashScopeTTSVoice
 	}
-	if t.MaxChars == defaultTTSMaxChars {
-		t.MaxChars = dashScopeTTSMaxChars
-	}
 }
 
-// validateAPI checks the protocol and what only it limits.
+// validateAPI checks the protocol.
 func (t TTS) validateAPI() error {
 	if t.API != TTSAPIOpenAI && t.API != TTSAPIDashScope {
 		return fmt.Errorf("voice.tts.api %q is not one of %s, %s", t.API, TTSAPIOpenAI, TTSAPIDashScope)
-	}
-	if t.API == TTSAPIDashScope && t.MaxChars > dashScopeTTSMaxChars {
-		return fmt.Errorf("voice.tts.max_chars is %d: DashScope takes at most %d characters per request",
-			t.MaxChars, dashScopeTTSMaxChars)
 	}
 	return nil
 }

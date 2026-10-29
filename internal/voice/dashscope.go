@@ -20,6 +20,30 @@ import (
 // output.audio.url is a wav, valid for 24 hours, that is downloaded right away. The key is sent
 // to the API only, never to the audio URL (another host, signed by the API).
 func (s Speaker) speakDashScope(ctx context.Context, text, voiceName string) ([]byte, string, error) {
+	chunks := splitText(text, dashScopeChunkChars)
+	parts := make([][]byte, 0, len(chunks))
+	for _, chunk := range chunks {
+		part, err := s.dashScopeChunk(ctx, chunk, voiceName)
+		if err != nil {
+			return nil, "", err
+		}
+		parts = append(parts, part)
+	}
+	if len(parts) == 1 {
+		return parts[0], "audio/wav", nil
+	}
+	audio, err := joinWAV(parts)
+	if err != nil {
+		return nil, "", err
+	}
+	return audio, "audio/wav", nil
+}
+
+// dashScopeChunkChars is the longest text one DashScope request takes (Qwen3-TTS-Flash).
+const dashScopeChunkChars = 600
+
+// dashScopeChunk says one text of at most dashScopeChunkChars and returns its wav.
+func (s Speaker) dashScopeChunk(ctx context.Context, text, voiceName string) ([]byte, error) {
 	body, _ := json.Marshal(map[string]any{
 		"model": s.Model,
 		"input": map[string]string{"text": text, "voice": voiceName, "language_type": "Auto"},
@@ -27,7 +51,7 @@ func (s Speaker) speakDashScope(ctx context.Context, text, voiceName string) ([]
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost,
 		strings.TrimRight(s.BaseURL, "/")+"/services/aigc/multimodal-generation/generation", bytes.NewReader(body))
 	if err != nil {
-		return nil, "", fmt.Errorf("the speech request could not be built: %w", err)
+		return nil, fmt.Errorf("the speech request could not be built: %w", err)
 	}
 	req.Header.Set("Content-Type", "application/json")
 	if s.APIKey != "" {
@@ -39,7 +63,7 @@ func (s Speaker) speakDashScope(ctx context.Context, text, voiceName string) ([]
 	}
 	raw, err := doBounded(client, req, "speech endpoint", maxErrorBody*16)
 	if err != nil {
-		return nil, "", err
+		return nil, err
 	}
 	var out struct {
 		Code    string `json:"code"`
@@ -51,25 +75,25 @@ func (s Speaker) speakDashScope(ctx context.Context, text, voiceName string) ([]
 		} `json:"output"`
 	}
 	if err := json.Unmarshal(raw, &out); err != nil {
-		return nil, "", fmt.Errorf("the speech endpoint's answer is not JSON: %w", err)
+		return nil, fmt.Errorf("the speech endpoint's answer is not JSON: %w", err)
 	}
 	if out.Code != "" {
-		return nil, "", fmt.Errorf("the speech endpoint refused: %s: %s", out.Code, out.Message)
+		return nil, fmt.Errorf("the speech endpoint refused: %s: %s", out.Code, out.Message)
 	}
 	u, err := url.Parse(out.Output.Audio.URL)
 	if err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Host == "" {
-		return nil, "", errors.New("the speech endpoint answered no audio address")
+		return nil, errors.New("the speech endpoint answered no audio address")
 	}
 	// The address parsed above and the method is a constant: building the request cannot fail.
 	get, _ := http.NewRequestWithContext(ctx, http.MethodGet, u.String(), nil)
 	audio, err := doBounded(client, get, "audio address", maxSpeechAudio)
 	if err != nil {
-		return nil, "", err
+		return nil, err
 	}
 	if len(audio) == 0 {
-		return nil, "", errors.New("the speech endpoint answered no audio")
+		return nil, errors.New("the speech endpoint answered no audio")
 	}
-	return audio, "audio/wav", nil
+	return audio, nil
 }
 
 // doBounded sends req and reads at most limit bytes of a 2xx answer, naming what failed.

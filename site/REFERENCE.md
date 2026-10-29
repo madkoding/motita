@@ -1827,7 +1827,9 @@ off by default, because turning it on sends the text of every answer read to tha
 **Qwen3-TTS** has two ways in. Hosted: `api: dashscope` speaks Alibaba Cloud Model Studio's native
 API (it has no OpenAI-style route), with `qwen3-tts-flash` and a voice such as `Cherry`; the key is
 `api_key` or `DASHSCOPE_API_KEY`, the endpoint is the international one unless `base_url` names the
-Beijing one (its keys are different), and one request takes at most 600 characters. Self-hosted: a
+Beijing one (its keys are different). DashScope takes 600 characters per request, so longer texts go
+out in pieces and come back as one wav; the settings offer Qwen3's voices unless `voices` lists
+others. Self-hosted: a
 Qwen3-TTS server that answers `/audio/speech` is plain `api: openai` with its `base_url`.
 
 ```yaml
