@@ -6,7 +6,7 @@ import type { Lang } from "./i18n";
 import { choose } from "./choose";
 import type { Api } from "./gitApi";
 import { LocalVoices } from "./LocalVoiceSettings";
-import { SpeechService } from "./SpeechService";
+import { SpeechServiceRow } from "./SpeechService";
 import type { VoiceInfo } from "./voice";
 import {
   LENGTHS,
@@ -442,13 +442,7 @@ export function SpeechSettings({
             />
           </Row>
         )}
-        {service?.info && api && (
-          <SpeechService
-            info={service.info}
-            api={api}
-            onInfo={service.onInfo}
-          />
-        )}
+        <SpeechServiceRow service={service} api={api} />
         <SpeechVoice
           engine={engineShown}
           api={api}

@@ -91,6 +91,23 @@ function speechHint(saved: TtsSaved): string {
   });
 }
 
+// SpeechServiceRow is the voice service where the page has what it needs to save it: the gateway's
+// info and an API.
+export function SpeechServiceRow({
+  service,
+  api,
+}: {
+  service?: { info: VoiceInfo | null; onInfo: (i: VoiceInfo) => void };
+  api?: Api;
+}) {
+  if (!service?.info || !api) {
+    return null;
+  }
+  return (
+    <SpeechService info={service.info} api={api} onInfo={service.onInfo} />
+  );
+}
+
 // SpeechService turns the gateway's voice on or off, picks the speech service (OpenAI, or Qwen3-TTS
 // on DashScope) and its model, voice and key, all saved in its configuration. Turning it on, or
 // moving it, first says where the text goes and waits for a yes.

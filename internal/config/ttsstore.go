@@ -36,7 +36,7 @@ func SetTTS(path string, ch TTSChange) (Config, error) {
 	if err != nil {
 		return Config{}, fmt.Errorf("the configuration file cannot be read: %w", err)
 	}
-	body, err := os.ReadFile(path)
+	body, err := os.ReadFile(path) // #nosec G304 -- the configuration file this process was started with.
 	if err != nil {
 		return Config{}, fmt.Errorf("the configuration file cannot be read: %w", err)
 	}
@@ -114,25 +114,10 @@ func setNestedKeyText(body, block, sub, key, value string) (string, error) {
 			block, inline, block, sub, key)
 	}
 	if start < 0 {
-		added := block + ":\n  " + sub + ":\n    " + key + ": " + value + "\n"
-		trimmed := strings.TrimRight(body, "\n")
-		if trimmed == "" {
-			return added, nil
-		}
-		return trimmed + "\n\n" + added, nil
+		return appendBlock(body, block+":\n  "+sub+":\n    "+key+": "+value+"\n"), nil
 	}
-	i, indent, _ := findBlockKey(lines, start, sub)
-	if i < 0 {
-		if indent == "" {
-			indent = "  "
-		}
-		out := append([]string{}, lines[:start+1]...)
-		out = append(out, indent+sub+":")
-		lines = append(out, lines[start+1:]...)
-		i = start + 1
-	}
-	header := strings.TrimSpace(lines[i])
-	if rest := strings.TrimSpace(strings.TrimPrefix(header, sub+":")); rest != "" && !strings.HasPrefix(rest, "#") {
+	lines, i := ensureSubBlock(lines, start, sub)
+	if rest := inlineValue(lines[i], sub); rest != "" {
 		return "", fmt.Errorf("the configuration writes %s.%s as an inline value (%q): change %s.%s.%s by hand",
 			block, sub, rest, block, sub, key)
 	}
@@ -147,14 +132,58 @@ func setNestedKeyText(body, block, sub, key, value string) (string, error) {
 	}
 	// The block opens with a bare header, the only case setBlockKeyText refuses.
 	edited, _ := setBlockKeyText(strings.Join(mini, "\n"), sub, key, value)
-	out := append([]string{}, lines[:i]...)
+	out := append(append([]string{}, lines[:i]...), indentBlock(edited, lines[i], pad)...)
+	return strings.Join(append(out, lines[end:]...), "\n"), nil
+}
+
+// appendBlock adds a block at the end of the text.
+func appendBlock(body, added string) string {
+	trimmed := strings.TrimRight(body, "\n")
+	if trimmed == "" {
+		return added
+	}
+	return trimmed + "\n\n" + added
+}
+
+// ensureSubBlock opens sub as the first entry of the block that starts at start when it has none, and
+// answers the lines and where the sub-block's header is.
+func ensureSubBlock(lines []string, start int, sub string) ([]string, int) {
+	i, indent, _ := findBlockKey(lines, start, sub)
+	if i >= 0 {
+		return lines, i
+	}
+	if indent == "" {
+		indent = "  "
+	}
+	out := append([]string{}, lines[:start+1]...)
+	out = append(out, indent+sub+":")
+	return append(out, lines[start+1:]...), start + 1
+}
+
+// inlineValue is what a `sub: value` line writes after the key, or "" for a header that opens a
+// block (a comment after it is not a value).
+func inlineValue(line, sub string) string {
+	rest := strings.TrimSpace(strings.TrimPrefix(strings.TrimSpace(line), sub+":"))
+	if strings.HasPrefix(rest, "#") {
+		return ""
+	}
+	return rest
+}
+
+// indentBlock puts the edited mini block back at pad, keeping the header line as it was (its own
+// comment included) and leaving blank lines blank.
+func indentBlock(edited, header, pad string) []string {
+	var out []string
 	for n, l := range strings.Split(edited, "\n") {
-		if n == 0 {
-			l = lines[i] // keeps the header's own comment
-		} else if strings.TrimSpace(l) != "" {
+		switch {
+		case n == 0:
+			l = header
+		case strings.TrimSpace(l) != "":
 			l = pad + l
+		default:
+			// A blank line stays blank.
 		}
 		out = append(out, l)
 	}
-	return strings.Join(append(out, lines[end:]...), "\n"), nil
+	return out
 }

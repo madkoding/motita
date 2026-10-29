@@ -9,7 +9,8 @@ import (
 
 func clearTTSEnv(t *testing.T) {
 	t.Helper()
-	for _, name := range []string{"MOTITA_VOICE_TTS_ENABLED", "MOTITA_VOICE_TTS_API_KEY", "MOTITA_VOICE_TTS_API", "DASHSCOPE_API_KEY"} {
+	names := []string{"MOTITA_VOICE_TTS_ENABLED", "MOTITA_VOICE_TTS_API_KEY", "MOTITA_VOICE_TTS_API", "DASHSCOPE_API_KEY"}
+	for _, name := range names {
 		t.Setenv(name, "")
 	}
 }
@@ -131,7 +132,8 @@ func TestSetTTSFailures(t *testing.T) {
 	old := setTTSCredential
 	setTTSCredential = func(string, string, string) error { return errors.New("read-only") }
 	t.Cleanup(func() { setTTSCredential = old })
-	if _, err := SetTTS(voiceFile(t, "llm:\n  provider: openai\n"), TTSChange{APIKey: strp("k")}); err == nil {
+	file := voiceFile(t, "llm:\n  provider: openai\n")
+	if _, err := SetTTS(file, TTSChange{APIKey: strp("k")}); err == nil {
 		t.Error("a key that cannot be stored is an error")
 	}
 
@@ -143,7 +145,8 @@ func TestSetTTSFailures(t *testing.T) {
 		}
 		return nil
 	}
-	_, err := SetTTS(voiceFile(t, "llm:\n  provider: openai\n"), TTSChange{Enabled: true, API: strp("polly"), APIKey: strp("k")})
+	bad := TTSChange{Enabled: true, API: strp("polly"), APIKey: strp("k")}
+	_, err := SetTTS(voiceFile(t, "llm:\n  provider: openai\n"), bad)
 	if err == nil || !strings.Contains(err.Error(), "key could not be restored") {
 		t.Errorf("err = %v", err)
 	}
