@@ -21,7 +21,6 @@ import {
 import { NotifySetting } from "./NotifySettings";
 import { VoiceSettings, type VoiceSettingsProps } from "./VoiceSettings";
 import { SpeechSettings, type SpeechSettingsProps } from "./SpeechSettings";
-import { CodeIndexSettings } from "./CodeIndexSettings";
 import { AutopilotSettings } from "./AutopilotSettings";
 import { NetworkSettings } from "./NetworkSettings";
 import { SecuritySettings } from "./SecuritySettings";
@@ -38,7 +37,6 @@ import {
   IconMic,
   IconPlug,
   IconWrench,
-  IconSearch,
   IconShield,
   IconSliders,
   IconPalette,
@@ -77,8 +75,6 @@ interface Props extends AppearanceSettingsProps {
   push?: { api: Api };
   // The journal of what got in the way. Hidden where the page has no API to hand it.
   friction?: { api: Api };
-  // The search_index tool: its switches, embeddings and limits. Hidden on a gateway without the API.
-  codeIndex?: { api: Api };
   // The upkeep routines: the weekly check and the draft pull requests. Hidden on a gateway without the API.
   autopilot?: { api: Api };
   // tab is the tab the dialog opens on; the first one when absent.
@@ -96,7 +92,6 @@ export type Tab =
   | "secrets"
   | "network"
   | "journal"
-  | "codeindex"
   | "autopilot"
   | "providers"
   | "models"
@@ -144,13 +139,6 @@ function settingsTabs(p: Props): TabInfo[] {
   if (p.friction) {
     tabs.push({ id: "journal", label: t("Journal"), icon: <IconJournal /> });
   }
-  if (p.codeIndex) {
-    tabs.push({
-      id: "codeindex",
-      label: t("Indexing"),
-      icon: <IconSearch />,
-    });
-  }
   if (p.autopilot) {
     tabs.push({ id: "autopilot", label: t("Upkeep"), icon: <IconWrench /> });
   }
@@ -188,7 +176,6 @@ const PANES: Record<Tab, (p: Props) => ComponentChildren> = {
     ),
   secrets: (p) => p.secrets && <SecretsSettings api={p.secrets.api} />,
   journal: (p) => p.friction && <FrictionSettings api={p.friction.api} />,
-  codeindex: (p) => p.codeIndex && <CodeIndexSettings api={p.codeIndex.api} />,
   autopilot: (p) => p.autopilot && <AutopilotSettings api={p.autopilot.api} />,
   network: (p) => p.network && <NetworkSettings api={p.network.api} />,
   providers: (p) => p.llm && <ProviderSettings {...p.llm} />,

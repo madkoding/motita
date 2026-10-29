@@ -1,6 +1,8 @@
 package tui
 
 import (
+	"context"
+
 	"github.com/madkoding/motita/internal/config"
 	"github.com/madkoding/motita/internal/memory"
 	"github.com/madkoding/motita/internal/reward"

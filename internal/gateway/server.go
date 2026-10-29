@@ -320,9 +320,7 @@ type Server struct {
 	// it needs some other bound or a gateway that shut down would leave turns running with
 	// nowhere to report. The process's own lifetime is that bound, and it is deliberately not the
 	// request's.
-	baseCtx context.Context
-	// indexing holds the folders whose code index is being built in the background.
-	indexing   sync.Map
+	baseCtx    context.Context
 	baseCancel context.CancelFunc
 
 	// voiceDownload is the local voice being downloaded, one at a time. See voicemodels.go.
@@ -459,6 +457,9 @@ func Start(opts Options) (*Server, error) {
 		baseCtx: baseCtx, baseCancel: baseCancel, evalStore: evals.OpenStore(opts.EvalsFile),
 		heartbeat: resolveHeartbeat(opts.Heartbeat),
 	}
+	// The first conversation is as bound to its archive as any other: a served gateway must
+	// find it again after a restart.
+	s.bindContext(first)
 	// The self-update checker is built here, once. ExePath may be empty when
 	// running from a test or a non-standard install, which is fine: the
 	// updater endpoints simply report "no update available" rather than
@@ -493,7 +494,6 @@ func Start(opts Options) (*Server, error) {
 	s.openFriction()
 	s.openPeers()
 	resumeInterrupted(s)
-	s.indexProjects()
 	// The origin policy wraps the ENTIRE routing table, including the page and /v1/health.
 	//
 	// Everything rather than only the API, and that is a decision: a rule set that still served the

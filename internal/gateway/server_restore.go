@@ -84,6 +84,7 @@ func (s *Server) loadPersistedSessions() {
 // restoreDefaultSession restores a record of the default session into its existing service.
 func (s *Server) restoreDefaultSession(rec sessionRecord) {
 	def := s.sessions[DefaultSession]
+	s.bindContext(def)
 	if len(rec.Turns) > 0 {
 		def.svc.RestoreTranscript(rec.Turns)
 	}
@@ -115,6 +116,7 @@ func (s *Server) restoreSession(rec sessionRecord) bool {
 		return false
 	}
 	conv := newConversation(rec.ID, svc)
+	s.bindContext(conv)
 	conv.created = rec.Created
 	conv.lastUsed = rec.LastUsed
 	conv.setTitle(rec.Title)
@@ -346,9 +348,11 @@ func (s *Server) saveAllSessions() {
 	}
 }
 
-// deletePersistedSession removes a conversation's file from disk.
+// deletePersistedSession removes a conversation's file from disk, and the archive that
+// belonged to it: a conversation nobody can return to has no history worth keeping.
 func (s *Server) deletePersistedSession(id string) {
 	s.removeArtifacts(id)
+	s.deleteContext(id)
 	if s.store == nil {
 		return
 	}

@@ -3,7 +3,19 @@ package config
 import (
 	"os"
 	"path/filepath"
+
+	"github.com/madkoding/motita/internal/memory"
 )
+
+// OpenMemory is the person's memory, in MemoryDir. nil when there is no home to keep it in. Plan
+// and task mode, the interface and the gateway read and write the same folder of Markdown files.
+func OpenMemory() *memory.Store {
+	dir := MemoryDir()
+	if dir == "" {
+		return nil
+	}
+	return memory.Open(dir)
+}
 
 // MemoryDir is the memory: ~/.motita/memory, plain Markdown files another program (Obsidian) can
 // open. Empty without a home.

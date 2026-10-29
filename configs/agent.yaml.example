@@ -176,7 +176,7 @@ agent:
   subtask_depth: 1             # allowed splitting levels
   subtask_retries: 1           # tries again a failed subtask, told why, before the parent gives up; 0 = off
   quick_plan: true             # the analysis writes the plan itself (one model call before the first action); false = always plan apart
-  assume_first: true           # goes on with its stated assumption instead of asking, unless the question is a real decision; false = always ask
+  assume_first: true           # goes on with its stated assumption instead of asking; false = always ask
   criteria_audit: true         # sends a "done" back when a success criterion is not shown (1 short model call)
   max_parallel: 3              # background agents (spawn_agent) running at once; 0 = off
   max_tasks: 0                 # 0 = no limit
@@ -374,34 +374,6 @@ voice:
     format: mp3
     # Cap on the text of one request, in characters.
     max_chars: 4000
-
-code_index:
-  # The built-in index behind the search_index tool: it reads the workspace once, ranks passages
-  # by what they are about (definitions first) and answers with a few lines instead of whole
-  # files. It runs in this process; nothing is sent anywhere. Files the .gitignore names are skipped.
-  enabled: true
-  # Files larger than this many KB are not indexed (0 means 256).
-  max_file_kb: 256
-  # Indexing stops after this many files (0 means 5000).
-  max_files: 5000
-  # A second ranking by meaning, learned from the folder's own vocabulary (random indexing: no
-  # model, no network), fused with the word ranking. It finds code that shares context with the
-  # question even when it does not share the word.
-  semantic: true
-  # Where the index is kept between runs, so the next start does not read every file again. It
-  # holds the terms of the source, not its text, and only you can read it. Empty keeps it in
-  # memory. Leave this line out to use the "index" folder inside the configuration directory.
-  # cache_dir: /path/to/index
-  # With no embeddings_url, a local Ollama (127.0.0.1:11434) that has nomic-embed-text is found and
-  # used; the text stays on this machine. Set false to never look.
-  embeddings_auto: true
-  # Real embeddings from an OpenAI-compatible endpoint (POST <url>/embeddings), a third ranking.
-  # OFF while the url is empty. Setting it SENDS THE TEXT of the indexed files and every query to
-  # that endpoint: use a provider you would already show the code to. If it fails, the search
-  # still answers with the other rankings and says so.
-  # embeddings_url: https://api.openai.com/v1
-  # embeddings_model: text-embedding-3-small
-  # embeddings_api_key: ""  # or MOTITA_CODE_INDEX_EMBEDDINGS_API_KEY
 
 autopilot:
   # Upkeep Motita does on its own. Both switches are off by default.

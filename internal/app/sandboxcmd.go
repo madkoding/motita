@@ -6,6 +6,13 @@ import (
 	"github.com/madkoding/motita/internal/sandbox"
 )
 
+// localCommand says the invocation is a subcommand that only touches this machine: the AppArmor
+// profile.
+func (b flags) localCommand() bool { return b.sandboxAction != "" }
+
+// runLocalCommand dispatches the subcommands localCommand names.
+func (op Options) runLocalCommand(fl flags) int { return op.runSandboxCommand(fl.sandboxAction) }
+
 // runSandboxCommand is `motita sandbox apparmor <print|install|remove>`: the profile that lets this
 // binary make the user namespaces a command without a network runs in, on a system that takes
 // them from every other program. print shows it, install and remove (which need root) change

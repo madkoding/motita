@@ -10,8 +10,8 @@ import (
 // Recall: a query is answered in three steps.
 //
 //  1. SEARCH THE SMALL: the children (passages of a paragraph or two, indexed with their title and
-//     heading trail) are ranked by words (BM25), by the holographic vector and, when the person set
-//     an embeddings endpoint, by neural embeddings. The rankings are fused by reciprocal rank.
+//     heading trail) are ranked by words (BM25) and by the holographic vector. The rankings are
+//     fused by reciprocal rank.
 //  2. ANSWER WITH THE LARGE: the best children are grouped by the parent section they belong to
 //     and the parent is what comes back, with the passage that matched marked.
 //  3. FOLLOW THE LINKS (optional, Graph): the entries linked from or to the best ones are added as
@@ -65,14 +65,6 @@ type Result struct {
 	Hits    []Hit  `json:"hits"`
 	Related []Hit  `json:"related,omitempty"`
 	Edges   []Edge `json:"edges,omitempty"`
-	// Warning says why a part of the recall was left out (the embeddings endpoint failed); the
-	// answer is still the best the rest could do.
-	Warning string `json:"warning,omitempty"`
-}
-
-// Embedder turns texts into vectors. The code index's embeddings client is one.
-type Embedder interface {
-	Embed(ctx context.Context, texts []string) ([][]float32, error)
 }
 
 // ParseQuery reads a query with filters written in it: ns:Name (or ns:"Two words"), author:Name,
@@ -156,25 +148,6 @@ func rank(score map[int]float64) []scored {
 	return out
 }
 
-// Source names the embeddings client to use, and the id its vectors are kept under, each time the
-// memory is searched; nil and "" when there is none right now (a local server that is not running).
-type Source func(ctx context.Context) (Embedder, string)
-
-// WithEmbedder returns the memory with neural embeddings, from src, added to its recall.
-func (s *Store) WithEmbedder(src Source) *Store {
-	c := *s
-	c.source = src
-	return &c
-}
-
-// embedderFor is the embedder to use for this search, if any.
-func (s *Store) embedderFor(ctx context.Context) (Embedder, string) {
-	if s.source == nil {
-		return nil, ""
-	}
-	return s.source(ctx)
-}
-
 // allows says whether an entry passes the filters of q.
 func (q Query) allows(e indexed) bool {
 	switch {
@@ -213,13 +186,6 @@ func (s *Store) Search(ctx context.Context, q Query) Result {
 	fuse(ix.bm25(words, keep))
 	if cue, ok := ix.holo.cue(words); ok {
 		fuse(ix.holo.recall(cue, keep))
-	}
-	if e, id := s.embedderFor(ctx); e != nil {
-		list, err := embedded(ctx, ix, e, id, q.Text, keep)
-		if err != nil {
-			res.Warning = "embeddings unavailable, so only words and the vector memory were used: " + err.Error()
-		}
-		fuse(list)
 	}
 
 	limit := q.Limit

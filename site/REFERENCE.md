@@ -690,8 +690,8 @@ Three things keep a request from needing a second one:
   always plans apart.
 - **Assume first** (`agent.assume_first`, `MOTITA_AGENT_ASSUME_FIRST`, default `true`). When the
   analysis has a question and states what it would do, the agent does it and the report says what was
-  assumed; only a question marked as a real decision (destructive, irreversible, materially different
-  results) stops the turn. `false` asks every time.
+  assumed. A request with two or more independent questions still stops the turn and asks them
+  together. `false` asks every time.
 - **Criteria audit** (`agent.criteria_audit`, `MOTITA_AGENT_CRITERIA_AUDIT`, default `true`). When the
   model claims the task is done, one short model call reads the claim against the success criteria
   the analysis wrote down ("done means ..."). A criterion the run never showed (a behaviour no check
@@ -1595,63 +1595,6 @@ The coordinates are the picture's pixels and are mapped back to the screen with 
 
 motita must run inside the graphical session (`DISPLAY` or `WAYLAND_DISPLAY` set on Linux): a gateway started as a system service has no desktop, and Settings → Security says so. A connected computer is controlled through its own setting, from its box in the sidebar. The picture reaches every provider (Anthropic, OpenAI-compatible, Gemini, Codex and claude-code); the model must be one that reads images.
 
-### Searching the workspace with search_index
-
-Plan mode has a `search_index` tool next to `search_in_files`, and task mode reaches the same index with the action `{"kind": "search_index", "command": "the question"}`. It reads the workspace into an index and
-answers a question in plain words, or a symbol name, with `path:line` and a few lines instead of whole
-matches. It runs in this process and nothing is sent anywhere; the idea comes from
-[XERJ](https://github.com/xerj-org/xerj).
-
-- **Words:** BM25 over the code split at camelCase and snake_case, with definitions and file names
-  weighted up.
-- **Meaning:** a second ranking learned from the folder's own vocabulary (random indexing: a term is
-  described by the terms it shares windows with), fused with the first by reciprocal rank. It finds
-  code that shares context with the question even without sharing the word. It is not a neural
-  embedding: it knows this codebase's vocabulary and nothing else. The vectors are kept on disk with
-  the index.
-- **Real embeddings (off by default):** with `embeddings_url` set, a third ranking comes from an
-  OpenAI-compatible `POST <url>/embeddings`. **This sends the text of the indexed files (windows of up
-  to 1500 characters, at most 4000 of them) and every query to that endpoint**, so use it only with a
-  provider you would already show the code to. If the endpoint fails the search still answers with the
-  other rankings and says so in a note after the passages. Plain http with a key is refused unless the
-  host is on this machine or its network.
-- **Local Ollama (automatic):** with no `embeddings_url`, the first search looks for an Ollama on this
-  machine (`127.0.0.1:11434`, 0.4 s at most, again once a minute while it is not there). If it has
-  `nomic-embed-text` (`ollama pull nomic-embed-text`), that model is used through its `/v1/embeddings`.
-  The text only goes to your own machine. `embeddings_auto: false` (or `MOTITA_CODE_INDEX_EMBEDDINGS_AUTO=false`)
-  turns the look-up off.
-- **On disk:** the index is kept in `cache_dir` and reused while no file's name, size or time changed,
-  so the next start does not read everything again. It holds the terms of the source, not its text
-  (passages are read from the files when answered), in a file only you can read.
-
-```yaml
-code_index:
-  enabled: true
-  max_file_kb: 256 # larger files are not indexed
-  max_files: 5000 # indexing stops after this many files
-  semantic: true # the ranking by meaning
-  # cache_dir: ~/.motita/index # the default; an empty value keeps the index in memory only
-  # embeddings_auto: true # use a local Ollama with nomic-embed-text when there is one
-  # embeddings_url: https://api.openai.com/v1 # OFF while empty: setting it sends code to that endpoint
-  # embeddings_model: text-embedding-3-small
-  # embeddings_api_key: ... # or MOTITA_CODE_INDEX_EMBEDDINGS_API_KEY
-```
-
-Everything above can be changed from **Settings → Indexing**, or through `GET/PUT /v1/code-index` on
-the gateway (the toggles, the embeddings address and model, the two limits). **Clear index cache** (`DELETE /v1/code-index/cache`) deletes the `*.gob` files in `cache_dir` and nothing else; the next search builds the index again. `motita index status` and `motita index clear` do the same from the terminal. The edit-project dialog shows how much of the project's folder the index covers (a bar, files, passages, terms, size on disk) and **Index now** brings it up to date. A project created while the index is on is indexed in the background, so its first search is already warm. At start the gateway also brings the index of every project that has none or an old one up to date, one after the other; the project's panel shows **Indexing…** meanwhile, and `GET /v1/projects/{id}/code-index` carries `indexing: true`. The change is written to the
-configuration file and applies to the sessions started after it. An address outside this machine and its
-network is saved only after the page told the person that the text of the indexed files will be sent
-there (`confirm: true` in the request). The embeddings key is not handled by the page: set
-`MOTITA_CODE_INDEX_EMBEDDINGS_API_KEY`.
-
-The `.gitignore` of the folder, and of the folders below it, is respected. Hidden files and folders
-(`.env`, `.git`), `node_modules`, `vendor`, build output, symbolic links and binary files are never
-indexed. The tool reads only what the session may read: a `path` outside it is refused like `read_file`
-does. `search_index` takes `query`, `path` (a folder to search in, default the working directory) and
-`limit` (default 5, at most 20). What it returns goes into the model's context like any tool result, with
-secrets masked. It only knows what it indexed, so a negative is confirmed with `search_in_files`.
-
-
 ### Upkeep: weekly audit and draft pull requests
 
 Two independent switches in **Settings → Upkeep**, both **off** by default (the first spends model turns every week, the second publishes under your account):
@@ -1670,8 +1613,8 @@ Both routines are records of the scheduled tasks (`autopilot-audit`, `autopilot-
 
 ### Reading files, repositories and the web in plan mode
 
-Plan mode never writes, but it is not blind: besides `read_file`, `list_directory`, `search_in_files` and
-`search_index`, its `execute_command` runs any command the read-only list knows (`cat`, `ls`, `grep`,
+Plan mode never writes, but it is not blind: besides `read_file`, `list_directory` and
+`search_in_files`, its `execute_command` runs any command the read-only list knows (`cat`, `ls`, `grep`,
 `rg`, `find`, `sed -n`, `git log`/`show`/`diff`/`status`/`blame`/`grep`/`ls-tree`/`rev-list`/`merge-base`/`worktree list`/`stash list`/`ls-remote`, `go list`, `systemctl status`,
 and so on). The list is `internal/readonly`; a command that is not on it, or that writes through an
 argument (`sed -i`, `find -exec`, `git commit`), is refused with the reason.
@@ -1806,11 +1749,6 @@ that only motita's own file edits are limited.
 | `GET /v1/autopilot` | `{"weekly_audit":false,"auto_pr":false,"max_open_prs":3,"can_save":true,"audit":null,"fixes":null}`; `audit` and `fixes` are `{last_run,next_run,last_outcome,running}` once a switch was turned on |
 | `PUT /v1/autopilot` | any of `weekly_audit`, `auto_pr`, `max_open_prs`; `400` for a refused value (or a `MOTITA_AUTOPILOT_*` variable that overrides it), `409` without a configuration file |
 | `POST /v1/autopilot/run` | `{"what":"audit"}` or `{"what":"fixes"}`: runs it now (`202`); `409` if it is switched off or already running |
-| `GET /v1/code-index` | `{"enabled":true,"semantic":true,"embeddings_auto":true,"embeddings_url":"","embeddings_model":"","embeddings_key":false,"max_file_kb":256,"max_files":5000,"embeddings":"auto","endpoint_local":false,"cache_files":0,"cache_bytes":0,"can_save":true}`; `embeddings` is `endpoint`, `auto` or `off`; the key is never returned, only whether one is set |
-| `PUT /v1/code-index` | any of `enabled`, `semantic`, `embeddings_auto`, `embeddings_url`, `embeddings_model`, `max_file_kb`, `max_files`, plus `confirm`; `confirm: true` is required to set an `embeddings_url` outside this machine and its network, `400` for a refused or invalid change (or a `MOTITA_CODE_INDEX_*` variable that overrides it), `409` without a configuration file |
-| `DELETE /v1/code-index/cache` | none; deletes the index files kept in `code_index.cache_dir` and answers `{removed, bytes}` |
-| `GET /v1/projects/{id}/code-index` | `{state, candidates, files, percent, chunks, terms, max_files, capped, cache_bytes, semantic, embeddings, indexing}`; `state` is `none`, `stale` or `ready`, `409` while `code_index.enabled` is off |
-| `POST /v1/projects/{id}/code-index` | builds or refreshes the project's index, then answers like the GET |
 | `GET /v1/sessions/{id}/scope` | `{"workspace":…,"project_dir":…,"home":…,"private_roots":[…]}`: where the session's commands work, their HOME, and the folders kept from them |
 
 ### Reading answers aloud

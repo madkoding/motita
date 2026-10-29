@@ -131,10 +131,9 @@ function mountHint({
 
 const settle = () => act(() => new Promise((r) => setTimeout(r, 0)));
 
-test("accepting a new project creates it, moves the session and indexes it", async () => {
+test("accepting a new project creates it and moves the session", async () => {
   const { hook, api, toasts, refreshed } = await mountHint({
     routes: {
-      "POST /v1/projects/pnew/code-index": () => json({}),
       "POST /v1/projects": () => json({ id: "pnew" }, 201),
       "POST /v1/sessions/s1/project": () => json({}),
     },
@@ -148,7 +147,7 @@ test("accepting a new project creates it, moves the session and indexes it", asy
     git_url: "https://github.com/ada/engine",
   });
   assert.deepEqual(api.calls[1].body, { project_id: "pnew" });
-  assert.equal(api.calls[2].path, "/v1/projects/pnew/code-index");
+  assert.equal(api.calls.length, 2);
   assert.equal(toasts[0].type, "success");
   assert.match(toasts[0].message, /engine/);
   assert.deepEqual(refreshed, ["projects", "sessions"]);
@@ -254,7 +253,6 @@ test("a project of its own is created without a repository, with a folder name a
     session: worked,
     messages: [user("hello")],
     routes: {
-      "POST /v1/projects/pnew/code-index": () => json({}),
       "POST /v1/projects": () => json({ id: "pnew" }, 201),
       "POST /v1/sessions/s1/project": () => json({}),
     },
@@ -276,22 +274,6 @@ test("a project of its own is created without a repository, with a folder name a
   await act(() => b.hook.result.current.accept());
   assert.equal(b.api.calls[0].body.dir, "project-s1");
   await b.hook.unmount();
-});
-
-test("an index that is off is said, once the project is set up", async () => {
-  const { hook, toasts } = await mountHint({
-    routes: {
-      "POST /v1/projects/pnew/code-index": () => json({ error: "off" }, 409),
-      "POST /v1/projects": () => json({ id: "pnew" }, 201),
-      "POST /v1/sessions/s1/project": () => json({}),
-    },
-  });
-  await act(() => hook.result.current.accept());
-  await settle();
-  await settle();
-  assert.equal(toasts.at(-1).type, "warning");
-  assert.match(toasts.at(-1).message, /code index is off/);
-  await hook.unmount();
 });
 
 test("an offer turned down is remembered by the browser, and a browser that cannot say forgets", async () => {

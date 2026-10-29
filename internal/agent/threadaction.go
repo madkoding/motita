@@ -17,7 +17,7 @@ func (rr *roundRun) threadAction(kind string, action Command) bool {
 	if rr.a.threads != nil {
 		reply = rr.a.threads(action.Command)
 	}
-	fmt.Fprintf(&rr.sb, "[%s] %s\n%s\n", kind, action.Description, truncateMiddle(reply, indexOutputChars))
+	fmt.Fprintf(&rr.sb, "[%s] %s\n%s\n", kind, action.Description, truncateMiddle(reply, actionOutputChars))
 	rr.a.log.Info(rr.prefix+"thread action", "command", truncate(strings.TrimSpace(firstLineOf(action.Command)), 120))
 	return true
 }

@@ -25,7 +25,7 @@ func (op Options) runPlan(
 	cfg.Agent.ReadOnly = true
 	ag := agent.New(cfg, log, engine, box, nil)
 	ag.SetLibrary(procs.Library)
-	ag.SetMemory(config.OpenMemory(cfg.CodeIndex))
+	ag.SetMemory(config.OpenMemory())
 	ag.SetReward(procs.Ledger)
 	ag.SetUsage(procs.Usage)
 
@@ -62,8 +62,7 @@ func (op Options) runPlan(
 		WithReward(procs.Ledger).
 		WithUsage(procs.Usage).
 		WithReview(reviewer).
-		WithCodeIndex(cfg.CodeIndex.Enabled, cfg.CodeIndex.Options()).
-		WithMemory(config.OpenMemory(cfg.CodeIndex)).
+		WithMemory(config.OpenMemory()).
 		// Reading a page follows the commands' network: closed in Settings → Security, closed here.
 		WithWeb(webfetch.New(networkClosed(cfg))).
 		WithTrace(func(format string, args ...any) { fmt.Fprintf(op.Err, format, args...) })

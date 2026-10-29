@@ -58,8 +58,7 @@ var (
 
 // Store is the folder the entries live in.
 type Store struct {
-	root   string
-	source Source
+	root string
 }
 
 // Open returns the memory at root. The folder is created when the first entry is written.

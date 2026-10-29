@@ -228,8 +228,6 @@ Commands:
                      and write a working configuration
   doctor             check this machine: platform, shell, DNS, PATH, the
                      configuration and the sandbox
-  index status       the code index kept on disk: where, how many files, how big
-  index clear        delete the code index files (the next search builds them again)
   sandbox apparmor   print, install or remove the AppArmor profile that lets commands
                      run without a network on Ubuntu 24.04 and later
                      (print | install | remove; install and remove need sudo)
@@ -270,8 +268,6 @@ type flags struct {
 	isolation      bool
 	initConfig     bool
 	doctor         bool
-	// indexAction is the action of `motita index <action>`.
-	indexAction string
 	// sandboxAction is the action of `motita sandbox apparmor <action>`.
 	sandboxAction string
 	// tokenOnly and jsonOut shape `gateway start` for scripts; boolean on purpose, like the
@@ -631,7 +627,7 @@ func loadPreferringKey(path string, fl flags) (config.Config, error) {
 
 // diagnosticNeedsNoKey reports whether this invocation can be served without an LLM key.
 func diagnosticNeedsNoKey(fl flags) bool {
-	if fl.validateConfig || fl.isolation || fl.doctor || fl.indexAction != "" {
+	if fl.validateConfig || fl.isolation || fl.doctor {
 		return true
 	}
 	// A curator command, unless it is the consolidation pass.
@@ -865,7 +861,7 @@ func (op Options) runTask(
 	// section to it — so the shelf has to be there when it does. Without this the model is told
 	// it has a library and gets "no procedure library is configured" for every lookup.
 	ag.SetLibrary(procs.Library)
-	ag.SetMemory(config.OpenMemory(cfg.CodeIndex))
+	ag.SetMemory(config.OpenMemory())
 	ag.SetReward(procs.Ledger)
 	ag.SetUsage(procs.Usage)
 

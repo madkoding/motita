@@ -42,7 +42,6 @@ type Config struct {
 	Schedule    Schedule    `yaml:"schedule"`
 	UI          UI          `yaml:"ui"`
 	Voice       Voice       `yaml:"voice"`
-	CodeIndex   CodeIndex   `yaml:"code_index"`
 	Autopilot   Autopilot   `yaml:"autopilot"`
 }
 
@@ -591,7 +590,6 @@ func Default() Config {
 		},
 		UI:        UI{Language: "auto"},
 		Voice:     defaultVoice(),
-		CodeIndex: defaultCodeIndex(),
 		Autopilot: defaultAutopilot(),
 	}
 }
@@ -931,7 +929,7 @@ func (c *Config) validate(requireKey bool) error {
 	if err := c.validateVoice(); err != nil {
 		return err
 	}
-	if err := errors.Join(c.validateCodeIndex(), c.validateAutopilot()); err != nil {
+	if err := errors.Join(c.validateAutopilot()); err != nil {
 		return err
 	}
 	return c.validateAgent()

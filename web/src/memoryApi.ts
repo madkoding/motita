@@ -66,7 +66,6 @@ export interface MemoryHit {
 export interface MemoryAnswer {
   hits: MemoryHit[];
   related?: MemoryHit[];
-  warning?: string;
 }
 
 // The filters that narrow a search. An empty one is not applied.

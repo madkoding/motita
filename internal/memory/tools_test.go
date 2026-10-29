@@ -1,7 +1,6 @@
 package memory
 
 import (
-	"errors"
 	"strings"
 	"testing"
 	"time"
@@ -152,7 +151,7 @@ func fixedClock() func() {
 	return func() { now = old }
 }
 
-func TestSearchTextShowsFiltersGraphAndWarnings(t *testing.T) {
+func TestSearchTextShowsFiltersAndGraph(t *testing.T) {
 	v := corpus(t)
 	got := v.SearchText(`script dashboards graph:1`)
 	for _, want := range []string{"[[Deploys]] (Engineering/Deploys.md) › Rollback", "Related through links:",
@@ -172,11 +171,5 @@ func TestSearchTextShowsFiltersGraphAndWarnings(t *testing.T) {
 	}
 	if got := v.SearchText("ns:HR"); !strings.HasPrefix(got, "Error") {
 		t.Errorf("filters only: %q", got)
-	}
-	w := Open(t.TempDir())
-	write(t, w, "Sea.md", "# Sea\n\nThe sea was calm.")
-	e := w.WithEmbedder(fixed(&fakeEmbedder{fail: errors.New("offline")}, "x"))
-	if got := e.SearchText("calm"); !strings.Contains(got, "embeddings unavailable") {
-		t.Errorf("warning: %q", got)
 	}
 }

@@ -24,9 +24,9 @@ build and release path, then everything else. Each part gets its own pass.
    environment, stdin, git remotes, model output, plugin or template content, update feeds) and
    what each can reach (filesystem, processes, network, secrets). This map is what the rest of the
    audit is checked against.
-2. **Read the code, not only the output of a search.** When `search_index` is offered, ask it where
-   a concern lives ("where is user input parsed") before walking folders. A grep finds candidates; a finding needs a
-   path from an input you do not trust to a sink that matters, and the guard in between that fails.
+2. **Read the code, not only the output of a search.** Search for where a concern lives ("where is
+   user input parsed") before walking folders. A grep finds candidates; a finding needs a path from
+   an input you do not trust to a sink that matters, and the guard in between that fails.
 3. **Run the project's own tooling** when it works offline, and report what was skipped: the
    gate in the Makefile or CI config, the race detector, the vulnerability scanner of the
    language (`govulncheck`, `npm audit --omit=dev`, `pip-audit`, `cargo audit`), the linter.

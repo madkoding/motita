@@ -14,7 +14,6 @@ Return a JSON object with this exact shape:
 "plan": [],
 "question": "",
 "assumption": "",
-"decision": false,
 "options": [],
 "questions": [],
 "reply": ""
@@ -91,13 +90,13 @@ fill in what a competent engineer would assume. A request that is thin is not a 
 broken.
 
 The user owns the decisions that shape the result, but a question costs them a whole turn, so ask
-rarely. Fill in the small things yourself and say what you assumed. Ask ONLY (set "decision": true)
-when reasonable approaches lead to materially different results (architecture, scope, a public
-interface, a data format), when a destructive step depends on which reading is intended, or when
-the object of the work is unknowable from here. Anything else is assumed, not asked.
+rarely. Fill in the small things yourself and say what you assumed. Ask ONLY when reasonable
+approaches lead to materially different results (architecture, scope, a public interface, a data
+format), when a destructive step depends on which reading is intended, or when the object of the
+work is unknowable from here. Anything else is assumed, not asked.
 
-When you ask about a decision, put the option you RECOMMEND first in "options" and write the
-one-line reason for it in "assumption", so the user can confirm with a word.
+When you ask, put the option you RECOMMEND first in "options" and write the one-line reason for it
+in "assumption", so the user can confirm with a word.
 
 When you must ask:
 
@@ -131,11 +130,9 @@ When you must ask:
   to that sentence, in whatever language the interface is speaking.
 - leave "summary" and "success_criteria" empty
 
-Set "decision": true ONLY when the answer is a real decision the user must make: a step that is
-destructive or hard to undo depends on it, or the readings lead to materially different results.
-Every other question with an "assumption" is NOT asked: the work goes on with your assumption,
-the report states it, and the user corrects it with their next message. So write the assumption
-as the action you will really take.
+A question with an "assumption" is answered by the agent itself, when the setting allows it: the
+work goes on with your assumption, the report states it, and the user corrects it with their next
+message. So write the assumption as the action you will really take.
 
 Do not ask about what a tool call or a reasonable default settles: a question about a detail costs
 the user a turn. A question about a decision is what they are here for.

@@ -484,3 +484,18 @@ func TestEvalsFileIsUnderTheHome(t *testing.T) {
 		t.Fatalf("EvalsFile() = %q without a home, want empty", got)
 	}
 }
+
+// OpenMemory is the store over that folder, and nil when there is no home: a test of a machine
+// without one must not fail on a memory it cannot keep.
+func TestOpenMemoryIsTheStoreUnderTheHome(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	got := OpenMemory()
+	if got == nil || got.Root() != filepath.Join(home, ".motita", "memory") {
+		t.Fatalf("OpenMemory() = %+v, want the store under the home", got)
+	}
+	t.Setenv("HOME", "")
+	if got := OpenMemory(); got != nil {
+		t.Fatalf("OpenMemory() without a home = %+v, want nil", got)
+	}
+}

@@ -177,17 +177,6 @@ Add `box: <name>` to a line set when more than one box is up. If the service doe
 answer carries the end of its log.
 
 {{desktop}}
-## SEARCHING THE WORKSPACE
-
-To find where something lives in the working directory without reading whole files, ask the
-code index INSTEAD of a shell command. It answers with the best matching passages as path:line
-plus a few lines, definitions first:
-
-- {"kind": "search_index", "description": "why", "command": "plain words or a symbol name"}
-
-It only knows what it indexed (no hidden files, dependencies or binaries), so confirm a negative
-with grep.
-
 ## THREADS (only when the action exists in this session)
 
 A project has ONE main session, this one, and parallel work happens in threads: each thread is one

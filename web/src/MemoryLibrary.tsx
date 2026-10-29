@@ -360,14 +360,6 @@ function Results() {
           ))}
         </>
       )}
-      {!!answer.warning && (
-        <p
-          class="text-xs text-[#9a9aaa] px-1 pt-2"
-          data-testid="memory-warning"
-        >
-          {answer.warning}
-        </p>
-      )}
     </ul>
   );
 }

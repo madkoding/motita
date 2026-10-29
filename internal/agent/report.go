@@ -33,9 +33,6 @@ type Report struct {
 	Risks []string `json:"risks"`
 	// NextSteps is what remains, or what the agent would do next.
 	NextSteps []string `json:"next_steps"`
-	// Decisions are the choices a GOAL run took on the user's behalf, each with its reason. Empty
-	// for an ordinary task, where the user made the decisions.
-	Decisions []ReportDecision `json:"decisions"`
 	// Suggestions are what the agent noticed while working and did NOT do: an issue next to the
 	// change, a missing test, an alternative worth weighing. They are proposals, never applied
 	// on their own: the interface asks the user, one by one, whether to apply each.
@@ -96,12 +93,6 @@ func isGenericSuggestion(title string) bool {
 		}
 	}
 	return false
-}
-
-// ReportDecision is one choice taken without asking.
-type ReportDecision struct {
-	Decision string `json:"decision"`
-	Why      string `json:"why"`
 }
 
 // ReportChange is one thing that changed.
@@ -172,7 +163,6 @@ func (r *Report) normalize(pass bool) {
 	r.Evidence = normalizeEvidence(r.Evidence)
 	r.Risks = cleanLines(r.Risks)
 	r.NextSteps = cleanLines(r.NextSteps)
-	r.Decisions = normalizeDecisions(r.Decisions)
 	r.Suggestions = normalizeSuggestions(r.Suggestions)
 }
 
@@ -247,18 +237,6 @@ func normalizeEvidence(in []ReportEvidence) []ReportEvidence {
 		evidence = append(evidence, e)
 	}
 	return evidence
-}
-
-// normalizeDecisions keeps the decisions that say something.
-func normalizeDecisions(in []ReportDecision) []ReportDecision {
-	decisions := make([]ReportDecision, 0, len(in))
-	for _, d := range in {
-		d.Decision, d.Why = strings.TrimSpace(d.Decision), strings.TrimSpace(d.Why)
-		if d.Decision != "" {
-			decisions = append(decisions, d)
-		}
-	}
-	return decisions
 }
 
 // cleanLines trims the entries and drops the empty ones, returning a non-nil slice.

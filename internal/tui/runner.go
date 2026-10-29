@@ -842,6 +842,7 @@ func (r *AppRunner) RunPlan(ctx context.Context, prompt string, progress func(st
 	// transcript says what was ASKED either way, and inventing a reply the model never gave
 	// would be worse than showing none.
 	r.rememberTurn(prompt, answer, err)
+	r.syncContext()
 	if err != nil {
 		return "", err
 	}
@@ -1125,6 +1126,7 @@ func (r *AppRunner) RunTask(ctx context.Context, task string, progress func(stri
 	// Kept even when the run failed: the attempt is part of the conversation, and dropping it
 	// would make the agent repeat a mistake it cannot see.
 	r.remember(ag.Transcript())
+	r.syncContext()
 	// What this turn read from the library, ready for the verdict that follows it. Recorded on
 	// the failure path too: a turn that failed is exactly the one a user marks.
 	if consult, ok := ag.(interface{ Consulted() map[string]int }); ok {

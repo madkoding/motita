@@ -23,8 +23,7 @@ import (
 //   - word order is kept by binding each word to the next one's vector shifted by one place.
 //
 // The cue goes through the same steps, and the passages are ranked by cosine similarity. No model
-// and no network is needed; an embeddings endpoint, when the person has set one, adds to this and
-// does not replace it.
+// and no network is needed.
 const (
 	dim         = 512
 	maxUnique   = 96   // words of a passage that are kept: the rarest ones

@@ -14,12 +14,7 @@ import type { Api } from "./prApi";
 import type { SetToast } from "./appTypes";
 import type { RunState } from "./useRunState";
 import type { SessionList } from "./useSessionList";
-import {
-  HTTP_CONFLICT,
-  JSON_HEADERS,
-  PROJECTS_PATH,
-  SESSIONS_PATH,
-} from "./appConst";
+import { JSON_HEADERS, SESSIONS_PATH } from "./appConst";
 
 const TURNED_DOWN_KEY = "motita.ui.projectHintsTurnedDown";
 const TURNED_DOWN_MAX = 300;
@@ -52,29 +47,10 @@ async function send(api: Api, path: string, body: object, method = "POST") {
   return res.json();
 }
 
-// indexIn brings the project's code index up to date. It is a courtesy that can take a while, so
-// nothing waits for it, and an index that is off or fails changes nothing.
-function indexIn(api: Api, projectId: string, setToast: SetToast) {
-  api(PROJECTS_PATH + encodeURIComponent(projectId) + "/code-index", {
-    method: "POST",
-  })
-    .then((res) => {
-      if (res.status === HTTP_CONFLICT) {
-        setToast({
-          message: t("The project is not indexed: the code index is off"),
-          type: "warning",
-          detail: t("Turn it on in Settings → Indexing."),
-        });
-      }
-    })
-    .catch(() => undefined);
-}
-
 // newProjectOf is the title a new project gets and the repository it is cloned from, if any.
 function newProjectOf(
   hint:
-    | { kind: "create"; repo: RepoMention }
-    | { kind: "start"; title: string },
+    { kind: "create"; repo: RepoMention } | { kind: "start"; title: string },
 ) {
   if (hint.kind === "start") {
     return { title: hint.title, gitUrl: undefined };
@@ -87,7 +63,6 @@ async function settle(
   api: Api,
   sessionId: string,
   hint: ProjectHint,
-  setToast: SetToast,
 ): Promise<string> {
   const move = (projectId: string) =>
     send(api, SESSIONS_PATH + encodeURIComponent(sessionId) + "/project", {
@@ -112,7 +87,6 @@ async function settle(
       ),
     );
   }
-  indexIn(api, created.id, setToast);
   return tf('Project "{title}" created and this session moved into it', {
     title,
   });
@@ -183,7 +157,7 @@ export function useProjectHint({ api, rs, lists, setToast }: Deps) {
     }
     setBusy(true);
     try {
-      const message = await settle(api, sessionId, hint, setToast);
+      const message = await settle(api, sessionId, hint);
       setToast({ message, type: "success" });
     } catch (e) {
       setToast({
