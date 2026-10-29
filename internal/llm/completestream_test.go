@@ -88,6 +88,7 @@ func TestLLMTimeoutBoundsEachGapOfAStream(t *testing.T) {
 	streamText := func(srv *httptest.Server) (string, error) {
 		c := streamClient(t, srv.URL)
 		c.cfg.Timeout, c.http.Timeout = timeout, timeout
+		c.cfg.TransientBudget = 0 // a timeout here is the case under test, not something to wait out
 		var text strings.Builder
 		for chunk := range c.CompleteToolsStream(context.Background(), []Message{{Role: "user", Content: "hi"}}, nil) {
 			switch chunk.Event {
