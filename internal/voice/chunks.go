@@ -90,8 +90,9 @@ func joinWAV(parts [][]byte) ([]byte, error) {
 // putSize writes a wav chunk size, a 32-bit field, into b: a size the field cannot hold (4 GB of
 // speech) is written as the largest it can, which players read as "until the end".
 func putSize(b []byte, n int) {
-	if n < 0 || int64(n) > math.MaxUint32 {
-		n = math.MaxUint32
+	size := uint64(math.MaxUint32)
+	if n >= 0 && uint64(n) <= size {
+		size = uint64(n)
 	}
-	binary.LittleEndian.PutUint32(b, uint32(n))
+	binary.LittleEndian.PutUint32(b, uint32(size))
 }
