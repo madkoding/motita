@@ -481,7 +481,8 @@ func TestRoundsOfOneActionAreToldToBatch(t *testing.T) {
 		t.Errorf("the note came too early:\n%s", s.executes[singleActionWarnAt-1])
 	}
 	if !strings.Contains(s.executes[singleActionWarnAt], "ONE action each") {
-		t.Errorf("after %d one-action rounds the prompt must say to batch:\n%s", singleActionWarnAt, s.executes[singleActionWarnAt])
+		t.Errorf("after %d one-action rounds the prompt must say to batch:\n%s",
+			singleActionWarnAt, s.executes[singleActionWarnAt])
 	}
 
 	m := &scriptServer{execute: func(round int, _ string) string {
