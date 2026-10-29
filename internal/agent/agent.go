@@ -879,8 +879,9 @@ func taskOutcome(r TaskResult) string {
 }
 
 // readOnlyWarnAt is how many progress rounds in a row may only read before the model is told to
-// write. Five is enough to explore a real project and too few to re-read it twice.
-const readOnlyWarnAt = 5
+// write. Three is what the execute prompt calls normal: one round to look, a second for the one
+// thing the first showed, and the write.
+const readOnlyWarnAt = 3
 
 // doneGuardAfter is how many rounds that only read must have gone by before a claim of "done"
 // over an unchanged tree is questioned. A run that claims done at once is not second-guessed

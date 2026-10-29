@@ -67,7 +67,7 @@ func (r *taskRun) auditDue() bool {
 	if !r.a.cfg.Agent.CriteriaAudit || r.auditPassed || r.auditChallenges >= maxAuditChallenges {
 		return false
 	}
-	return len(r.analysis.SuccessCrit) > 0 && r.ctx.Err() == nil
+	return len(r.analysis.SuccessCrit) >= auditMinCriteria && r.ctx.Err() == nil
 }
 
 // auditClaim reads a claim of "done" against the success criteria and reports whether it was sent
