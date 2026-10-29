@@ -872,7 +872,7 @@ test("who speaks offers the local voice when the gateway has them, and shows the
     [
       "System voices",
       "Downloaded voice",
-      "To read with Qwen3-TTS from the gateway's PC, turn on voice.tts in the configuration.",
+      "To read with Qwen3-TTS from the gateway's PC, turn on the voice service below, or voice.tts in the configuration.",
     ],
   );
   assert.ok(

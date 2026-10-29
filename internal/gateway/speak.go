@@ -3,6 +3,7 @@ package gateway
 import (
 	"context"
 	"net/http"
+	"os"
 	"slices"
 	"strconv"
 	"strings"
@@ -138,6 +139,9 @@ type ttsSaved struct {
 	Model    string `json:"model"`
 	Voice    string `json:"voice"`
 	HasKey   bool   `json:"has_key"`
+	// EnvLocked says MOTITA_VOICE_TTS_ENABLED is set in the gateway's environment, which wins over
+	// the file: the switch cannot move it from the page.
+	EnvLocked bool `json:"env_locked"`
 }
 
 // savedTTS is the voice.tts block of a loaded configuration, as the page sees it.
@@ -146,7 +150,14 @@ func savedTTS(cfg config.Config) ttsSaved {
 	return ttsSaved{
 		Enabled: t.Enabled, API: t.API, BaseURL: strings.TrimSpace(t.BaseURL), Endpoint: cfg.TTSBaseURL(),
 		Model: t.Model, Voice: t.Voice, HasKey: cfg.TTSAPIKey() != "",
+		EnvLocked: ttsEnvLocked(),
 	}
+}
+
+// ttsEnvLocked is whether the environment pins voice.tts.enabled.
+func ttsEnvLocked() bool {
+	v, ok := os.LookupEnv("MOTITA_VOICE_TTS_ENABLED")
+	return ok && strings.TrimSpace(v) != ""
 }
 
 // setTTS is config.SetTTS, as a variable so a test can make the write fail.

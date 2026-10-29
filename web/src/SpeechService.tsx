@@ -113,8 +113,21 @@ export function SpeechServiceRow({
   service?: { info: VoiceInfo | null; onInfo: (i: VoiceInfo) => void };
   api?: Api;
 }) {
-  if (!service?.info || !api) {
+  if (!api) {
     return null;
+  }
+  if (!service?.info?.saved?.tts || !service.info.can_save) {
+    return (
+      <Row
+        id="settings-speech-service"
+        label={t("Voice service")}
+        hint={t(
+          "Not available from here: this gateway has no configuration file to save in, or is too old to configure it. Set voice.tts in its configuration file, or update the gateway.",
+        )}
+      >
+        <span data-testid="speech-service-unavailable" />
+      </Row>
+    );
   }
   return (
     <SpeechService info={service.info} api={api} onInfo={service.onInfo} />
@@ -161,6 +174,7 @@ export function SpeechService({
   if (!info.can_save || !saved) {
     return null;
   }
+  const locked = !!saved.env_locked;
   const openForm = () => {
     setErr("");
     setForm({
@@ -177,7 +191,13 @@ export function SpeechService({
       <Row
         id="settings-speech-service"
         label={t("Voice service")}
-        hint={speechHint(saved)}
+        hint={choose(
+          locked,
+          t(
+            "MOTITA_VOICE_TTS_ENABLED is set in the gateway's environment and wins over this switch. Remove it there to turn the voice service on or off from here.",
+          ),
+          speechHint(saved),
+        )}
       >
         <label class="settings-switch-hit">
           <input
@@ -186,7 +206,7 @@ export function SpeechService({
             class="settings-switch"
             aria-labelledby="settings-speech-service"
             data-testid="speech-service-switch"
-            disabled={busy}
+            disabled={busy || locked}
             checked={saved.enabled || editing}
             onChange={(e) => {
               if ((e.target as HTMLInputElement).checked) {

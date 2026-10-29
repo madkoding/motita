@@ -11,7 +11,7 @@ import {
 } from "./cov-voice-helpers.mjs";
 
 const dom = setupDom("https://localhost/");
-const { SpeechService } = await source("SpeechService.tsx");
+const { SpeechService, SpeechServiceRow } = await source("SpeechService.tsx");
 const { SpeechSettings } = await source("SpeechSettings.tsx");
 const { h, render } = await import("preact");
 const { act } = await import("preact/test-utils");
@@ -403,4 +403,35 @@ test("a single server found fills the form when it opens, unless an address is a
   await click(m2.tid("speech-service-change"));
   assert.equal(m2.tid("speech-base-url").value, "https://tts.example/v1");
   await m2.done();
+});
+
+test("the row says why the voice service cannot be set from here", async () => {
+  const g = gateway(info(savedTts()));
+  for (const i of [null, info(savedTts(), { can_save: false })]) {
+    const m = await mount(
+      h(SpeechServiceRow, { service: { info: i, onInfo() {} }, api: g.api }),
+    );
+    assert.ok(m.tid("speech-service-unavailable"));
+    assert.match(text(m.root), /Not available from here/);
+    await m.done();
+  }
+  const m = await mount(
+    h(SpeechServiceRow, { service: { info: null, onInfo() {} } }),
+  );
+  assert.equal(text(m.root), "");
+  await m.done();
+});
+
+test("an environment override locks the switch and says so", async () => {
+  const g = gateway(info(savedTts({ env_locked: true })));
+  const m = await mount(
+    h(SpeechService, {
+      info: info(savedTts({ env_locked: true })),
+      api: g.api,
+      onInfo() {},
+    }),
+  );
+  assert.equal(m.tid("speech-service-switch").disabled, true);
+  assert.match(text(m.root), /MOTITA_VOICE_TTS_ENABLED is set/);
+  await m.done();
 });
