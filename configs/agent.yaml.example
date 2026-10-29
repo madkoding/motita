@@ -106,6 +106,9 @@ llm:
   max_attempts: 5      # retries with exponential backoff on 429/5xx/network
   backoff_initial: 1s
   backoff_max: 60s
+  transient_budget: 5m   # time one call may wait out network failures / overload (408, 425, 429, 502-504, 529) without spending max_attempts; 0 = they spend it
+  retry_after_max: 2m    # longest Retry-After wait honoured; 0 = ignore the header
+  jitter: 0.25           # share of each backoff cut off at random (0-1); 0 = none
 
 # ---------------------------------------------------------------------------
 # Prompt templates. Available variables:

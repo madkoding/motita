@@ -238,9 +238,17 @@ type LLM struct {
 	MaxAttempts    int           `yaml:"max_attempts"`
 	BackoffInitial time.Duration `yaml:"backoff_initial"`
 	BackoffMax     time.Duration `yaml:"backoff_max"`
-	Reasoning      Reasoning     `yaml:"reasoning"`
-	Session        Session       `yaml:"session"`
-	Skills         Skills        `yaml:"skills"`
+	// TransientBudget is the total time one call may spend waiting out network failures and an
+	// overloaded provider (408, 425, 429, 502-504, 529). Those do not spend max_attempts; 0 makes
+	// them spend it like any other failure.
+	TransientBudget time.Duration `yaml:"transient_budget"`
+	// RetryAfterMax caps the wait a provider asks for in Retry-After; 0 ignores the header.
+	RetryAfterMax time.Duration `yaml:"retry_after_max"`
+	// Jitter is the share (0 to 1) of each backoff that is cut off at random; 0 turns it off.
+	Jitter    float64   `yaml:"jitter"`
+	Reasoning Reasoning `yaml:"reasoning"`
+	Session   Session   `yaml:"session"`
+	Skills    Skills    `yaml:"skills"`
 	// Custom is the custom_model block, copied here at load so every copy of the LLM block carries
 	// it to the client; it is not a key of llm.
 	Custom CustomModel `yaml:"-"`
@@ -458,20 +466,7 @@ func Default() Config {
 			GPGSigning:        true,
 			IsolateNetwork:    true,
 		},
-		LLM: LLM{
-			Provider:       "openai",
-			Model:          "gpt-4o-mini",
-			BaseURL:        "https://api.openai.com/v1",
-			MaxTokens:      16384,
-			Timeout:        90 * time.Second,
-			MaxAttempts:    5,
-			BackoffInitial: time.Second,
-			BackoffMax:     60 * time.Second,
-			Reasoning: Reasoning{
-				Enabled: false,
-				Level:   "medium",
-			},
-		},
+		LLM: defaultLLM(),
 		Skills: Skills{
 			Dir:          defaultSkillsDir(),
 			MaxFileBytes: 64 * 1024,
@@ -1125,6 +1120,12 @@ func (c *Config) validateLLM(requireKey bool) error {
 	}
 	if c.LLM.BackoffMax < c.LLM.BackoffInitial {
 		return fmt.Errorf("llm.backoff_max cannot be smaller than llm.backoff_initial")
+	}
+	if c.LLM.TransientBudget < 0 || c.LLM.RetryAfterMax < 0 {
+		return fmt.Errorf("llm.transient_budget and llm.retry_after_max cannot be negative")
+	}
+	if c.LLM.Jitter < 0 || c.LLM.Jitter > 1 {
+		return fmt.Errorf("llm.jitter must be between 0 and 1")
 	}
 	return nil
 }
