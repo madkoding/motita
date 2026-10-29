@@ -1,6 +1,7 @@
 package clitest
 
 import (
+	"flag"
 	"fmt"
 	"io"
 	"net"
@@ -81,11 +82,22 @@ func selfMain(port int, host string, exit func(int)) {
 // It deliberately does NOT call m.Run() in that case: the flags the contract passes
 // (-port, -host) belong to the mock programs, and letting the testing package parse them
 // would reject them before the server ever started.
+//
+// The flags are read and honoured. They used to be ignored, so the subprocess bound the
+// preferred port while the contract polled the free one it had reserved: whenever another
+// process held the preferred number the self-test spent its full deadline and failed, which
+// is how the v4.75.0 tag build went red for a package the release never touched.
 func TestMain(m *testing.M) {
 	if os.Getenv(selfMarker) != "1" {
 		os.Exit(m.Run())
 	}
-	selfMain(0, "127.0.0.1", os.Exit)
+	fs := flag.NewFlagSet("clitest", flag.ContinueOnError)
+	port := fs.Int("port", 0, "the port to listen on; 0 asks for the preferred one")
+	host := fs.String("host", loopbackHost, "the interface to listen on")
+	// The contract always passes valid flags. A parse error means a broken caller, and
+	// answering on the preferred port is still better than not answering at all.
+	_ = fs.Parse(os.Args[1:])
+	selfMain(*port, *host, os.Exit)
 }
 
 // TestTheSharedContract runs every rule the mocks are held to, on clitest.
@@ -139,6 +151,24 @@ func TestReservePortKeepsThePreferredOneWhenItIsFree(t *testing.T) {
 		t.Errorf("reservePort(%d) = %d, want the preferred port back when it is free",
 			preferred, got)
 	}
+}
+
+// TestThePreferredPortIsNotAssumed pins the other half of that CI failure: the contract
+// reserves a free port and passes it to the subprocess, and the subprocess has to bind IT.
+// The self-test used to ignore `-port` and always bind the preferred number, so on a machine
+// where something else held that number the poll on the reserved port timed out. Holding the
+// preferred port here makes the reserved one differ; only a subprocess that honours the flag
+// answers.
+func TestThePreferredPortIsNotAssumed(t *testing.T) {
+	busy, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Skipf("no port can be bound on this machine: %v", err)
+	}
+	defer busy.Close()
+
+	tool := selfTool()
+	tool.Port = busy.Addr().(*net.TCPAddr).Port
+	testAnswersHealthz(t, tool)
 }
 
 // fakeT is a *testing.T stand-in that records what the contract reports instead of
