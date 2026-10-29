@@ -3,6 +3,7 @@ package config
 import (
 	"errors"
 	"fmt"
+	"os"
 	"slices"
 	"strings"
 )
@@ -15,8 +16,13 @@ import (
 // servers such as Kokoro-FastAPI or openedai-speech answer, so a private voice is a base_url away.
 type TTS struct {
 	Enabled bool `yaml:"enabled"`
+	// API is the protocol of the endpoint: "openai" (the default) or "dashscope", Alibaba Cloud
+	// Model Studio's native speech API, the hosted way to use Qwen3-TTS (it has no OpenAI-style
+	// route). A self-hosted Qwen3-TTS server that answers /audio/speech is "openai".
+	API string `yaml:"api"`
 	// BaseURL is the speech endpoint's base. Empty means the transcription endpoint (voice.base_url,
-	// resolved the same way: the language model's own when it speaks the OpenAI API).
+	// resolved the same way: the language model's own when it speaks the OpenAI API), or DashScope's
+	// international endpoint when API is "dashscope".
 	BaseURL string `yaml:"base_url"`
 	// APIKey is the key for BaseURL. Empty means the transcription key when the endpoint is the
 	// transcription one, and no key otherwise (a local server needs none).
@@ -39,7 +45,26 @@ const (
 	defaultTTSVoice    = "alloy"
 	defaultTTSFormat   = "mp3"
 	defaultTTSMaxChars = 4000
+
+	// TTSAPIOpenAI and TTSAPIDashScope are the protocols voice.tts.api names.
+	TTSAPIOpenAI    = "openai"
+	TTSAPIDashScope = "dashscope"
+
+	// DashScope's Qwen3-TTS: the international endpoint (the key of the Beijing region is another
+	// one, and its base_url is named in the file), its model and its default voice. A request
+	// takes 600 characters at most: the speaker splits longer texts itself.
+	dashScopeTTSBaseURL = "https://dashscope-intl.aliyuncs.com/api/v1"
+	dashScopeTTSModel   = "qwen3-tts-flash"
+	dashScopeTTSVoice   = "Cherry"
 )
+
+// dashScopeTTSVoices are the Qwen3-TTS-Flash voices (Model Studio's voice list) the settings offer
+// when voice.tts.voices names none: the system voices that speak every language, and the dialects.
+var dashScopeTTSVoices = []string{
+	"Cherry", "Serena", "Ethan", "Chelsie", "Momo", "Vivian", "Moon", "Maia", "Kai", "Nofish", "Bella",
+	"Jennifer", "Ryan", "Katerina", "Aiden", "Mia", "Vincent", "Neil", "Elias", "Arthur", "Nini",
+	"Sohee", "Alek", "Andre", "Dylan", "Sunny", "Rocky",
+}
 
 // TTSFormats are the formats the OpenAI speech API answers that every browser can play or that a
 // local server is likely to offer.
@@ -52,7 +77,7 @@ func defaultTTS() TTS {
 
 // ttsInherits reports whether the speech endpoint is the transcription one.
 func (c Config) ttsInherits() bool {
-	return strings.TrimSpace(c.Voice.TTS.BaseURL) == ""
+	return c.Voice.TTS.API != TTSAPIDashScope && strings.TrimSpace(c.Voice.TTS.BaseURL) == ""
 }
 
 // TTSBaseURL is the speech endpoint's base, resolved: the tts block's own, or the transcription
@@ -60,6 +85,9 @@ func (c Config) ttsInherits() bool {
 func (c Config) TTSBaseURL() string {
 	if c.ttsInherits() {
 		return c.VoiceBaseURL()
+	}
+	if c.Voice.TTS.API == TTSAPIDashScope && strings.TrimSpace(c.Voice.TTS.BaseURL) == "" {
+		return dashScopeTTSBaseURL
 	}
 	return strings.TrimRight(strings.TrimSpace(c.Voice.TTS.BaseURL), "/")
 }
@@ -70,6 +98,9 @@ func (c Config) TTSBaseURL() string {
 func (c Config) TTSAPIKey() string {
 	if key := strings.TrimSpace(c.Voice.TTS.APIKey); key != "" {
 		return key
+	}
+	if c.Voice.TTS.API == TTSAPIDashScope {
+		return strings.TrimSpace(os.Getenv("DASHSCOPE_API_KEY"))
 	}
 	if c.ttsInherits() {
 		return c.VoiceAPIKey()
@@ -88,7 +119,11 @@ func (c Config) TTSMaxChars() int {
 // TTSVoices are the voices the settings offer: the listed ones, with the default first.
 func (c Config) TTSVoices() []string {
 	out := []string{c.Voice.TTS.Voice}
-	for _, v := range c.Voice.TTS.Voices {
+	listed := c.Voice.TTS.Voices
+	if len(listed) == 0 && c.Voice.TTS.API == TTSAPIDashScope {
+		listed = dashScopeTTSVoices
+	}
+	for _, v := range listed {
 		if v = strings.TrimSpace(v); v != "" && !slices.Contains(out, v) {
 			out = append(out, v)
 		}
@@ -96,13 +131,43 @@ func (c Config) TTSVoices() []string {
 	return out
 }
 
+// normalize trims the tts block and fills what only the API's name implies.
+func (t *TTS) normalize() {
+	t.Model, t.Voice = strings.TrimSpace(t.Model), strings.TrimSpace(t.Voice)
+	t.Format = strings.ToLower(strings.TrimSpace(t.Format))
+	t.API = strings.ToLower(strings.TrimSpace(t.API))
+	if t.API == "" {
+		t.API = TTSAPIOpenAI
+	}
+	if t.API != TTSAPIDashScope {
+		return
+	}
+	// Only the API was named: the OpenAI defaults of the model and voice mean nothing here.
+	if t.Model == defaultTTSModel {
+		t.Model = dashScopeTTSModel
+	}
+	if t.Voice == defaultTTSVoice {
+		t.Voice = dashScopeTTSVoice
+	}
+}
+
+// validateAPI checks the protocol.
+func (t TTS) validateAPI() error {
+	if t.API != TTSAPIOpenAI && t.API != TTSAPIDashScope {
+		return fmt.Errorf("voice.tts.api %q is not one of %s, %s", t.API, TTSAPIOpenAI, TTSAPIDashScope)
+	}
+	return nil
+}
+
 // validateTTS checks the tts block. A disabled block is not checked.
 func (c *Config) validateTTS() error {
 	t := &c.Voice.TTS
-	t.Model, t.Voice = strings.TrimSpace(t.Model), strings.TrimSpace(t.Voice)
-	t.Format = strings.ToLower(strings.TrimSpace(t.Format))
+	t.normalize()
 	if !t.Enabled {
 		return nil
+	}
+	if err := t.validateAPI(); err != nil {
+		return err
 	}
 	if t.MaxChars < 0 {
 		return fmt.Errorf("voice.tts.max_chars is %d: it cannot be negative (0 means the built-in default)", t.MaxChars)
@@ -117,6 +182,9 @@ func (c *Config) validateTTS() error {
 		return fmt.Errorf("voice.tts.format %q is not one of %s", t.Format, strings.Join(TTSFormats, ", "))
 	}
 	base := c.TTSBaseURL()
+	if t.API == TTSAPIDashScope && c.TTSAPIKey() == "" {
+		return errors.New("voice.tts.api_key is empty: DashScope needs a key (or DASHSCOPE_API_KEY)")
+	}
 	if base == "" {
 		return fmt.Errorf("voice.tts.base_url is empty and the %s provider has no speech endpoint: "+
 			"name one (an OpenAI-compatible /audio/speech)", c.LLM.Provider)

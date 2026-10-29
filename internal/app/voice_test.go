@@ -46,3 +46,13 @@ func TestSpeechForFollowsTheConfiguration(t *testing.T) {
 		t.Errorf("speaker = %+v", got)
 	}
 }
+
+// A DashScope configuration builds a speaker that speaks DashScope's API.
+func TestSpeechForDashScope(t *testing.T) {
+	cfg := config.Default()
+	cfg.Voice.TTS.Enabled, cfg.Voice.TTS.API, cfg.Voice.TTS.APIKey = true, "dashscope", "dk"
+	got, ok := speechFor(cfg).(voice.Speaker)
+	if !ok || got.API != "dashscope" || got.APIKey != "dk" {
+		t.Errorf("speaker = %+v", got)
+	}
+}

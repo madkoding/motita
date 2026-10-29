@@ -86,6 +86,7 @@ func textBindings(c *Config) []binding[string] {
 		{"MOTITA_VOICE_API_KEY", &c.Voice.APIKey},
 		{"MOTITA_VOICE_MODEL", &c.Voice.Model},
 		{"MOTITA_VOICE_LANGUAGE", &c.Voice.Language},
+		{"MOTITA_VOICE_TTS_API", &c.Voice.TTS.API},
 		{"MOTITA_VOICE_TTS_BASE_URL", &c.Voice.TTS.BaseURL},
 		{"MOTITA_VOICE_TTS_API_KEY", &c.Voice.TTS.APIKey},
 		{"MOTITA_VOICE_TTS_MODEL", &c.Voice.TTS.Model},

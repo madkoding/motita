@@ -73,6 +73,16 @@ func TestValidateTTS(t *testing.T) {
 			c.Voice.TTS.BaseURL, c.Voice.TTS.APIKey = "http://tts.example.com/v1", "tk"
 		}, "voice.tts.base_url \"http://tts.example.com/v1\" is plain http"},
 		{"clear text remote without key", func(c *Config) { c.Voice.TTS.BaseURL = "http://tts.example.com/v1" }, ""},
+		{"api unknown", func(c *Config) { c.Voice.TTS.API = "polly" }, "voice.tts.api"},
+		{"dashscope", func(c *Config) { c.Voice.TTS.API, c.Voice.TTS.APIKey = " DashScope ", "dk" }, ""},
+		{"dashscope no key", func(c *Config) {
+			c.Voice.TTS.API = "dashscope"
+			t.Setenv("DASHSCOPE_API_KEY", "")
+		}, "voice.tts.api_key is empty"},
+		{"dashscope key from env", func(c *Config) {
+			c.Voice.TTS.API = "dashscope"
+			t.Setenv("DASHSCOPE_API_KEY", " ek ")
+		}, ""},
 		{"clear text local with key", func(c *Config) {
 			c.Voice.TTS.BaseURL, c.Voice.TTS.APIKey = "http://localhost:8880/v1", "tk"
 		}, ""},
@@ -137,4 +147,33 @@ func ttsEqual(a, b TTS) bool {
 	sameEndpoint := a.Enabled == b.Enabled && a.BaseURL == b.BaseURL && a.APIKey == b.APIKey
 	sameSpeech := a.Model == b.Model && a.Voice == b.Voice && a.Format == b.Format
 	return sameEndpoint && sameSpeech && a.MaxChars == b.MaxChars && slices.Equal(a.Voices, b.Voices)
+}
+
+// DashScope is Qwen3-TTS's hosted API: its own endpoint, model, voice and cap, never the
+// transcription endpoint or its key.
+func TestTTSDashScopeDefaults(t *testing.T) {
+	c := Default()
+	c.LLM.Provider, c.LLM.APIKey = "openai", "llm-key"
+	c.Voice.TTS.Enabled, c.Voice.TTS.API, c.Voice.TTS.APIKey = true, "dashscope", "dk"
+	if err := c.ValidateWithoutKey(); err != nil {
+		t.Fatal(err)
+	}
+	tts := c.Voice.TTS
+	if tts.Model != "qwen3-tts-flash" || tts.Voice != "Cherry" {
+		t.Errorf("defaults = %+v, max %d", tts, c.TTSMaxChars())
+	}
+	if v := c.TTSVoices(); v[0] != "Cherry" || len(v) < 20 {
+		t.Errorf("voices = %v", v)
+	}
+	c.Voice.TTS.Voices = []string{"Ethan"}
+	if v := c.TTSVoices(); len(v) != 2 {
+		t.Errorf("listed voices win: %v", v)
+	}
+	if c.TTSBaseURL() != "https://dashscope-intl.aliyuncs.com/api/v1" || c.TTSAPIKey() != "dk" {
+		t.Errorf("endpoint = %q key %q", c.TTSBaseURL(), c.TTSAPIKey())
+	}
+	c.Voice.TTS.BaseURL = "https://dashscope.aliyuncs.com/api/v1/"
+	if c.TTSBaseURL() != "https://dashscope.aliyuncs.com/api/v1" {
+		t.Errorf("own base = %q", c.TTSBaseURL())
+	}
 }
