@@ -68,13 +68,15 @@ func TestOpenReportsDiskFailures(t *testing.T) {
 
 	absPath = oldAbs
 	mkdirAll = func(string, os.FileMode) error { return errors.New("disk full") }
-	if _, err := Open(filepath.Join(t.TempDir(), "x"), Options{}); err == nil || !strings.Contains(err.Error(), "could not create") {
+	_, err := Open(filepath.Join(t.TempDir(), "x"), Options{})
+	if err == nil || !strings.Contains(err.Error(), "could not create") {
 		t.Fatalf("mkdir error = %v", err)
 	}
 
 	mkdirAll = oldMk
 	chmod = func(string, os.FileMode) error { return errors.New("denied") }
-	if _, err := Open(filepath.Join(t.TempDir(), "x"), Options{}); err == nil || !strings.Contains(err.Error(), "could not protect") {
+	_, err = Open(filepath.Join(t.TempDir(), "x"), Options{})
+	if err == nil || !strings.Contains(err.Error(), "could not protect") {
 		t.Fatalf("chmod error = %v", err)
 	}
 }
@@ -234,7 +236,10 @@ func TestSyncWritesOneEntryPerTurn(t *testing.T) {
 	}
 
 	first := readEntry(t, s, want[0])
-	for _, part := range []string{"author: motita", "date: 2026-10-28T09:15:00Z", "# Turn 1 · chat", "## Request", "hello", "## Answer", "hi"} {
+	for _, part := range []string{
+		"author: motita", "date: 2026-10-28T09:15:00Z", "# Turn 1 · chat",
+		"## Request", "hello", "## Answer", "hi",
+	} {
 		if !strings.Contains(first, part) {
 			t.Errorf("turn 1 does not contain %q:\n%s", part, first)
 		}
@@ -293,7 +298,11 @@ func TestSyncRewritesTheLastTurn(t *testing.T) {
 
 func TestSyncDoesNotRewriteFinishedTurns(t *testing.T) {
 	s := openTest(t, Options{})
-	if err := s.Sync([]Turn{{Kind: "chat", User: "one", Agent: "a"}, {Kind: "chat", User: "two", Agent: "b"}}); err != nil {
+	turns := []Turn{
+		{Kind: "chat", User: "one", Agent: "a"},
+		{Kind: "chat", User: "two", Agent: "b"},
+	}
+	if err := s.Sync(turns); err != nil {
 		t.Fatal(err)
 	}
 	first := filepath.Join(s.Root(), "turn-000001-chat.md")
@@ -301,7 +310,8 @@ func TestSyncDoesNotRewriteFinishedTurns(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := s.Sync([]Turn{{Kind: "chat", User: "one", Agent: "a"}, {Kind: "chat", User: "two", Agent: "changed"}}); err != nil {
+	turns[1].Agent = "changed"
+	if err := s.Sync(turns); err != nil {
 		t.Fatal(err)
 	}
 	after, err := os.Stat(first)
@@ -361,9 +371,18 @@ func TestSyncReportsAWriteFailureAndKeepsGoing(t *testing.T) {
 func TestRecallAnswersFromTheArchive(t *testing.T) {
 	s := openTest(t, Options{})
 	turns := []Turn{
-		{Kind: "chat", User: "what about the payroll script?", Agent: "it runs at dawn", Date: time.Date(2026, 10, 20, 8, 0, 0, 0, time.UTC)},
-		{Kind: "task", User: "fix the deployment", Agent: "the pipeline is green", Date: time.Date(2026, 10, 21, 9, 0, 0, 0, time.UTC)},
-		{Kind: "plan", User: "and the payroll report?", Agent: "it is scheduled", Date: time.Date(2026, 10, 22, 10, 30, 0, 0, time.UTC)},
+		{
+			Kind: "chat", User: "what about the payroll script?", Agent: "it runs at dawn",
+			Date: time.Date(2026, 10, 20, 8, 0, 0, 0, time.UTC),
+		},
+		{
+			Kind: "task", User: "fix the deployment", Agent: "the pipeline is green",
+			Date: time.Date(2026, 10, 21, 9, 0, 0, 0, time.UTC),
+		},
+		{
+			Kind: "plan", User: "and the payroll report?", Agent: "it is scheduled",
+			Date: time.Date(2026, 10, 22, 10, 30, 0, 0, time.UTC),
+		},
 	}
 	if err := s.Sync(turns); err != nil {
 		t.Fatal(err)

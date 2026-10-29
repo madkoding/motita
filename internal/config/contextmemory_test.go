@@ -89,7 +89,9 @@ func TestContextMemoryFromTheEnvironment(t *testing.T) {
 func TestContextMemoryLoadsFromYAML(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "motita.yaml")
-	body := "llm:\n  api_key: k\ncontext_memory:\n  enabled: false\n  recall_tokens: 800\n  recall_hits: 3\n  max_turns: 20\n"
+	body := "llm:\n  api_key: k\n" +
+		"context_memory:\n  enabled: false\n  recall_tokens: 800\n" +
+		"  recall_hits: 3\n  max_turns: 20\n"
 	if err := os.WriteFile(path, []byte(body), 0o600); err != nil {
 		t.Fatal(err)
 	}

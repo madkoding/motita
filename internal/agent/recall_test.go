@@ -141,7 +141,8 @@ func TestAnalysisWithoutRecallLeavesTheBlockEmpty(t *testing.T) {
 				e.agent.SetRecall(tc.recall)
 			}
 
-			if analysis := e.agent.analysisPhase(context.Background(), textTask("do the test task"), "", 0); !analysis.Understandable {
+			analysis := e.agent.analysisPhase(context.Background(), textTask("do the test task"), "", 0)
+			if !analysis.Understandable {
 				t.Fatalf("analysis = %+v", analysis)
 			}
 			if strings.Contains(strings.Join(trace, "\n"), "recalled") {

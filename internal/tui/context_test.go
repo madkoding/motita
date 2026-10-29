@@ -240,10 +240,12 @@ func TestRecallAsksTheArchive(t *testing.T) {
 		t.Errorf("a recall that excludes every turn brought %q", block)
 	}
 
-	if block, n := r.recallPlan(context.Background(), "payroll", 0); n == 0 {
+	planBlock, planN := r.recallPlan(context.Background(), "payroll", 0)
+	if planN == 0 {
 		t.Error("Plan mode recalled nothing from an archive that has turns")
-	} else if !strings.Contains(block, "payroll") {
-		t.Errorf("the plan block does not answer the question:\n%s", block)
+	}
+	if !strings.Contains(planBlock, "payroll") {
+		t.Errorf("the plan block does not answer the question:\n%s", planBlock)
 	}
 }
 

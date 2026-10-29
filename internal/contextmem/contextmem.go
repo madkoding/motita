@@ -328,23 +328,31 @@ func (s *Store) Recall(ctx context.Context, query string, live int) (string, int
 	if len(files) == 0 {
 		return "", 0
 	}
+	// The live turns are filtered out AFTER the search, so the search is asked for enough
+	// candidates to still fill the answer once they are gone.
+	limit := s.opts.RecallHits
+	ask := limit + max(live, 0) + 2
+	if ask > memory.MaxLimit {
+		ask = memory.MaxLimit
+	}
+	res := s.mem.Search(ctx, memory.Query{Text: query, Limit: ask})
+	return s.renderRecall(res, newestSeq(files)-live+1, limit)
+}
+
+// newestSeq is the position of the last archived turn: the live ones are counted back from it.
+func newestSeq(files map[int]string) int {
 	newest := 0
 	for seq := range files {
 		if seq > newest {
 			newest = seq
 		}
 	}
-	firstLive := newest - live + 1
+	return newest
+}
 
-	limit := s.opts.RecallHits
-	// The live turns are filtered out AFTER the search, so the search is asked for enough
-	// candidates to still fill the answer once they are gone.
-	ask := limit + max(live, 0) + 2
-	if ask > memory.MaxLimit {
-		ask = memory.MaxLimit
-	}
-	res := s.mem.Search(ctx, memory.Query{Text: query, Limit: ask})
-
+// renderRecall turns the hits into the block, dropping the live turns and stopping at the
+// first one that does not fit the budget.
+func (s *Store) renderRecall(res memory.Result, firstLive, limit int) (string, int) {
 	var b strings.Builder
 	b.WriteString(blockHeader)
 	used := tokens(blockHeader)
@@ -354,7 +362,7 @@ func (s *Store) Recall(ctx context.Context, query string, live int) (string, int
 			break
 		}
 		seq, kind, ok := parseName(hit.Path)
-		if !ok || (live > 0 && seq >= firstLive) {
+		if !ok || seq >= firstLive {
 			continue
 		}
 		block := strings.TrimSpace(hit.Block)

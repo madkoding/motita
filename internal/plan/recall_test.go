@@ -43,35 +43,46 @@ func recordingServer(t *testing.T, answers ...string) (*httptest.Server, *[][]re
 	return srv, &requests
 }
 
-// TestRecallIsSentButNotKeptInTheSession: the block belongs to the turn that asked for it. It
-// goes among the leading system messages, before the conversation, and it is never written to
-// the session: the next turn recalls its own, and a stored copy would make the archive recall
-// itself.
-func TestRecallIsSentButNotKeptInTheSession(t *testing.T) {
+// recallRig is the planner after two turns that each recalled a block, with what the provider
+// was sent and what the recall hook was told.
+type recallRig struct {
+	planner  *Planner
+	requests [][]recordedMessage
+	live     []int
+	trace    []string
+}
+
+func recallAfterTwoTurns(t *testing.T) *recallRig {
+	t.Helper()
 	a, _ := makeAgent(t, true)
 	srv, requests := recordingServer(t, "the first answer", "the second answer")
 	p := New(newClient(t, srv), a).WithSessionPolicy("gpt-4o", 128000, 1000, 0.5, 2)
 
-	var live []int
-	var trace []string
-	p.WithTrace(func(format string, args ...any) { trace = append(trace, fmt.Sprintf(format, args...)) }).
-		WithRecall(func(_ context.Context, query string, shown int) (string, int) {
-			live = append(live, shown)
-			return "ARCHIVED-BLOCK for " + query, 2
-		})
+	rig := &recallRig{planner: p}
+	p.WithTrace(func(format string, args ...any) {
+		rig.trace = append(rig.trace, fmt.Sprintf(format, args...))
+	}).WithRecall(func(_ context.Context, query string, shown int) (string, int) {
+		rig.live = append(rig.live, shown)
+		return "ARCHIVED-BLOCK for " + query, 2
+	})
 
-	if _, err := p.Run(context.Background(), "the first question"); err != nil {
-		t.Fatalf("the first turn: %v", err)
+	for _, question := range []string{"the first question", "the second question"} {
+		if _, err := p.Run(context.Background(), question); err != nil {
+			t.Fatalf("%s: %v", question, err)
+		}
 	}
-	if _, err := p.Run(context.Background(), "the second question"); err != nil {
-		t.Fatalf("the second turn: %v", err)
-	}
+	rig.requests = *requests
+	return rig
+}
 
-	if len(*requests) != 2 {
-		t.Fatalf("requests = %d, want 2", len(*requests))
+// TestRecallIsSentWithTheTurn: the block belongs to the turn that asked for it. It goes among
+// the leading system messages, before the conversation, with the question closing the request.
+func TestRecallIsSentWithTheTurn(t *testing.T) {
+	rig := recallAfterTwoTurns(t)
+	if len(rig.requests) != 2 {
+		t.Fatalf("requests = %d, want 2", len(rig.requests))
 	}
-	first := (*requests)[0]
-	// The system prompt opens the conversation; the recall follows it, before the question.
+	first := rig.requests[0]
 	if len(first) < 3 || first[0].Role != "system" || first[1].Role != "system" {
 		t.Fatalf("the recall was not placed among the system messages: %+v", first)
 	}
@@ -81,9 +92,17 @@ func TestRecallIsSentButNotKeptInTheSession(t *testing.T) {
 	if last := first[len(first)-1]; last.Role != "user" || !strings.Contains(last.Content, "the first question") {
 		t.Errorf("the question does not close the request: %+v", first)
 	}
+}
 
-	// The second request carries the SECOND block, once: the first turn's is gone.
-	second := (*requests)[1]
+// TestRecallIsNotKeptInTheSession: the next turn recalls its own, a stored copy would make the
+// archive recall itself, and none of it is part of what the session keeps. live is the number
+// of earlier turns still shown verbatim: none on the first turn, one on the second.
+func TestRecallIsNotKeptInTheSession(t *testing.T) {
+	rig := recallAfterTwoTurns(t)
+	if len(rig.requests) != 2 {
+		t.Fatalf("requests = %d, want 2", len(rig.requests))
+	}
+	second := rig.requests[1]
 	var blocks int
 	for _, m := range second {
 		if strings.Contains(m.Content, "ARCHIVED-BLOCK") {
@@ -96,21 +115,16 @@ func TestRecallIsSentButNotKeptInTheSession(t *testing.T) {
 	if blocks != 1 {
 		t.Errorf("the second request carries %d recalled blocks, want 1: %+v", blocks, second)
 	}
-
-	// And none of it is part of what the session keeps.
-	for _, m := range p.Session().Messages() {
+	for _, m := range rig.planner.Session().Messages() {
 		if strings.Contains(m.Content, "ARCHIVED-BLOCK") {
 			t.Errorf("the recall was written to the session: %q", m.Content)
 		}
 	}
-
-	// live is the number of earlier turns still shown verbatim: none on the first turn, one
-	// on the second.
-	if len(live) != 2 || live[0] != 0 || live[1] != 1 {
-		t.Errorf("live = %v, want [0 1]", live)
+	if len(rig.live) != 2 || rig.live[0] != 0 || rig.live[1] != 1 {
+		t.Errorf("live = %v, want [0 1]", rig.live)
 	}
-	if !strings.Contains(strings.Join(trace, "\n"), "[recalled 2 passages from earlier]") {
-		t.Errorf("the recall was not traced: %v", trace)
+	if !strings.Contains(strings.Join(rig.trace, "\n"), "[recalled 2 passages from earlier]") {
+		t.Errorf("the recall was not traced: %v", rig.trace)
 	}
 }
 

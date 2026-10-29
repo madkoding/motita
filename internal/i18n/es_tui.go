@@ -5,6 +5,8 @@ package i18n
 //
 // Terms, kept the same everywhere: task = tarea, plan mode = modo plan, session = sesión,
 // conversation = conversación, check = verificación, setup = configuración, gateway = gateway.
+//
+// #nosec G101 -- this is translation text; "token" here is a model token, not a credential.
 var esTUI = map[string]string{
 	// The agents panel and footer.
 	"No agents yet: a task lists here the agents it starts, with their time and tokens.": "Todavía no hay agentes: una " +
