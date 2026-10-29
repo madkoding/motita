@@ -247,6 +247,8 @@ export function useMemory(api: Api, setState: SetStatus) {
   const [entries, setEntries] = useState<MemoryEntry[]>([]);
   const [namespaces, setNamespaces] = useState<Namespace[]>([]);
   const [root, setRoot] = useState("");
+  // Whether the last look at the list failed, so an unreadable memory is not shown as an empty one.
+  const [loadFailed, setLoadFailed] = useState(false);
   // What the person asked to delete and has not yet confirmed.
   const [pending, setPending] = useState<Deletion | null>(null);
   const [current, setCurrent] = useState<EntryView | null>(null);
@@ -263,13 +265,18 @@ export function useMemory(api: Api, setState: SetStatus) {
   const loadList = useCallback(async () => {
     try {
       const res = await api(MEMORY_PATH);
-      if (res.ok) {
-        const d = await res.json();
-        setEntries(d.entries);
-        setNamespaces(d.namespaces ?? []);
-        setRoot(d.root);
+      if (!res.ok) {
+        setLoadFailed(true);
+        setState(t("could not load the memory"), true);
+        return;
       }
+      const d = await res.json();
+      setEntries(d.entries);
+      setNamespaces(d.namespaces ?? []);
+      setRoot(d.root);
+      setLoadFailed(false);
     } catch {
+      setLoadFailed(true);
       setState(t("could not load the memory"), true);
     }
   }, [api, setState]);
@@ -430,6 +437,8 @@ export function useMemory(api: Api, setState: SetStatus) {
     entries,
     namespaces,
     root,
+    loadFailed,
+    reload: loadList,
     current,
     draft,
     setDraft,

@@ -731,13 +731,16 @@ test("loading and opening failures are said, not thrown", async () => {
   v.fail.add({ method: "GET", path: "/v1/memory", status: 500 });
   const m = await mount(v);
   await m.run((n) => n.openMemory());
-  assert.deepEqual(m.statuses, []);
+  // An unreadable memory is said, and shown as such, never as an empty one.
+  assert.deepEqual(m.statuses.pop(), ["could not load the memory", true]);
+  assert.ok(q(m.root, "memory-load-failed"));
   v.fail.clear();
   v.fail.add({ method: "GET", path: "/v1/memory" });
   await m.run((n) => n.openMemory());
   assert.deepEqual(m.statuses.pop(), ["could not load the memory", true]);
   v.fail.clear();
   await m.run((n) => n.openMemory());
+  assert.equal(qa(m.root, "memory-load-failed").length, 0);
   await m.run((n) => n.openEntry("missing.md"));
   assert.deepEqual(m.statuses.pop(), ["could not open the entry", true]);
   v.fail.add({ method: "GET", path: "Japan.md" });

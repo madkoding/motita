@@ -368,7 +368,7 @@ function Results() {
 // the search results.
 export function MemoryList() {
   const { memory } = useApp();
-  const { current, graph, query, entries, search } = memory;
+  const { current, graph, query, entries, search, loadFailed, reload } = memory;
   const [writing, setWriting] = useState(false);
   const closeForm = useCallback(() => setWriting(false), []);
   function toggleForm() {
@@ -406,7 +406,19 @@ export function MemoryList() {
         {!searching && (
           <>
             <FolderContent folder={buildTree(entries)} depth={0} />
-            {entries.length === 0 && (
+            {entries.length === 0 && loadFailed && (
+              <div class="text-sm px-1" data-testid="memory-load-failed">
+                <p class="text-[#9a9aaa]">{t("could not load the memory")}</p>
+                <button
+                  type="button"
+                  class={SMALL_BTN + " mt-2"}
+                  onClick={() => void reload()}
+                >
+                  {t("Try again")}
+                </button>
+              </div>
+            )}
+            {entries.length === 0 && !loadFailed && (
               <p class="text-sm text-[#9a9aaa] px-1">
                 {t("Nothing in the memory yet. Write the first entry above.")}
               </p>
