@@ -133,7 +133,26 @@ func (r *AppRunner) recallTask(ctx context.Context, query string, live int) (str
 // recallPlan is what a Plan-mode turn asks. live is the number of turns the session still
 // shows: before a compaction that is all of them, and after one it is only the tail.
 func (r *AppRunner) recallPlan(ctx context.Context, query string, live int) (string, int) {
-	return r.recall(ctx, query, live)
+	return r.recall(ctx, query, r.planSpan(live))
+}
+
+// planSpan turns "the session shows live Plan turns" into how many archived turns that covers.
+// The session holds only Plan turns, but the archive numbers every turn of the conversation, so
+// Task turns between the live ones would otherwise leave the cut too late and recall a turn the
+// prompt already shows.
+func (r *AppRunner) planSpan(live int) int {
+	if live <= 0 {
+		return 0
+	}
+	turns := r.history()
+	for i := len(turns) - 1; i >= 0; i-- {
+		if turns[i].Kind == "plan" {
+			if live--; live == 0 {
+				return len(turns) - i
+			}
+		}
+	}
+	return len(turns)
 }
 
 // recall asks the archive, with the previous turn added to the query: a short request ("and
