@@ -310,7 +310,8 @@ func (c *Client) send(ctx context.Context, path string, body any, stream bool) (
 			data = c.clampOutputLimit(data)
 			continue
 		}
-		return nil, t, &HTTPError{Code: resp.StatusCode, Body: strings.TrimSpace(string(b))}
+		return nil, t, &HTTPError{Code: resp.StatusCode, Body: strings.TrimSpace(string(b)),
+			RetryAfter: parseRetryAfter(resp.Header.Get("Retry-After"), time.Now())}
 	}
 }
 

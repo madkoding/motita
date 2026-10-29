@@ -133,6 +133,8 @@ func durationBindings(c *Config) []binding[time.Duration] {
 		{"MOTITA_LLM_TIMEOUT", &c.LLM.Timeout},
 		{"MOTITA_LLM_BACKOFF_INITIAL", &c.LLM.BackoffInitial},
 		{"MOTITA_LLM_BACKOFF_MAX", &c.LLM.BackoffMax},
+		{"MOTITA_LLM_TRANSIENT_BUDGET", &c.LLM.TransientBudget},
+		{"MOTITA_LLM_RETRY_AFTER_MAX", &c.LLM.RetryAfterMax},
 		{"MOTITA_REVIEW_TIMEOUT", &c.Review.Timeout},
 		{"MOTITA_SCHEDULE_TICK", &c.Schedule.Tick},
 		{"MOTITA_SCHEDULE_MIN_EVERY", &c.Schedule.MinEvery},
@@ -291,11 +293,12 @@ func applyLLMEnvironment(c *Config) error {
 		c.LLM.BaseURL = readText("OPENAI_BASE_URL", c.LLM.BaseURL)
 	}
 
-	// The two floating-point settings have their own variables because they are the
+	// The floating-point settings have their own variables because they are the
 	// only non-integer numbers in the configuration.
 	temperature := c.LLM.TemperatureOr(0)
 	for _, b := range []binding[float64]{
 		{"MOTITA_LLM_SESSION_COMPACT_AT", &c.LLM.Session.CompactAt},
+		{"MOTITA_LLM_JITTER", &c.LLM.Jitter},
 		{"MOTITA_LLM_TEMPERATURE", &temperature},
 	} {
 		if v := os.Getenv(b.key); v != "" {

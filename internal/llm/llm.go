@@ -53,6 +53,8 @@ type Client struct {
 	http  *http.Client
 	log   *logx.Logger
 	sleep func(time.Duration) // injectable so tests do not have to wait
+	// rand draws the jitter in [0,1); nil is the runtime's generator. Tests inject a fixed one.
+	rand func() float64
 	// openStream opens one streaming attempt. It is injectable so the retry
 	// wrapper can be tested against a producer that fails, or closes without a
 	// done chunk, without having to make a real server misbehave.
@@ -238,40 +240,35 @@ func (c *Client) CompleteStream(
 // Complete sends the conversation and returns the model's text, retrying with
 // exponential backoff on transient failures.
 func (c *Client) Complete(ctx context.Context, messages []Message) (string, error) {
-	var last error
-	wait := c.cfg.BackoffInitial
-
-	for attempt := 1; attempt <= c.cfg.MaxAttempts; attempt++ {
+	retry := c.newRetry()
+	for {
 		text, err := c.call(ctx, messages)
 		if err == nil {
 			return text, nil
 		}
-		last = err
-
-		if !retryable(err) {
+		pause, v := retry.after(err)
+		switch v {
+		case verdictFatal:
 			// A credentials or request error does not improve by retrying:
 			// fail fast instead of burning time and quota.
 			c.log.Error("LLM call failed with no possibility of retry",
-				"attempt", attempt, "error", err, "detail", Detail(err))
+				"attempt", retry.attempts+1, "error", err, "detail", Detail(err))
 			return "", err
+		case verdictExhausted:
+			return "", retry.exhausted()
+		default:
+			// verdictRetry: wait and ask again.
 		}
-		if attempt == c.cfg.MaxAttempts {
-			break
-		}
-
 		c.log.Warn("retrying LLM call",
-			"attempt", attempt, "max_attempts", c.cfg.MaxAttempts,
-			"wait", wait.String(), "error", err, "detail", Detail(err))
+			"attempt", retry.attempts, "max_attempts", c.cfg.MaxAttempts,
+			"wait", pause.String(), "error", err, "detail", Detail(err))
 
 		select {
 		case <-ctx.Done():
 			return "", fmt.Errorf("cancelled while waiting to retry: %w", ctx.Err())
-		case <-time.After(wait):
+		case <-time.After(pause):
 		}
-		wait = c.nextWait(wait)
 	}
-
-	return "", fmt.Errorf("all %d attempts were exhausted: %w", c.cfg.MaxAttempts, last)
 }
 
 // nextWait is the wait before the attempt after one that waited wait: twice as long, up to the
@@ -294,37 +291,36 @@ func (c *Client) CompleteToolsStream(ctx context.Context, messages []Message, to
 	out := make(chan StreamChunk, 8)
 	go func() {
 		defer close(out)
-		var last error
-		wait := c.cfg.BackoffInitial
-		for attempt := 1; attempt <= c.cfg.MaxAttempts; attempt++ {
+		retry := c.newRetry()
+		for {
 			chunkCh, err := c.openStreamOr()(ctx, messages, tools)
 			if err == nil {
 				if err = forwardStream(chunkCh, out); err == nil {
 					return
 				}
 			}
-			last = err
-			if !retryable(err) {
+			pause, v := retry.after(err)
+			switch v {
+			case verdictFatal:
 				c.log.Error("LLM tool stream failed with no possibility of retry",
-					"attempt", attempt, "error", err, "detail", Detail(err))
+					"attempt", retry.attempts+1, "error", err, "detail", Detail(err))
 				out <- StreamChunk{Event: StreamError, Error: err}
 				return
+			case verdictExhausted:
+				out <- StreamChunk{Event: StreamError, Error: retry.exhausted()}
+				return
+			default:
+				// verdictRetry: wait and ask again.
 			}
-			if attempt == c.cfg.MaxAttempts {
-				break
-			}
-			c.log.Warn("retrying LLM tool stream", "attempt", attempt, "max_attempts", c.cfg.MaxAttempts,
-				"wait", wait.String(), "error", err)
+			c.log.Warn("retrying LLM tool stream", "attempt", retry.attempts, "max_attempts", c.cfg.MaxAttempts,
+				"wait", pause.String(), "error", err)
 			select {
 			case <-ctx.Done():
 				out <- StreamChunk{Event: StreamError, Error: fmt.Errorf("cancelled while waiting to retry: %w", ctx.Err())}
 				return
-			case <-time.After(wait):
+			case <-time.After(pause):
 			}
-			wait = c.nextWait(wait)
 		}
-		out <- StreamChunk{Event: StreamError,
-			Error: fmt.Errorf("all %d attempts were exhausted: %w", c.cfg.MaxAttempts, last)}
 	}()
 	return out
 }
@@ -348,39 +344,34 @@ func forwardStream(chunkCh <-chan StreamChunk, out chan<- StreamChunk) error {
 }
 
 func (c *Client) completeWithTool(ctx context.Context, messages []Message, tools []Tool) (Reply, error) {
-	var last error
-	wait := c.cfg.BackoffInitial
+	retry := c.newRetry()
 	var empty Reply
-
-	for attempt := 1; attempt <= c.cfg.MaxAttempts; attempt++ {
+	for {
 		reply, err := c.callTools(ctx, messages, tools)
 		if err == nil {
 			return reply, nil
 		}
-		last = err
-
-		if !retryable(err) {
+		pause, v := retry.after(err)
+		switch v {
+		case verdictFatal:
 			c.log.Error("LLM tool call failed with no possibility of retry",
-				"attempt", attempt, "error", err, "detail", Detail(err))
+				"attempt", retry.attempts+1, "error", err, "detail", Detail(err))
 			return empty, err
+		case verdictExhausted:
+			return empty, retry.exhausted()
+		default:
+			// verdictRetry: wait and ask again.
 		}
-		if attempt == c.cfg.MaxAttempts {
-			break
-		}
-
 		c.log.Warn("retrying LLM tool call",
-			"attempt", attempt, "max_attempts", c.cfg.MaxAttempts,
-			"wait", wait.String(), "error", err, "detail", Detail(err))
+			"attempt", retry.attempts, "max_attempts", c.cfg.MaxAttempts,
+			"wait", pause.String(), "error", err, "detail", Detail(err))
 
 		select {
 		case <-ctx.Done():
 			return empty, fmt.Errorf("cancelled while waiting to retry: %w", ctx.Err())
-		case <-time.After(wait):
+		case <-time.After(pause):
 		}
-		wait = c.nextWait(wait)
 	}
-
-	return empty, fmt.Errorf("all %d attempts were exhausted: %w", c.cfg.MaxAttempts, last)
 }
 
 // HTTPError describes a failure with a status code so that retryability can be
@@ -388,6 +379,8 @@ func (c *Client) completeWithTool(ctx context.Context, messages []Message, tools
 type HTTPError struct {
 	Code int
 	Body string
+	// RetryAfter is the wait the provider asked for in its Retry-After header, 0 when it did not.
+	RetryAfter time.Duration
 }
 
 // retryable says whether it is worth trying again.

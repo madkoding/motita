@@ -833,7 +833,12 @@ test("who speaks offers the local voice when the gateway has them, and shows the
   const values = [
     ...v.root.querySelectorAll("input[name=settings-speech-engine]"),
   ].map((i) => i.value);
-  assert.deepEqual(values, ["device", "gateway", "local"]);
+  assert.deepEqual(values, ["gateway", "device", "local"]);
+  assert.equal(
+    v.root.querySelector("[data-testid=settings-speech-gateway-hint]"),
+    null,
+    "a gateway voice needs no hint",
+  );
   await act(async () =>
     v.root
       .querySelector("input[name=settings-speech-engine][value=local]")
@@ -864,7 +869,15 @@ test("who speaks offers the local voice when the gateway has them, and shows the
   ];
   assert.deepEqual(
     about.map((li) => li.textContent.split(":")[0]),
-    ["System voices", "Downloaded voice"],
+    [
+      "System voices",
+      "Downloaded voice",
+      "To read with Qwen3-TTS from the gateway's PC, turn on voice.tts in the configuration.",
+    ],
+  );
+  assert.ok(
+    v.root.querySelector("[data-testid=settings-speech-gateway-hint]"),
+    "no gateway voice: the hint says how to get one",
   );
   assert.match(about[1].className, /text-/);
   assert.equal(about[0].className, "");

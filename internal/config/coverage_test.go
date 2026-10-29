@@ -207,6 +207,10 @@ func TestValidateErrorPaths(t *testing.T) {
 		{"malformed user", func(c *Config) { c.Sandbox.User = "a:b:c" }, "uid:gid"},
 		{"empty model", func(c *Config) { c.LLM.Model = "" }, "llm.model cannot be empty"},
 		{"zero max attempts", func(c *Config) { c.LLM.MaxAttempts = 0 }, "llm.max_attempts"},
+		{"negative transient budget", func(c *Config) { c.LLM.TransientBudget = -1 }, "llm.transient_budget"},
+		{"negative retry-after cap", func(c *Config) { c.LLM.RetryAfterMax = -1 }, "llm.retry_after_max"},
+		{"jitter above one", func(c *Config) { c.LLM.Jitter = 1.5 }, "llm.jitter"},
+		{"negative jitter", func(c *Config) { c.LLM.Jitter = -0.1 }, "llm.jitter"},
 		{"zero initial backoff", func(c *Config) { c.LLM.BackoffInitial = 0 }, "llm.backoff_initial"},
 		{"smaller max backoff", func(c *Config) {
 			c.LLM.BackoffMax = time.Millisecond
