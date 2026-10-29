@@ -1,6 +1,9 @@
 package agent
 
-import "fmt"
+import (
+	"fmt"
+	"time"
+)
 
 // singleActionWarnAt is how many progress rounds in a row may carry one action before the model is
 // told to batch. A round costs a whole model call, and a single look or a single command per round
@@ -21,6 +24,7 @@ func (r *taskRun) batchingNote(action Action) string {
 		return ""
 	}
 	r.singleActionRounds++
+	r.singleActionTotal++
 	if r.singleActionRounds < singleActionWarnAt {
 		return ""
 	}
@@ -28,4 +32,13 @@ func (r *taskRun) batchingNote(action Action) string {
 		"round, so put everything you already know you need in this one: every read together, and the "+
 		"write followed by the check that proves it, instead of waiting a round for each.",
 		r.singleActionRounds)
+}
+
+// logRoundSummary records where a run's rounds went, so the effect of changes to the loop can be
+// read from the log instead of guessed: how many rounds, how many carried one action, and how many
+// went to sending a claim back (audit, failing check) or to a rejected claim.
+func (r *taskRun) logRoundSummary() {
+	r.a.log.Info(r.prefix+"rounds spent", "rounds", r.round, "single_action", r.singleActionTotal,
+		"audit_sent_back", r.auditChallenges, "verify_sent_back", r.verifyChallenges,
+		"rejected", r.rejected, "duration_ms", time.Since(r.start).Milliseconds())
 }

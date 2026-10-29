@@ -38,19 +38,21 @@ type taskRun struct {
 	readOnlyRounds int
 	// singleActionRounds counts the progress rounds in a row that proposed exactly one action.
 	singleActionRounds int
-	unbackedDone       int
-	verifyChallenges   int
-	auditChallenges    int
-	auditPassed        bool
-	toolingRetries     int
-	trail              []string
-	workLog            workLog
-	rejected           int
-	unusable           int
-	repeats            int
-	lastSignature      string
-	maxSteps           int
-	round              int
+	// singleActionTotal counts every progress round that proposed exactly one action.
+	singleActionTotal int
+	unbackedDone      int
+	verifyChallenges  int
+	auditChallenges   int
+	auditPassed       bool
+	toolingRetries    int
+	trail             []string
+	workLog           workLog
+	rejected          int
+	unusable          int
+	repeats           int
+	lastSignature     string
+	maxSteps          int
+	round             int
 }
 
 // loop is the 9-step loop itself.
@@ -423,6 +425,7 @@ func (r *taskRun) execute() TaskResult {
 	if !a.isChild || a.gate == "" {
 		a.gate, a.gateTests = a.gateFingerprint(), max(a.testCount(), a.gateTests)
 	}
+	defer r.logRoundSummary()
 	r.resume()
 	// workLog is what every round ran and printed, for the final answer: the synthesis used
 	// to see only the LAST round, which on a long task is a final `git status` and nothing
