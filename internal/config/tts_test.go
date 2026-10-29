@@ -138,3 +138,26 @@ func ttsEqual(a, b TTS) bool {
 	sameSpeech := a.Model == b.Model && a.Voice == b.Voice && a.Format == b.Format
 	return sameEndpoint && sameSpeech && a.MaxChars == b.MaxChars && slices.Equal(a.Voices, b.Voices)
 }
+
+func TestTTSAPIResolution(t *testing.T) {
+	c := Default()
+	if c.TTSAPI() != TTSAPIOpenAI {
+		t.Errorf("default = %q", c.TTSAPI())
+	}
+	c.Voice.TTS.BaseURL = "https://dashscope-intl.aliyuncs.com"
+	if c.TTSAPI() != TTSAPIDashScope {
+		t.Errorf("a DashScope host speaks DashScope: %q", c.TTSAPI())
+	}
+	c.Voice.TTS.API = TTSAPIOpenAI
+	if c.TTSAPI() != TTSAPIOpenAI {
+		t.Errorf("an explicit api wins: %q", c.TTSAPI())
+	}
+	c.Voice.TTS.Enabled, c.Voice.TTS.API = true, " Qwen "
+	if err := c.validateTTS(); err == nil || !strings.Contains(err.Error(), "voice.tts.api") {
+		t.Errorf("unknown api accepted: %v", err)
+	}
+	c.Voice.TTS.API = " DashScope "
+	if err := c.validateTTS(); err != nil || c.Voice.TTS.API != TTSAPIDashScope {
+		t.Errorf("api = %q %v", c.Voice.TTS.API, err)
+	}
+}

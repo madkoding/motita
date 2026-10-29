@@ -479,7 +479,7 @@ func speechFor(cfg config.Config) gateway.SpeechService {
 	}
 	return voice.Speaker{
 		BaseURL: cfg.TTSBaseURL(), APIKey: cfg.TTSAPIKey(),
-		Model: cfg.Voice.TTS.Model, Format: cfg.Voice.TTS.Format,
+		Model: cfg.Voice.TTS.Model, Format: cfg.Voice.TTS.Format, API: cfg.TTSAPI(),
 	}
 }
 

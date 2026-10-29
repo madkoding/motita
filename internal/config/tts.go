@@ -21,6 +21,10 @@ type TTS struct {
 	// APIKey is the key for BaseURL. Empty means the transcription key when the endpoint is the
 	// transcription one, and no key otherwise (a local server needs none).
 	APIKey string `yaml:"api_key"`
+	// API is the protocol of the endpoint: "openai" (POST {base_url}/audio/speech) or
+	// "dashscope" (Qwen3-TTS on Alibaba Model Studio). Empty means dashscope when base_url names a
+	// DashScope host, and openai otherwise.
+	API string `yaml:"api"`
 	// Model is the speech model: gpt-4o-mini-tts or tts-1 on OpenAI, kokoro on Kokoro-FastAPI.
 	Model string `yaml:"model"`
 	// Voice is the voice the page uses unless the person picks another: alloy, nova, ...
@@ -77,6 +81,23 @@ func (c Config) TTSAPIKey() string {
 	return ""
 }
 
+// TTS protocols.
+const (
+	TTSAPIOpenAI    = "openai"
+	TTSAPIDashScope = "dashscope"
+)
+
+// TTSAPI is the protocol the speech endpoint is called with, resolved.
+func (c Config) TTSAPI() string {
+	if api := c.Voice.TTS.API; api != "" {
+		return api
+	}
+	if strings.Contains(strings.ToLower(c.TTSBaseURL()), "dashscope") {
+		return TTSAPIDashScope
+	}
+	return TTSAPIOpenAI
+}
+
 // TTSMaxChars is the longest text one request may carry.
 func (c Config) TTSMaxChars() int {
 	if c.Voice.TTS.MaxChars == 0 {
@@ -101,6 +122,7 @@ func (c *Config) validateTTS() error {
 	t := &c.Voice.TTS
 	t.Model, t.Voice = strings.TrimSpace(t.Model), strings.TrimSpace(t.Voice)
 	t.Format = strings.ToLower(strings.TrimSpace(t.Format))
+	t.API = strings.ToLower(strings.TrimSpace(t.API))
 	if !t.Enabled {
 		return nil
 	}
@@ -112,6 +134,9 @@ func (c *Config) validateTTS() error {
 	}
 	if t.Voice == "" {
 		return errors.New("voice.tts.voice is empty: name the voice (alloy on OpenAI)")
+	}
+	if t.API != "" && t.API != TTSAPIOpenAI && t.API != TTSAPIDashScope {
+		return fmt.Errorf("voice.tts.api %q is not %s or %s", t.API, TTSAPIOpenAI, TTSAPIDashScope)
 	}
 	if !slices.Contains(TTSFormats, t.Format) {
 		return fmt.Errorf("voice.tts.format %q is not one of %s", t.Format, strings.Join(TTSFormats, ", "))
