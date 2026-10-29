@@ -30,23 +30,7 @@ func (s *Server) loadPersistedSessions() {
 		s.warn("could not load persisted sessions", "error", err.Error())
 		return
 	}
-	// The directories of free-standing sessions that no record names any more are pruned once, on
-	// the way in: nothing is running yet, so none of them can be in use.
-	known := map[string]bool{}
-	for _, rec := range records {
-		known[rec.ID] = true
-	}
-	for _, c := range s.snapshot() {
-		known[c.id] = true
-	}
-	s.pruneFreeSessionDirs(known)
-	s.pruneSessionBranches(known)
-	// The archives of conversations no record names any more are orphans: a session was
-	// deleted while the process was down, or a crash left one behind. Nothing is running
-	// yet, so none of them can be in use.
-	if err := contextmem.Sweep(s.opts.ContextDir, known); err != nil {
-		s.warn("could not sweep the conversation archives", "error", err.Error())
-	}
+	s.sweepOrphans(records)
 	// The ceiling applies to RESTORE the same way it applies to creation: a gateway
 	// configured to hold 8 that finds 60 on disk must NOT load all 60. The records
 	// from loadAll are sorted by last_used DESCENDING, so the first N non-default
@@ -86,6 +70,25 @@ func (s *Server) loadPersistedSessions() {
 		}
 	}
 	s.adoptThreads()
+}
+
+// sweepOrphans removes the directories and conversation archives of the sessions no record
+// names any more. It runs once, on the way in: nothing is running yet, so none of them can be
+// in use. An archive is orphaned when its conversation was deleted while the process was down,
+// or a crash left one behind.
+func (s *Server) sweepOrphans(records []sessionRecord) {
+	known := map[string]bool{}
+	for _, rec := range records {
+		known[rec.ID] = true
+	}
+	for _, c := range s.snapshot() {
+		known[c.id] = true
+	}
+	s.pruneFreeSessionDirs(known)
+	s.pruneSessionBranches(known)
+	if err := contextmem.Sweep(s.opts.ContextDir, known); err != nil {
+		s.warn("could not sweep the conversation archives", "error", err.Error())
+	}
 }
 
 // restoreDefaultSession restores a record of the default session into its existing service.
