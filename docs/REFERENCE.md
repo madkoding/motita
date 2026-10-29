@@ -730,7 +730,7 @@ Three things keep a request from needing a second one:
   an answer that recommends removing or rewriting something without having looked is sent back once to
   look first. A failed dependency install (`composer install`, `npm ci`, ...) is remembered as the
   cause when the registry cannot be reached.
-- **Subtask retries** (`agent.subtask_retries`, `MOTITA_AGENT_SUBTASK_RETRIES`, default `1`). A
+- **Subtask retries** (`agent.subtask_retries`, `MOTITA_AGENT_SUBTASK_RETRIES`, default `2`). A
   subtask that fails is tried again, told why the last attempt failed and that its changes are
   still in the working directory, before the parent gives up on the subtasks after it. `0` restores
   the old stop at the first failure.

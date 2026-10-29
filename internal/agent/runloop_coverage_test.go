@@ -375,8 +375,8 @@ func TestSourceThatAlwaysFailsGivesUp(t *testing.T) {
 		t.Errorf("it gave up too late (%s): runaway loop?", elapsed)
 	}
 	// It must try a bounded number of times, not loop forever.
-	if source.calls != 5 {
-		t.Errorf("source calls = %d, expected 5 (maxConsecutive)", source.calls)
+	if source.calls != maxConsecutive {
+		t.Errorf("source calls = %d, expected %d (maxConsecutive)", source.calls, maxConsecutive)
 	}
 }
 

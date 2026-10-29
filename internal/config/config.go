@@ -464,9 +464,9 @@ func Default() Config {
 			BaseURL:        "https://api.openai.com/v1",
 			MaxTokens:      16384,
 			Timeout:        90 * time.Second,
-			MaxAttempts:    3,
+			MaxAttempts:    5,
 			BackoffInitial: time.Second,
-			BackoffMax:     30 * time.Second,
+			BackoffMax:     60 * time.Second,
 			Reasoning: Reasoning{
 				Enabled: false,
 				Level:   "medium",
@@ -539,11 +539,11 @@ func Default() Config {
 			CommitMessage: "chore(agent): {{task}}",
 		},
 		Agent: Agent{
-			MaxRetries:   5,
+			MaxRetries:   8,
 			SubtaskDepth: 1,
-			// One more try per subtask: a failure is usually one fix away, and giving up on the
+			// Two more tries per subtask: a failure is usually one fix away, and giving up on the
 			// subtask abandons every one that comes after it.
-			SubtaskRetries: 1,
+			SubtaskRetries: 2,
 			CriteriaAudit:  true,
 			AssumeFirst:    true,
 			QuickPlan:      true,
