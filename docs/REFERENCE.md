@@ -565,6 +565,7 @@ honoured. The documented one wins when both are set.
 | `final_action` | `kind` (`none`/`command`/`api`/`git_commit`), `command`, `args`, `url`, `method`, `commit_message`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               |
 | `agent`        | `max_retries`, `max_steps`, `subtask_depth`, `subtask_retries`, `criteria_audit`, `assume_first`, `quick_plan`, `max_parallel` (background agents started with `spawn_agent` running at once, default `3`; `0` turns it off), `max_tasks`, `workspace_dir`, `log_file`, `log_level`, `log_console`, `log_max_mb`, `log_backups`, `graceful_shutdown_timeout`, `read_only`, `approval_timeout` (`MOTITA_AGENT_APPROVAL_TIMEOUT`, duration, default `0` = wait for as long as it takes: a question about a command nobody answers within it is refused and the run goes on), `auto_mode_rules_only`, `auto_mode_ask_all_suggestions`, `auto_apply_suggestions`, `approve_all_commands`, `shell`, `policy{enforce,strict}`, `on_failure`                                                                                                                                                                                                                 |
 | `skills`       | `dir`, `max_file_bytes`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          |
+| `context_memory` | `enabled` (bool, default `true`: the archive of the conversation in progress, see below), `recall_tokens` (default `2000`: the hard budget one recall may add to a prompt), `recall_hits` (default `5`: archived sections one recall carries), `max_turns` (default `400`: turns kept per conversation, oldest first out). `MOTITA_CONTEXT_MEMORY_ENABLED`, `MOTITA_CONTEXT_MEMORY_RECALL_TOKENS`, `MOTITA_CONTEXT_MEMORY_RECALL_HITS` and `MOTITA_CONTEXT_MEMORY_MAX_TURNS` override them                                                                                                                                                |
 | `gateway`      | `enabled`, `listen`, `token_file`, `allow`, `hosts`, `origins`, `max_body_kb`, `webui`, `show_actions` (bool, default `false`: the chat shows a counter of the commands and actions a turn ran instead of each one; the web UI's counter expands on click)                                                                                                                                                                                                                                                                                                                                                                                  |
 | `schedule`     | `enabled`, `tick`, `min_every`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   |
 | `ui`           | `language` (`auto`/`en`/`es`, default `auto`: the language of the terminal, the browser and the setup wizard; `auto` follows the locale and the browser)                                                                                                                                                                                                                                                                                                                                                                                                                                                                         |
@@ -628,6 +629,22 @@ person made). They are kept in `.motita/memory.md` in the workspace, newest last
 and every later task reads them with the project note; the person can edit or delete a line. In
 the web UI the files, checks and lessons of a finished task are folded under one line, open only
 when the task is not done.
+
+**The conversation's own archive.** A conversation longer than the model's window used to lose
+the detail of what had been said: compaction keeps its shape as a summary, and the turns it folded
+away were gone. Each finished turn is now also written, redacted, as one Markdown file under
+`~/.motita/context/<session>/` — one folder per conversation, `0700`, deleted with the
+conversation. Before a turn, what it may need is retrieved from the turns no longer shown verbatim,
+locally and with no model call: the memory's own hybrid search (BM25 plus holographic vectors),
+answered with the section that matched (the request, the answer, or the report of a task). Task
+mode receives it through `{{recall}}` in the analysis prompt; Plan mode receives it as an extra
+system message for that turn only, never stored in the session. It is presented as background data
+and never as instructions, and a turn that used it says so in its trail:
+`[recalled N passages from earlier]`. What is archived is the turn and the report of a task, not
+the output of its commands; the archive belongs to one conversation and is never searched by
+another, so it is not a second memory. `context_memory.enabled: false` (or
+`MOTITA_CONTEXT_MEMORY_ENABLED=false`) turns it off, and `recall_tokens`, `recall_hits` and
+`max_turns` bound the budget, the passages of one recall and the turns kept.
 
 When a command needs approval, the panel's second answer, **Always allow this here**, runs it
 and keeps that shape of command (its policy rule and program, `git push`, `npm install`) allowed
@@ -2139,7 +2156,7 @@ question or ask about a compile flag. An assignment in front of a command
 ### Variables available in prompts
 
 `{{task}}` `{{workspace}}` `{{origin}}` `{{attempt}}` `{{max_attempts}}`
-`{{rules}}` `{{analysis}}` `{{plan}}` `{{history}}` `{{model}}`
+`{{rules}}` `{{analysis}}` `{{plan}}` `{{history}}` `{{recall}}` `{{model}}`
 `{{provider}}` `{{context_*}}`
 
 If a template uses a variable with no value, **a warning is logged** and the
@@ -2323,6 +2340,7 @@ internal/app/         program logic (options, layers, shutdown, TUI wiring)
 internal/tui/         interactive text user interface (stdlib only)
 internal/termcap/     what the console can show: colour depth, escapes, ASCII glyphs
 internal/plan/        read-only plan/chat mode with native tool calling
+internal/contextmem/   the conversation's own archive: turns past the window, recalled locally
 internal/skills/        the procedure library: the documents, and their archive
 internal/curator/       the maintenance pass: stale, archive, and consolidation
 internal/procedures/    the library as the tools see it (search, load, save)

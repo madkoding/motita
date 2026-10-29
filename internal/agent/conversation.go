@@ -131,6 +131,11 @@ func (a *Agent) note(t task.Task, outcome string, kind string) {
 	})
 }
 
+// DialogueTurns is how many of the most recent turns the task prompt carries verbatim.
+// A turn older than this is what the conversation archive is for, and the same number is
+// what a recall excludes so it never repeats what the prompt already says.
+const DialogueTurns = 12
+
 // dialogue renders the conversation for the prompt.
 //
 // It is bounded on purpose. The transcript is fed to the analysis phase on every turn, so an
@@ -142,7 +147,7 @@ func (a *Agent) dialogue() string {
 	if len(turns) == 0 {
 		return "(this is the first message: there is no earlier conversation)"
 	}
-	const keep = 12
+	const keep = DialogueTurns
 	dropped := 0
 	if len(turns) > keep {
 		dropped = len(turns) - keep

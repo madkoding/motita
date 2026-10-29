@@ -5,6 +5,7 @@ import (
 	"os"
 	"strings"
 
+	"github.com/madkoding/motita/internal/contextmem"
 	"github.com/madkoding/motita/internal/devbox"
 	"github.com/madkoding/motita/internal/gitx"
 )
@@ -40,6 +41,12 @@ func (s *Server) loadPersistedSessions() {
 	}
 	s.pruneFreeSessionDirs(known)
 	s.pruneSessionBranches(known)
+	// The archives of conversations no record names any more are orphans: a session was
+	// deleted while the process was down, or a crash left one behind. Nothing is running
+	// yet, so none of them can be in use.
+	if err := contextmem.Sweep(s.opts.ContextDir, known); err != nil {
+		s.warn("could not sweep the conversation archives", "error", err.Error())
+	}
 	// The ceiling applies to RESTORE the same way it applies to creation: a gateway
 	// configured to hold 8 that finds 60 on disk must NOT load all 60. The records
 	// from loadAll are sorted by last_used DESCENDING, so the first N non-default
@@ -358,5 +365,28 @@ func (s *Server) deletePersistedSession(id string) {
 	}
 	if err := s.store.delete(id); err != nil && s.opts.Log != nil {
 		s.opts.Log.Warn("could not delete the persisted session", "id", id, "error", err.Error())
+	}
+}
+
+// deleteContext removes one conversation's archive. It does nothing when the gateway was not
+// told where the archives live, which is how a test never touches the machine's own.
+func (s *Server) deleteContext(id string) {
+	dir := contextmem.Dir(s.opts.ContextDir, id)
+	if dir == "" {
+		return
+	}
+	if err := contextmem.Delete(dir); err != nil && s.opts.Log != nil {
+		s.opts.Log.Warn("could not delete the conversation archive", "id", id, "error", err.Error())
+	}
+}
+
+// bindContext tells a conversation's service which archive belongs to it. The service is an
+// interface, so a test double that does not keep one simply has nothing to bind.
+func (s *Server) bindContext(c *conversation) {
+	if c == nil || c.svc == nil {
+		return
+	}
+	if setter, ok := c.svc.(interface{ SetContextID(string) }); ok {
+		setter.SetContextID(c.id)
 	}
 }

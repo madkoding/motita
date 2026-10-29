@@ -15,6 +15,7 @@ import (
 
 	"github.com/madkoding/motita/internal/agent"
 	"github.com/madkoding/motita/internal/config"
+	"github.com/madkoding/motita/internal/contextmem"
 	"github.com/madkoding/motita/internal/llm"
 	"github.com/madkoding/motita/internal/logx"
 	"github.com/madkoding/motita/internal/plan"
@@ -134,6 +135,16 @@ type AppRunner struct {
 	sessionMu sync.Mutex
 	session   *session.Session
 
+	// context is the archive of THIS conversation: the turns that left the window, kept so
+	// a later turn can recall them (see internal/contextmem). It is per-runner because the
+	// conversation is, and it is deleted with it.
+	//
+	// Guarded by contextMu. contextID is the conversation the archive belongs to: the
+	// gateway's session id when served, a random one for a local conversation.
+	contextMu sync.Mutex
+	context   *contextmem.Store
+	contextID string
+
 	// pending is the questions the last turn asked and the request they clarify, waiting for
 	// the interface to open the window on them. Guarded by pendingMu for the same reason the
 	// transcript is: a run can finish while the interface is reading.
@@ -234,6 +245,7 @@ func NewAppRunner(out, errs io.Writer, cfg config.Config, engine *llm.Client, bo
 		newAgent:     defaultAgentFactory,
 		claudeModels: llm.ClaudeCodeModels,
 		rootDir:      root,
+		contextID:    contextmem.NewID(),
 	}
 }
 
@@ -814,8 +826,10 @@ func (r *AppRunner) RunPlan(ctx context.Context, prompt string, progress func(st
 		// reviewed at all. Both come from the RUNNER because a planner does not outlive
 		// its turn.
 		WithReview(r.reviewOrNil()).
-		WithCodeIndex(cfg.CodeIndex.Enabled, cfg.CodeIndex.Options()).
-		WithMemory(config.OpenMemory(cfg.CodeIndex)).
+		WithMemory(config.OpenMemory()).
+		// The conversation's own archive: the turns a compaction folded away are exactly
+		// what the summary keeps only in outline.
+		WithRecall(r.recallPlan).
 		// Reading a page follows the commands' network, which Settings → Security can change
 		// while the session is open, so it is asked at every fetch.
 		WithWeb(webfetch.New(r.networkIsolated))
@@ -930,6 +944,156 @@ func (r *AppRunner) ResetConversation() {
 	// not think of themselves as being in two modes — so /new has to clear both, or a fresh
 	// start would still know what was said before.
 	r.ResetTranscript()
+	// And the archive: a new conversation must not recall the one the user just left.
+	r.resetContext()
+}
+
+// SetContextID tells the runner which conversation it is serving, and so which archive on
+// disk belongs to it. The gateway knows the id (it is the session's), and passing it here is
+// what lets a served conversation find its archive again after a restart. A local
+// conversation keeps the random id it was born with.
+func (r *AppRunner) SetContextID(id string) {
+	id = strings.TrimSpace(id)
+	if id == "" {
+		return
+	}
+	r.contextMu.Lock()
+	defer r.contextMu.Unlock()
+	if id == r.contextID {
+		return
+	}
+	// What was archived under the placeholder id belongs to no conversation the user can
+	// return to, so it goes rather than being left as an orphan.
+	if r.context != nil {
+		_ = r.context.Close()
+		r.context = nil
+	}
+	r.contextID = id
+}
+
+// contextStore returns the archive of this conversation, opening it on first use. Nil when
+// the feature is off, or when there is no home to keep it in: both are states where the
+// right answer is to carry on without it.
+func (r *AppRunner) contextStore() *contextmem.Store {
+	r.contextMu.Lock()
+	defer r.contextMu.Unlock()
+	return r.contextStoreLocked()
+}
+
+// contextStoreLocked opens the archive. The caller holds contextMu. It reads the
+// configuration, so the lock order is contextMu then cfgMu; nothing takes them the other way.
+func (r *AppRunner) contextStoreLocked() *contextmem.Store {
+	if r.context != nil {
+		return r.context
+	}
+	cfg := r.Config()
+	if !cfg.ContextMemory.Enabled {
+		return nil
+	}
+	dir := contextmem.Dir(config.ContextDir(), r.contextID)
+	if dir == "" {
+		return nil
+	}
+	store, err := contextmem.Open(dir, contextmem.Options{
+		RecallTokens: cfg.ContextMemory.RecallTokens,
+		RecallHits:   cfg.ContextMemory.RecallHits,
+		MaxTurns:     cfg.ContextMemory.MaxTurns,
+	})
+	if err != nil {
+		if r.Log != nil {
+			r.Log.Warn("could not open the conversation archive", "error", err.Error())
+		}
+		return nil
+	}
+	r.context = store
+	return store
+}
+
+// resetContext deletes this conversation's archive and forgets it, so the next turn opens an
+// empty one with the same id.
+func (r *AppRunner) resetContext() {
+	r.contextMu.Lock()
+	defer r.contextMu.Unlock()
+	if r.context != nil {
+		if err := r.context.Close(); err != nil && r.Log != nil {
+			r.Log.Warn("could not delete the conversation archive", "error", err.Error())
+		}
+		r.context = nil
+	}
+}
+
+// syncContext writes the turns that are not archived yet. It runs after a turn is recorded,
+// which is the only moment the runner knows the conversation grew: the transcript is the
+// record, and the archive is its history.
+func (r *AppRunner) syncContext() {
+	store := r.contextStore()
+	if store == nil {
+		return
+	}
+	turns := r.history()
+	archived := make([]contextmem.Turn, len(turns))
+	for i, t := range turns {
+		archived[i] = contextmem.Turn{
+			Kind:    t.Kind,
+			User:    t.User,
+			Agent:   t.Agent,
+			Pending: t.Pending,
+		}
+	}
+	// The structured report is the other half of a task turn, and it is what a later turn
+	// needs to know what was verified rather than only what was said.
+	if n := len(archived); n > 0 && archived[n-1].Kind == agent.KindTask {
+		if rep := r.lastReport(); rep != nil {
+			archived[n-1].Report = rep.Text()
+		}
+	}
+	if err := store.Sync(archived); err != nil && r.Log != nil {
+		r.Log.Warn("could not archive the conversation", "error", err.Error())
+	}
+}
+
+// lastReport is the report of the turn that just finished, or nil.
+func (r *AppRunner) lastReport() *agent.Report {
+	r.pendingMu.Lock()
+	defer r.pendingMu.Unlock()
+	return r.report
+}
+
+// recallTask is what a Task-mode turn asks. live is how many turns the agent's prompt still
+// carries verbatim, which the agent knows: the turn in progress counts as one at the top level.
+func (r *AppRunner) recallTask(ctx context.Context, query string, live int) (string, int) {
+	return r.recall(ctx, query, live)
+}
+
+// recallPlan is what a Plan-mode turn asks. live is the number of turns the session still
+// shows: before a compaction that is all of them, and after one it is only the tail.
+func (r *AppRunner) recallPlan(ctx context.Context, query string, live int) (string, int) {
+	return r.recall(ctx, query, live)
+}
+
+// recall asks the archive, with the previous turn added to the query: a short request ("and
+// the other one?") means nothing on its own, and the exchange it answers is what gives it its
+// subject.
+func (r *AppRunner) recall(ctx context.Context, query string, live int) (string, int) {
+	store := r.contextStore()
+	if store == nil {
+		return "", 0
+	}
+	if last := r.lastUserTurn(); last != "" {
+		query += "\n" + last
+	}
+	return store.Recall(ctx, query, live)
+}
+
+// lastUserTurn is the most recent thing the person asked, or "" when there is none.
+func (r *AppRunner) lastUserTurn() string {
+	turns := r.history()
+	for i := len(turns) - 1; i >= 0; i-- {
+		if u := strings.TrimSpace(turns[i].User); u != "" {
+			return u
+		}
+	}
+	return ""
 }
 
 // ConversationReport describes the conversation for the interface: how much of the window is

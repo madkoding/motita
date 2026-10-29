@@ -194,6 +194,21 @@ agent:
     command: 'echo "task not resolved: check the log" >> escalations.log'
 
 # ---------------------------------------------------------------------------
+# The conversation's own archive
+#
+# What was said in a conversation that has left the model's window: one Markdown
+# file per finished turn under ~/.motita/context/<session>/, written by the agent
+# as the conversation moves and deleted with the conversation. It is NOT the
+# person's memory (that one is theirs, under ~/.motita/memory): a recall answers
+# from THIS conversation only. A turn that used it says so in its trail, as
+# "[recalled N passages from earlier]".
+context_memory:
+  enabled: true                # false = nothing is written and nothing is recalled
+  recall_tokens: 2000          # hard budget one recall may add to a prompt
+  recall_hits: 5               # archived sections one recall carries
+  max_turns: 400               # turns kept per conversation; the oldest go first
+
+# ---------------------------------------------------------------------------
 # Gateway: the HTTP face of the agent.
 #
 # It listens on LOOPBACK by default, 127.0.0.1:7477, so only this machine can

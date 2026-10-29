@@ -121,6 +121,11 @@ type Options struct {
 	// session, and building all of them up front would build transcripts nobody asked for. It
 	// must NOT call back into the gateway: it is called with the registry lock held.
 	NewService func() (Service, error)
+	// ContextDir is where each conversation's archive is kept (see internal/contextmem).
+	// Empty disables the cleanup: the gateway never deletes a folder it was not told about.
+	// The runner builds its own path from config.ContextDir(); this is the same folder, and
+	// it is here so a test never sweeps the machine's real archives.
+	ContextDir string
 	// MaxSessions caps how many conversations this process will hold. Zero means
 	// defaultMaxSessions.
 	MaxSessions int

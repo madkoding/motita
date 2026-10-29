@@ -151,6 +151,9 @@ func integerBindings(c *Config) []binding[int] {
 		{"MOTITA_GATEWAY_MAX_BODY_KB", &c.Gateway.MaxBodyKB},
 		{"MOTITA_GATEWAY_MAX_SESSIONS", &c.Gateway.MaxSessions},
 		{"MOTITA_GATEWAY_ARTIFACT_DAYS", &c.Gateway.ArtifactDays},
+		{"MOTITA_CONTEXT_MEMORY_RECALL_TOKENS", &c.ContextMemory.RecallTokens},
+		{"MOTITA_CONTEXT_MEMORY_RECALL_HITS", &c.ContextMemory.RecallHits},
+		{"MOTITA_CONTEXT_MEMORY_MAX_TURNS", &c.ContextMemory.MaxTurns},
 		{"MOTITA_LLM_MAX_TOKENS", &c.LLM.MaxTokens},
 		{"MOTITA_CUSTOM_MODEL_MAX_TOKENS", &c.CustomModel.MaxTokens},
 		{"MOTITA_CUSTOM_MODEL_CONTEXT_WINDOW", &c.CustomModel.ContextWindow},
@@ -182,6 +185,7 @@ func integerBindings(c *Config) []binding[int] {
 func boolBindings(c *Config) []binding[bool] {
 	return []binding[bool]{
 		{"MOTITA_GATEWAY_FREE_SESSION_GIT", &c.Gateway.FreeSessionGit},
+		{"MOTITA_CONTEXT_MEMORY_ENABLED", &c.ContextMemory.Enabled},
 		{"MOTITA_ANCHOR_BASELINE", &c.Anchor.Baseline},
 		{"MOTITA_SANDBOX_KEEP_EPHEMERAL", &c.Sandbox.KeepEphemeral},
 		{"MOTITA_SANDBOX_ISOLATE_NETWORK", &c.Sandbox.IsolateNetwork},

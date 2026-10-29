@@ -150,6 +150,8 @@ Everything above is the same every time. What follows is what changes.
 ## CONVERSATION SO FAR
 {{history}}
 
+{{recall}}
+
 ## CONTEXT
 
 - Working directory: {{workspace}}

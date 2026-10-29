@@ -244,6 +244,9 @@ func (op Options) startGateway(
 		Service:     runner,
 		NewService:  newService,
 		MaxSessions: cfg.Gateway.MaxSessions,
+		// The conversations' archives live beside the configuration, like the sessions.
+		// Deleting a conversation deletes its own.
+		ContextDir: config.ContextDir(),
 		// Opt-in: a session with no project gets a plain directory unless this is set.
 		FreeSessionGit: cfg.Gateway.FreeSessionGit,
 		Listen:         listen,

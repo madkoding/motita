@@ -22,7 +22,14 @@ func (r *AppRunner) equipAgent(ag AgentRunner) {
 		}
 	}
 	if setter, ok := ag.(interface{ SetMemory(*memory.Store) }); ok {
-		setter.SetMemory(config.OpenMemory(r.Cfg.CodeIndex))
+		setter.SetMemory(config.OpenMemory())
+	}
+	// The conversation's own archive: what earlier turns said, so a short request has
+	// something to refer to beyond the tail the prompt already carries.
+	if setter, ok := ag.(interface {
+		SetRecall(func(context.Context, string, int) (string, int))
+	}); ok {
+		setter.SetRecall(r.recallTask)
 	}
 	r.equipThreads(ag)
 	if led := r.rewardOrNil(); led != nil {

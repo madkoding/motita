@@ -94,6 +94,12 @@ type Agent struct {
 	// Memory window shows. Task mode reaches it through memory_* actions.
 	memory *memory.Store
 
+	// recall finds turns of THIS conversation that have left the context window (see
+	// internal/contextmem), and reports how many passages it brought. live is how many
+	// earlier turns the prompt still carries verbatim. Nil when the interface installed
+	// none, which is the case for a task piped in from a script.
+	recall func(ctx context.Context, query string, live int) (string, int)
+
 	// threads hands work to the project's threads. It is set only on the main session of a project
 	// (a thread cannot open threads), and Task mode reaches it through the thread action.
 	threads func(command string) string
@@ -202,6 +208,13 @@ func (a *Agent) SetThreads(route func(command string) string) { a.threads = rout
 
 // SetMemory installs the memory.
 func (a *Agent) SetMemory(m *memory.Store) { a.memory = m }
+
+// SetRecall installs the recall of earlier turns of this conversation. It is a hook rather
+// than a store because the agent does not own the conversation: the interface does, and it
+// knows which turns are still in the window.
+func (a *Agent) SetRecall(fn func(ctx context.Context, query string, live int) (string, int)) {
+	a.recall = fn
+}
 
 // SetReward installs the long-term value ledger.
 func (a *Agent) SetReward(l *reward.Ledger) { a.reward = l }
