@@ -29,26 +29,28 @@ type taskRun struct {
 	proceededOnAssumption string
 
 	// The execution cycle: see execute for what each of these is.
-	journal          []roundRecord
-	mem              *workMemory
-	baseline         string
-	baselineOK       bool
-	lastSources      string
-	before           *runBaseline
-	readOnlyRounds   int
-	unbackedDone     int
-	verifyChallenges int
-	auditChallenges  int
-	auditPassed      bool
-	toolingRetries   int
-	trail            []string
-	workLog          workLog
-	rejected         int
-	unusable         int
-	repeats          int
-	lastSignature    string
-	maxSteps         int
-	round            int
+	journal        []roundRecord
+	mem            *workMemory
+	baseline       string
+	baselineOK     bool
+	lastSources    string
+	before         *runBaseline
+	readOnlyRounds int
+	// singleActionRounds counts the progress rounds in a row that proposed exactly one action.
+	singleActionRounds int
+	unbackedDone       int
+	verifyChallenges   int
+	auditChallenges    int
+	auditPassed        bool
+	toolingRetries     int
+	trail              []string
+	workLog            workLog
+	rejected           int
+	unusable           int
+	repeats            int
+	lastSignature      string
+	maxSteps           int
+	round              int
 }
 
 // loop is the 9-step loop itself.
@@ -633,7 +635,7 @@ func (r *taskRun) progress(action Action, runOutput string, runErr error) (res T
 	if r.stalled(action, runOutput) {
 		return r.res, true
 	}
-	detail += r.progressNotes()
+	detail += r.progressNotes() + r.batchingNote(action)
 	r.journal = append(r.journal, roundRecord{
 		round: r.round, kind: roundProgress, commands: proposedCommands(action), detail: detail,
 	})

@@ -88,7 +88,7 @@ func (s *scriptServer) reply(t *testing.T, text string) string {
 	switch {
 	case strings.Contains(text, "## ANALYSIS OF THE TASK"):
 		s.analyses = append(s.analyses, text)
-		content = `{"kind":"task","understandable":true,"summary":"the work","success_criteria":["it is done"]}`
+		content = `{"kind":"task","understandable":true,"summary":"the work","success_criteria":["it is done","it is checked"]}`
 		if s.analyze != nil {
 			content = s.analyze(text)
 		}

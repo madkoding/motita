@@ -464,3 +464,38 @@ func TestARequestIsFinishedWithThePolicyOnAndNobodyToAsk(t *testing.T) {
 		}
 	}
 }
+
+// TestRoundsOfOneActionAreToldToBatch: after singleActionWarnAt rounds with one action each, the next
+// prompt says to put the steps of a round together; a round with several actions starts the count again.
+func TestRoundsOfOneActionAreToldToBatch(t *testing.T) {
+	s := &scriptServer{execute: func(round int, _ string) string {
+		if round <= singleActionWarnAt+1 {
+			return step(false, fmt.Sprintf("echo step-%d", round))
+		}
+		return step(true)
+	}}
+	if _, _, err := runScript(t, s, "exit 0", nil); err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(s.executes[singleActionWarnAt-1], "ONE action each") {
+		t.Errorf("the note came too early:\n%s", s.executes[singleActionWarnAt-1])
+	}
+	if !strings.Contains(s.executes[singleActionWarnAt], "ONE action each") {
+		t.Errorf("after %d one-action rounds the prompt must say to batch:\n%s", singleActionWarnAt, s.executes[singleActionWarnAt])
+	}
+
+	m := &scriptServer{execute: func(round int, _ string) string {
+		if round <= singleActionWarnAt+1 {
+			return step(false, "echo a", "echo b")
+		}
+		return step(true)
+	}}
+	if _, _, err := runScript(t, m, "exit 0", nil); err != nil {
+		t.Fatal(err)
+	}
+	for i, p := range m.executes {
+		if strings.Contains(p, "ONE action each") {
+			t.Errorf("round %d was told to batch although every round had two actions", i+1)
+		}
+	}
+}
