@@ -114,7 +114,8 @@ func TestLocalSpeechCheckSaysWhatIsListening(t *testing.T) {
 	detectSpeech = func(context.Context, ...string) []voice.Endpoint {
 		return []voice.Endpoint{{Base: "http://127.0.0.1:8880/v1"}, {Base: "http://127.0.0.1:8000/v1"}}
 	}
-	if c := localSpeechCheck(cfg); c.Status != doctor.OK || !strings.Contains(c.Detail, "8880/v1, http://127.0.0.1:8000") ||
+	c := localSpeechCheck(cfg)
+	if c.Status != doctor.OK || !strings.Contains(c.Detail, "8880/v1, http://127.0.0.1:8000") ||
 		!strings.Contains(c.Detail, "Settings") {
 		t.Errorf("off: %+v", c)
 	}

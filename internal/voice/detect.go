@@ -114,10 +114,10 @@ func hasSpeechRoute(ctx context.Context, client *http.Client, base string) bool 
 	}
 	defer func() { _ = resp.Body.Close() }()
 	_, _ = io.Copy(io.Discard, io.LimitReader(resp.Body, maxDetectBody))
-	switch {
-	case resp.StatusCode == http.StatusNotFound || resp.StatusCode/100 == 5 || resp.StatusCode/100 == 3:
+	if resp.StatusCode == http.StatusNotFound || resp.StatusCode/100 == 5 || resp.StatusCode/100 == 3 {
 		return false
-	case resp.StatusCode == http.StatusMethodNotAllowed:
+	}
+	if resp.StatusCode == http.StatusMethodNotAllowed {
 		allow := strings.ToUpper(resp.Header.Get("Allow"))
 		return allow == "" || strings.Contains(allow, "POST")
 	}

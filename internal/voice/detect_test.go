@@ -120,7 +120,9 @@ func TestListModelsIsCapped(t *testing.T) {
 		sb.WriteString(`{"id":"m` + string(rune('a'+i%26)) + string(rune('a'+i/26)) + `"}`)
 	}
 	sb.WriteString("]}")
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { _, _ = w.Write([]byte(sb.String())) }))
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = w.Write([]byte(sb.String()))
+	}))
 	defer srv.Close()
 	if got := listModels(context.Background(), http.DefaultClient, srv.URL); len(got) != maxDetectModels {
 		t.Errorf("models = %d", len(got))

@@ -300,7 +300,7 @@ function SpeechServiceForm({
         >
           {t("Find one on this computer")}
         </button>
-        {found && found.length === 0 && (
+        {found?.length === 0 && (
           <span class="text-xs" data-testid="speech-detect-none">
             {t("No speech server found on the gateway's computer.")}
           </span>
