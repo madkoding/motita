@@ -1,4 +1,4 @@
-import { useCallback, useState } from "preact/hooks";
+import { useCallback, useEffect, useState } from "preact/hooks";
 import type { Dispatch, StateUpdater } from "preact/hooks";
 import { t, tf } from "./i18n";
 import { choose } from "./choose";
@@ -54,6 +54,17 @@ function speechLines(target: string): string[] {
     }),
     ...lines,
   ];
+}
+
+// foundForm is the form with a server found on the gateway's computer filled in: its address, and
+// its first model when it lists one.
+function foundForm(form: SpeechForm, f: FoundSpeech): SpeechForm {
+  return {
+    ...form,
+    api: "openai",
+    base_url: f.base_url,
+    model: f.models[0] ?? form.model,
+  };
 }
 
 // speechChange is what the form changes: only the fields that differ from the file, and the key
@@ -241,16 +252,26 @@ function SpeechServiceForm({
   const [found, setFound] = useState<FoundSpeech[] | null>(null);
   const [looking, setLooking] = useState(false);
   const [lookErr, setLookErr] = useState("");
-  const look = async () => {
+  const look = async (prefill: boolean) => {
     setLooking(true);
     setLookErr("");
     try {
-      setFound(await detectSpeech(api));
+      const servers = await detectSpeech(api);
+      setFound(servers);
+      // A single server on the machine and nothing typed yet: the form starts on it. The yes is
+      // still asked, with its address in the lines above the button.
+      if (prefill && servers.length === 1 && !saved.base_url) {
+        setForm((f) => foundForm(f, servers[0]));
+      }
     } catch (e) {
       setLookErr(errorMessage(e));
     }
     setLooking(false);
   };
+  // The form looks once when it opens, on the gateway's loopback only: no text is sent.
+  useEffect(() => {
+    void look(true);
+  }, []);
   const field = (k: keyof SpeechForm) => (e: Event) =>
     setForm({ ...form, [k]: (e.target as HTMLInputElement).value });
   return (
@@ -296,7 +317,7 @@ function SpeechServiceForm({
           class={smallBtn}
           disabled={looking}
           data-testid="speech-detect"
-          onClick={() => void look()}
+          onClick={() => void look(false)}
         >
           {t("Find one on this computer")}
         </button>
@@ -319,14 +340,7 @@ function SpeechServiceForm({
               type="button"
               class={smallBtn}
               data-testid="speech-found"
-              onClick={() =>
-                setForm({
-                  ...form,
-                  api: "openai",
-                  base_url: f.base_url,
-                  model: f.models[0] ?? form.model,
-                })
-              }
+              onClick={() => setForm(foundForm(form, f))}
             >
               {f.base_url}
             </button>

@@ -228,10 +228,11 @@ var detectSpeech = voice.DetectSpeech
 // is a separate step, PUT /v1/voice/tts, which needs confirm.
 func (s *Server) handleDetectSpeech(w http.ResponseWriter, r *http.Request) {
 	var extra []string
+	var ports []int
 	if s.opts.ConfigPath != "" {
 		if cfg, err := loadConfig(s.opts.ConfigPath); err == nil {
-			extra = append(extra, cfg.TTSBaseURL())
+			extra, ports = append(extra, cfg.TTSBaseURL()), cfg.Voice.TTS.DetectPorts
 		}
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"servers": detectSpeech(r.Context(), extra...)})
+	writeJSON(w, http.StatusOK, map[string]any{"servers": detectSpeech(r.Context(), ports, extra...)})
 }

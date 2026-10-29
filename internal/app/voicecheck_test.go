@@ -107,11 +107,11 @@ func TestLocalSpeechCheckSaysWhatIsListening(t *testing.T) {
 	old := detectSpeech
 	t.Cleanup(func() { detectSpeech = old })
 	cfg := config.Default()
-	detectSpeech = func(context.Context, ...string) []voice.Endpoint { return nil }
+	detectSpeech = func(context.Context, []int, ...string) []voice.Endpoint { return nil }
 	if c := localSpeechCheck(cfg); c.Status != doctor.OK || !strings.Contains(c.Detail, "no speech server") {
 		t.Errorf("none: %+v", c)
 	}
-	detectSpeech = func(context.Context, ...string) []voice.Endpoint {
+	detectSpeech = func(context.Context, []int, ...string) []voice.Endpoint {
 		return []voice.Endpoint{{Base: "http://127.0.0.1:8880/v1"}, {Base: "http://127.0.0.1:8000/v1"}}
 	}
 	c := localSpeechCheck(cfg)

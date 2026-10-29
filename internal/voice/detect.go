@@ -34,12 +34,12 @@ const maxDetectBody = 64 << 10
 // maxDetectModels caps the model names kept per server.
 const maxDetectModels = 20
 
-// DetectSpeech looks for OpenAI-compatible speech servers on this machine: DetectPorts on the
-// loopback, with and without the /v1 prefix, and extra (the configured base_url) when it too is on
+// DetectSpeech looks for OpenAI-compatible speech servers on this machine: DetectPorts and ports
+// (voice.tts.detect_ports) on the loopback, with and without the /v1 prefix, and extra (the configured base_url) when it too is on
 // the loopback. A candidate is probed with OPTIONS {base}/audio/speech and GET {base}/models, and
 // neither carries any text: nothing the person wrote ever reaches a server that was only looked at.
 // A base is never followed through a redirect. The result is in probe order, without repeats.
-func DetectSpeech(ctx context.Context, extra ...string) []Endpoint {
+func DetectSpeech(ctx context.Context, ports []int, extra ...string) []Endpoint {
 	var bases []string
 	add := func(b string) {
 		if b = strings.TrimRight(strings.TrimSpace(b), "/"); b != "" && !slices.Contains(bases, b) {
@@ -51,7 +51,7 @@ func DetectSpeech(ctx context.Context, extra ...string) []Endpoint {
 			add(e)
 		}
 	}
-	for _, p := range DetectPorts {
+	for _, p := range append(slices.Clone(DetectPorts), ports...) {
 		host := "http://" + net.JoinHostPort("127.0.0.1", strconv.Itoa(p))
 		add(host + "/v1")
 		add(host)

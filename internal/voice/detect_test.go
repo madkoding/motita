@@ -33,7 +33,7 @@ func TestDetectSpeechFindsTheRouteWithoutSendingText(t *testing.T) {
 		w.Header().Set("Allow", "POST")
 		w.WriteHeader(http.StatusMethodNotAllowed)
 	})
-	got := DetectSpeech(context.Background(), base+"/")
+	got := DetectSpeech(context.Background(), nil, base+"/")
 	if len(got) != 1 || got[0].Base != base || strings.Join(got[0].Models, ",") != "kokoro,tts-1" {
 		t.Fatalf("found = %+v", got)
 	}
@@ -161,8 +161,8 @@ func TestDetectSpeechProbesTheLoopbackOnly(t *testing.T) {
 	srv.Listener = l
 	srv.Start()
 	defer srv.Close()
-	DetectPorts = []int{l.Addr().(*net.TCPAddr).Port}
-	got := DetectSpeech(context.Background(), "https://api.openai.com/v1", "")
+	DetectPorts = []int{1}
+	got := DetectSpeech(context.Background(), []int{l.Addr().(*net.TCPAddr).Port, 1}, "https://api.openai.com/v1", "")
 	if len(got) != 1 || got[0].Base != srv.URL+"/v1" || got[0].Models == nil {
 		t.Fatalf("found = %+v", got)
 	}

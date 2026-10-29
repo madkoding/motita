@@ -333,7 +333,12 @@ test("a speech server found on the gateway's computer fills the form, and the ye
   const hs = host(g, info(savedTts({ model: "gpt-4o-mini-tts" })));
   const m = await mount(hs.view());
   await change(m.tid("speech-service-switch"), true);
-  assert.equal(m.tid("speech-found"), null, "nothing is probed until asked");
+  assert.equal(
+    m.root.querySelectorAll("[data-testid=speech-found]").length,
+    2,
+    "the form looks once when it opens",
+  );
+  assert.equal(m.tid("speech-base-url").value, "", "two servers: none chosen");
   await click(m.tid("speech-detect"));
   const buttons = m.root.querySelectorAll("[data-testid=speech-found]");
   assert.equal(buttons.length, 2);
@@ -371,5 +376,31 @@ test("no speech server found, and a probe that fails, are said", async () => {
   await change(m2.tid("speech-service-switch"), true);
   await click(m2.tid("speech-detect"));
   assert.equal(m2.root.querySelector("[role=alert]").textContent, "no probe");
+  await m2.done();
+});
+
+test("a single server found fills the form when it opens, unless an address is already saved", async () => {
+  const one = [{ base_url: "http://127.0.0.1:8880/v1", models: ["kokoro"] }];
+  const g = gateway(info(savedTts()), { servers: one });
+  const m = await mount(
+    h(SpeechService, { info: info(savedTts()), api: g.api, onInfo() {} }),
+  );
+  await change(m.tid("speech-service-switch"), true);
+  assert.equal(m.tid("speech-base-url").value, "http://127.0.0.1:8880/v1");
+  assert.equal(m.tid("speech-model").value, "kokoro");
+  assert.equal(
+    g.puts.length,
+    0,
+    "it is only filled in: the yes is still asked",
+  );
+  await m.done();
+
+  const kept = savedTts({ enabled: true, base_url: "https://tts.example/v1" });
+  const g2 = gateway(info(kept), { servers: one });
+  const m2 = await mount(
+    h(SpeechService, { info: info(kept), api: g2.api, onInfo() {} }),
+  );
+  await click(m2.tid("speech-service-change"));
+  assert.equal(m2.tid("speech-base-url").value, "https://tts.example/v1");
   await m2.done();
 });

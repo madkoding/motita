@@ -105,7 +105,7 @@ var detectSpeech = voice.DetectSpeech
 func localSpeechCheck(cfg config.Config) doctor.Check {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
-	found := detectSpeech(ctx, cfg.TTSBaseURL())
+	found := detectSpeech(ctx, cfg.Voice.TTS.DetectPorts, cfg.TTSBaseURL())
 	if len(found) == 0 {
 		return doctor.Check{Name: "speech", Detail: "no speech server (/audio/speech) found on this machine"}
 	}
