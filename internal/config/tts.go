@@ -148,10 +148,10 @@ func (t *TTS) normalize() {
 
 // validateAPI checks the protocol and what only it limits.
 func (t TTS) validateAPI() error {
-	switch {
-	case t.API != TTSAPIOpenAI && t.API != TTSAPIDashScope:
+	if t.API != TTSAPIOpenAI && t.API != TTSAPIDashScope {
 		return fmt.Errorf("voice.tts.api %q is not one of %s, %s", t.API, TTSAPIOpenAI, TTSAPIDashScope)
-	case t.API == TTSAPIDashScope && t.MaxChars > dashScopeTTSMaxChars:
+	}
+	if t.API == TTSAPIDashScope && t.MaxChars > dashScopeTTSMaxChars {
 		return fmt.Errorf("voice.tts.max_chars is %d: DashScope takes at most %d characters per request",
 			t.MaxChars, dashScopeTTSMaxChars)
 	}
