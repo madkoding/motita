@@ -256,6 +256,8 @@ func (c *Client) Complete(ctx context.Context, messages []Message) (string, erro
 			return "", err
 		case verdictExhausted:
 			return "", retry.exhausted()
+		default:
+			// verdictRetry: wait and ask again.
 		}
 		c.log.Warn("retrying LLM call",
 			"attempt", retry.attempts, "max_attempts", c.cfg.MaxAttempts,
@@ -307,6 +309,8 @@ func (c *Client) CompleteToolsStream(ctx context.Context, messages []Message, to
 			case verdictExhausted:
 				out <- StreamChunk{Event: StreamError, Error: retry.exhausted()}
 				return
+			default:
+				// verdictRetry: wait and ask again.
 			}
 			c.log.Warn("retrying LLM tool stream", "attempt", retry.attempts, "max_attempts", c.cfg.MaxAttempts,
 				"wait", pause.String(), "error", err)
@@ -355,6 +359,8 @@ func (c *Client) completeWithTool(ctx context.Context, messages []Message, tools
 			return empty, err
 		case verdictExhausted:
 			return empty, retry.exhausted()
+		default:
+			// verdictRetry: wait and ask again.
 		}
 		c.log.Warn("retrying LLM tool call",
 			"attempt", retry.attempts, "max_attempts", c.cfg.MaxAttempts,
