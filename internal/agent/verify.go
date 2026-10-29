@@ -23,7 +23,7 @@ const (
 	// maxVerifyChallenges bounds how many times a claim of done is sent back over a failed check
 	// in one run. A run that really cannot fix one (a service that is not here) still ends: the
 	// fourth claim goes through, and what was left unproven is in the final report.
-	maxVerifyChallenges = 3
+	maxVerifyChallenges = 4
 	// verifyTailChars is how much of a failing check's output is handed back to the model.
 	verifyTailChars = 1500
 )

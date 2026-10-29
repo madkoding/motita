@@ -171,3 +171,17 @@ func TestTheTurnThatAppliesSuggestionsNeverAsks(t *testing.T) {
 			result.Pass, result.NeedsInput, result.Reason)
 	}
 }
+
+// TestASingleCriterionIsNotAudited: with one criterion the claim and the gate already say whether
+// it is met, so the audit's model call and its possible extra round are not spent.
+func TestASingleCriterionIsNotAudited(t *testing.T) {
+	one := &scriptServer{
+		analyze: func(string) string {
+			return `{"kind":"task","understandable":true,"summary":"x","success_criteria":["it is done"]}`
+		},
+		execute: func(int, string) string { return step(true, "true") },
+	}
+	if _, result, err := runScript(t, one, "exit 0", nil); err != nil || !result.Pass || one.audits != 0 {
+		t.Errorf("one criterion: err=%v pass=%v audits=%d", err, result.Pass, one.audits)
+	}
+}
