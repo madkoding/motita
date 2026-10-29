@@ -461,8 +461,8 @@ const more: Record<string, string> = {
     "Las voces que ya trae este dispositivo o navegador. Nada sale del navegador.",
   "The speech service set up on the gateway, such as Qwen3-TTS: it makes the audio and sends it to this browser, the same voice on every device, with nothing to download. The text of each answer read goes to that service.":
     "El servicio de voz configurado en el gateway, como Qwen3-TTS: genera el audio y lo envía a este navegador, la misma voz en todos los dispositivos y sin nada que descargar. El texto de cada respuesta leída va a ese servicio.",
-  "To read with Qwen3-TTS from the gateway's PC, turn on voice.tts in the configuration.":
-    "Para leer con Qwen3-TTS desde el PC del gateway, activa voice.tts en la configuración.",
+  "To read with Qwen3-TTS from the gateway's PC, turn on the voice service below, or voice.tts in the configuration.":
+    "Para leer con Qwen3-TTS desde el PC del gateway, activa el servicio de voz de abajo, o voice.tts en la configuración.",
   "A natural voice the gateway downloads once; it then runs inside this browser, and nothing leaves the device.":
     "Una voz natural que el gateway descarga una vez; después corre dentro de este navegador y nada sale del dispositivo.",
   "Gateway default": "La del gateway",

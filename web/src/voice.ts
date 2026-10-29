@@ -35,6 +35,8 @@ export interface TtsSaved {
   model: string;
   voice: string;
   has_key: boolean;
+  // env_locked: MOTITA_VOICE_TTS_ENABLED in the gateway's environment pins the switch.
+  env_locked?: boolean;
 }
 
 // What GET and PUT /v1/voice answer. An older gateway sends only the first three.

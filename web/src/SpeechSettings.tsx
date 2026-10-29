@@ -281,7 +281,7 @@ function EngineAbout({
       {!hasGateway && (
         <li data-testid="settings-speech-gateway-hint">
           {t(
-            "To read with Qwen3-TTS from the gateway's PC, turn on voice.tts in the configuration.",
+            "To read with Qwen3-TTS from the gateway's PC, turn on the voice service below, or voice.tts in the configuration.",
           )}
         </li>
       )}
