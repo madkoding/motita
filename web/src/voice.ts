@@ -21,6 +21,20 @@ export interface VoiceSaved {
   model: string;
   has_key: boolean;
   wake_phrases: string[];
+  // tts is the voice.tts block, for reading answers aloud. An older gateway sends none.
+  tts?: TtsSaved;
+}
+
+// The voice.tts block as the configuration file has it: api is "openai" or "dashscope" (Qwen3-TTS),
+// base_url as written ("" is the default of the api) and endpoint where texts go, resolved.
+export interface TtsSaved {
+  enabled: boolean;
+  api: string;
+  base_url: string;
+  endpoint: string;
+  model: string;
+  voice: string;
+  has_key: boolean;
 }
 
 // What GET and PUT /v1/voice answer. An older gateway sends only the first three.
@@ -46,6 +60,41 @@ export interface VoiceChange {
   api_key?: string;
   wake_phrases?: string[];
 }
+
+// What PUT /v1/voice/tts takes. Turning it on, or a new api or base_url, needs confirm.
+export interface SpeechChange {
+  enabled: boolean;
+  confirm?: boolean;
+  api?: string;
+  base_url?: string;
+  model?: string;
+  voice?: string;
+  api_key?: string;
+}
+
+// DashScope's international endpoint, where Qwen3-TTS is when base_url is left empty.
+export const DASHSCOPE_BASE = "https://dashscope-intl.aliyuncs.com/api/v1";
+
+// The speech services a person is most likely to have, to fill the form in one tap. A local
+// server is typed by hand: the page carries no plain-http address of its own.
+export const SPEECH_PRESETS = [
+  {
+    id: "openai",
+    label: "OpenAI",
+    api: "openai",
+    base_url: "https://api.openai.com/v1",
+    model: "gpt-4o-mini-tts",
+    voice: "alloy",
+  },
+  {
+    id: "qwen",
+    label: "Qwen3-TTS",
+    api: "dashscope",
+    base_url: "",
+    model: "qwen3-tts-flash",
+    voice: "Cherry",
+  },
+] as const;
 
 // The transcription services a person is most likely to have, to fill the form in one tap. A
 // local whisper.cpp server is typed by hand: the page carries no plain-http address of its own.
@@ -198,11 +247,7 @@ export function saveVoicePrefs(p: VoicePrefs): void {
 //   off          the transcription service listens, and the gateway has it off (voice.enabled)
 //   ready        it can be used
 export type VoiceState =
-  | "insecure"
-  | "unsupported"
-  | "no-model"
-  | "off"
-  | "ready";
+  "insecure" | "unsupported" | "no-model" | "off" | "ready";
 
 // Listening is who listens and with what: see listenEngine.
 export interface Listening {
@@ -563,6 +608,22 @@ export async function putVoice(
   change: VoiceChange,
 ): Promise<VoiceInfo> {
   const res = await api("/v1/voice", {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(change),
+  });
+  if (!res.ok) {
+    throw new Error(await errorOf(res));
+  }
+  return (await res.json()) as VoiceInfo;
+}
+
+// putSpeech changes the gateway's voice, saved in its configuration.
+export async function putSpeech(
+  api: Api,
+  change: SpeechChange,
+): Promise<VoiceInfo> {
+  const res = await api("/v1/voice/tts", {
     method: "PUT",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(change),

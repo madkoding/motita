@@ -61,6 +61,8 @@ type voiceSaved struct {
 	Model       string   `json:"model"`
 	HasKey      bool     `json:"has_key"`
 	WakePhrases []string `json:"wake_phrases"`
+	// TTS is the voice.tts block, for reading answers aloud.
+	TTS ttsSaved `json:"tts"`
 }
 
 // transcription is what POST /v1/voice/transcribe answers.
@@ -109,6 +111,7 @@ func savedVoice(cfg config.Config) *voiceSaved {
 		Enabled: cfg.Voice.Enabled, BaseURL: base, Endpoint: endpoint,
 		Inherits: base == "" && endpoint != "", Provider: cfg.LLM.Provider,
 		Model: cfg.Voice.Model, HasKey: cfg.VoiceAPIKey() != "", WakePhrases: phrases,
+		TTS: savedTTS(cfg),
 	}
 }
 
@@ -129,7 +132,8 @@ func (s *Server) voiceViewOf() voiceView {
 	// speech input works, which is what the composer needs.
 	if cfg, err := loadConfig(s.opts.ConfigPath); err == nil {
 		v.Saved = savedVoice(cfg)
-		v.RestartNeeded = v.Saved.Enabled != v.Enabled || !slices.Equal(v.Saved.WakePhrases, phrases)
+		v.RestartNeeded = v.Saved.Enabled != v.Enabled || !slices.Equal(v.Saved.WakePhrases, phrases) ||
+			v.Saved.TTS.Enabled != v.TTS.Enabled
 	}
 	return v
 }

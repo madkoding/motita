@@ -727,6 +727,7 @@ function SettingsHost() {
         canListen: voice.state === "ready",
         local: speech.local,
         api: request,
+        service: { info: voice.info, onInfo: voice.setInfo },
       }}
       llm={{
         api: request,

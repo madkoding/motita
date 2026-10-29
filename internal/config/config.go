@@ -874,6 +874,10 @@ func load(path string, requireKey bool) (Config, error) {
 		if cfg.Voice.APIKey == "" {
 			cfg.Voice.APIKey = readCredentials(CredentialsPath(path))[VoiceKeyVariable]
 		}
+		// And the speech key, the same way.
+		if cfg.Voice.TTS.APIKey == "" {
+			cfg.Voice.TTS.APIKey = readCredentials(CredentialsPath(path))[TTSKeyVariable]
+		}
 	}
 
 	// Environment variables (they win over the YAML), including the standard

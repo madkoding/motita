@@ -1846,6 +1846,13 @@ voice:
     max_chars: 4000 # cap on the text of one request
 ```
 
+**From the settings.** With a configuration file, **Settings → Read aloud → Voice service** turns the
+voice on or off and changes its service (OpenAI, Qwen3-TTS, or an address typed by hand), model, voice
+and key, with no file to edit. Turning it on, or moving it, first says where the text of every answer
+read goes and waits for a yes; the change is saved in the file, the key beside it (never in the
+YAML, never answered), and applied at once. A variable such as `MOTITA_VOICE_TTS_ENABLED` still wins
+and the page says so.
+
 When it is on, **Settings → Read aloud → Who speaks** chooses between **System voices** (this
 device's) and **Voice service** (the gateway's), each said under the choice,
 and the voice among the ones listed. The page sends one sentence at a time and asks for the next
@@ -1855,6 +1862,7 @@ work the same with either.
 
 | Endpoint                | What it does                                                                                                                                                                                                                      |
 | ----------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `PUT /v1/voice/tts`     | `{"enabled":true,"confirm":true,"api":"dashscope","base_url":"","model":"qwen3-tts-flash","voice":"Cherry","api_key":"..."}`; every field but `enabled` is optional. Turning it on, or a new `api` or `base_url`, needs `confirm: true` (`400` without it). Saved in the configuration file, applied at once, and answers the same view as `GET /v1/voice` (`saved.tts` holds the block; the key is never answered). `409` without a configuration file. |
 | `POST /v1/voice/speak`  | `{"text":"...","voice":"nova"}`; `voice` is optional and must be one `voice.tts` offers. Answers the audio, typed by its `Content-Type`, never cached. `413` over `max_chars`, `501` when the gateway has no voice, `502` with the endpoint's answer when it refused. |
 
 `GET /v1/voice` also answers `"tts":{"enabled":true,"voices":["alloy","nova"],"max_chars":4000}`.
