@@ -1851,9 +1851,12 @@ voice:
     max_chars: 4000 # cap on the text of one request
 ```
 
-When it is on, **Settings → Read aloud → Who speaks** chooses between **System voices** (this
-device's) and **Voice service** (the gateway's), each said under the choice,
-and the voice among the ones listed. The page sends one sentence at a time and asks for the next
+When it is on, **Settings → Read aloud → Who speaks** chooses between **Voice service** (the
+gateway's) and **System voices** (this device's), each said under the choice,
+and the voice among the ones listed. Qwen3-TTS lives under **Voice service**: the gateway makes the
+audio and sends it to the browser, so nothing is downloaded there (**Downloaded voice** is the
+separate Piper option that runs inside the browser). With `voice.tts` off, the settings say how to
+turn it on. The page sends one sentence at a time and asks for the next
 while one plays; the text and the audio are never stored. A device with no voices of its own uses
 the gateway's. The speed, the highlight, the natural style and the pause of hands-free listening
 work the same with either.
