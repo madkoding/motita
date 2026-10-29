@@ -1,9 +1,10 @@
 package llm
 
 import (
+	"crypto/rand"
+	"encoding/binary"
 	"errors"
 	"fmt"
-	"math/rand/v2"
 	"net"
 	"net/http"
 	"strconv"
@@ -93,11 +94,19 @@ func (c *Client) jittered(d time.Duration) time.Duration {
 	if j <= 0 {
 		return d
 	}
-	draw := rand.Float64
+	draw := cryptoFloat
 	if c.rand != nil {
 		draw = c.rand
 	}
 	return d - time.Duration(float64(d)*min(j, 1)*draw())
+}
+
+// cryptoFloat is a random number in [0,1). The jitter does not need it unpredictable, but the
+// static-analysis gate refuses math/rand and this costs nothing next to a network wait.
+func cryptoFloat() float64 {
+	var b [8]byte
+	_, _ = rand.Read(b[:]) // never fails since Go 1.24
+	return float64(binary.BigEndian.Uint64(b[:])>>11) / (1 << 53)
 }
 
 // transient says whether err is the connection or the provider's load rather than the request:
