@@ -25,6 +25,9 @@ type Speaker struct {
 	// Model and Format are sent as the fields of the same name (format as response_format).
 	Model  string
 	Format string
+	// API is "dashscope" for Alibaba Cloud Model Studio's native speech API (Qwen3-TTS); anything
+	// else is the OpenAI speech API. See speakDashScope.
+	API string
 	// Client is the HTTP client. Nil means one with a one-minute timeout.
 	Client *http.Client
 }
@@ -51,6 +54,9 @@ func (s Speaker) Speak(ctx context.Context, text, voiceName string) ([]byte, str
 	text = strings.TrimSpace(text)
 	if text == "" {
 		return nil, "", ErrNoText
+	}
+	if s.API == "dashscope" {
+		return s.speakDashScope(ctx, text, voiceName)
 	}
 	body, _ := json.Marshal(map[string]string{
 		"model": s.Model, "input": text, "voice": voiceName, "response_format": s.Format,

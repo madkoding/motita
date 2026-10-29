@@ -1824,10 +1824,17 @@ through an endpoint of the OpenAI speech API (`POST {base_url}/audio/speech`): O
 local server such as Kokoro-FastAPI or openedai-speech, which keeps the text on this machine. It is
 off by default, because turning it on sends the text of every answer read to that service.
 
+**Qwen3-TTS** has two ways in. Hosted: `api: dashscope` speaks Alibaba Cloud Model Studio's native
+API (it has no OpenAI-style route), with `qwen3-tts-flash` and a voice such as `Cherry`; the key is
+`api_key` or `DASHSCOPE_API_KEY`, the endpoint is the international one unless `base_url` names the
+Beijing one (its keys are different), and one request takes at most 600 characters. Self-hosted: a
+Qwen3-TTS server that answers `/audio/speech` is plain `api: openai` with its `base_url`.
+
 ```yaml
 voice:
   tts:
     enabled: false
+    api: openai # openai, or dashscope for Qwen3-TTS on Alibaba Cloud
     base_url: "" # empty = the transcription endpoint (voice.base_url, resolved), with its key
     api_key: ""
     model: gpt-4o-mini-tts # tts-1 on OpenAI, kokoro on Kokoro-FastAPI
@@ -1849,7 +1856,7 @@ work the same with either.
 | `POST /v1/voice/speak`  | `{"text":"...","voice":"nova"}`; `voice` is optional and must be one `voice.tts` offers. Answers the audio, typed by its `Content-Type`, never cached. `413` over `max_chars`, `501` when the gateway has no voice, `502` with the endpoint's answer when it refused. |
 
 `GET /v1/voice` also answers `"tts":{"enabled":true,"voices":["alloy","nova"],"max_chars":4000}`.
-The variables are `MOTITA_VOICE_TTS_ENABLED`, `MOTITA_VOICE_TTS_BASE_URL`,
+The variables are `MOTITA_VOICE_TTS_ENABLED`, `MOTITA_VOICE_TTS_API`, `MOTITA_VOICE_TTS_BASE_URL`,
 `MOTITA_VOICE_TTS_API_KEY`, `MOTITA_VOICE_TTS_MODEL`, `MOTITA_VOICE_TTS_VOICE`,
 `MOTITA_VOICE_TTS_FORMAT` and `MOTITA_VOICE_TTS_MAX_CHARS`; the list of voices is set in the file.
 
