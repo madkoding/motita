@@ -398,7 +398,7 @@ func retryable(err error) bool {
 	var he *HTTPError
 	if errors.As(err, &he) {
 		switch {
-		case he.Code == 429, he.Code >= 500:
+		case he.Code == 408, he.Code == 425, he.Code == 429, he.Code >= 500:
 			return true
 		default:
 			return false

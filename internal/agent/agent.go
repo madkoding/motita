@@ -655,7 +655,7 @@ func (a *Agent) Run(ctx context.Context) error {
 }
 
 // maxConsecutive is how many source failures in a row make Run give up.
-const maxConsecutive = 5
+const maxConsecutive = 8
 
 // runTally is what Run counts across the tasks it takes.
 type runTally struct {
