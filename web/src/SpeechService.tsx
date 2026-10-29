@@ -1,4 +1,4 @@
-import { useCallback, useState } from "preact/hooks";
+import { useCallback, useEffect, useState } from "preact/hooks";
 import type { Dispatch, StateUpdater } from "preact/hooks";
 import { t, tf } from "./i18n";
 import { choose } from "./choose";
@@ -6,9 +6,11 @@ import {
   type SpeechChange,
   type TtsSaved,
   type VoiceInfo,
+  type FoundSpeech,
   DASHSCOPE_BASE,
   SPEECH_PRESETS,
   putSpeech,
+  detectSpeech,
 } from "./voice";
 import type { Api } from "./gitApi";
 import { errorMessage } from "./errors";
@@ -52,6 +54,17 @@ function speechLines(target: string): string[] {
     }),
     ...lines,
   ];
+}
+
+// foundForm is the form with a server found on the gateway's computer filled in: its address, and
+// its first model when it lists one.
+function foundForm(form: SpeechForm, f: FoundSpeech): SpeechForm {
+  return {
+    ...form,
+    api: "openai",
+    base_url: f.base_url,
+    model: f.models[0] ?? form.model,
+  };
 }
 
 // speechChange is what the form changes: only the fields that differ from the file, and the key
@@ -211,6 +224,7 @@ export function SpeechService({
           busy={busy}
           setEditing={setEditing}
           save={save}
+          api={api}
         />
       )}
       {info.restart_needed && (
@@ -241,7 +255,9 @@ function SpeechServiceForm({
   busy,
   setEditing,
   save,
+  api,
 }: {
+  api: Api;
   saved: TtsSaved;
   form: SpeechForm;
   setForm: Dispatch<StateUpdater<SpeechForm>>;
@@ -250,6 +266,29 @@ function SpeechServiceForm({
   save: (change: SpeechChange) => Promise<void>;
 }) {
   const target = speechTarget(saved, form);
+  const [found, setFound] = useState<FoundSpeech[] | null>(null);
+  const [looking, setLooking] = useState(false);
+  const [lookErr, setLookErr] = useState("");
+  const look = async (prefill: boolean) => {
+    setLooking(true);
+    setLookErr("");
+    try {
+      const servers = await detectSpeech(api);
+      setFound(servers);
+      // A single server on the machine and nothing typed yet: the form starts on it. The yes is
+      // still asked, with its address in the lines above the button.
+      if (prefill && servers.length === 1 && !saved.base_url) {
+        setForm((f) => foundForm(f, servers[0]));
+      }
+    } catch (e) {
+      setLookErr(errorMessage(e));
+    }
+    setLooking(false);
+  };
+  // The form looks once when it opens, on the gateway's loopback only: no text is sent.
+  useEffect(() => {
+    void look(true);
+  }, []);
   const field = (k: keyof SpeechForm) => (e: Event) =>
     setForm({ ...form, [k]: (e.target as HTMLInputElement).value });
   return (
@@ -289,6 +328,42 @@ function SpeechServiceForm({
           </button>
         ))}
       </div>
+      <div class="flex flex-wrap items-center gap-2">
+        <button
+          type="button"
+          class={smallBtn}
+          disabled={looking}
+          data-testid="speech-detect"
+          onClick={() => void look(false)}
+        >
+          {t("Find one on this computer")}
+        </button>
+        {found?.length === 0 && (
+          <span class="text-xs" data-testid="speech-detect-none">
+            {t("No speech server found on the gateway's computer.")}
+          </span>
+        )}
+        {lookErr && (
+          <span class="text-xs text-danger" role="alert">
+            {lookErr}
+          </span>
+        )}
+      </div>
+      {found && found.length > 0 && (
+        <div class="flex flex-wrap gap-2">
+          {found.map((f) => (
+            <button
+              key={f.base_url}
+              type="button"
+              class={smallBtn}
+              data-testid="speech-found"
+              onClick={() => setForm(foundForm(form, f))}
+            >
+              {f.base_url}
+            </button>
+          ))}
+        </div>
+      )}
       <label class="llm-label">
         <span>{t("Endpoint")}</span>
         <input

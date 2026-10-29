@@ -64,6 +64,9 @@ func TestValidateTTS(t *testing.T) {
 		{"ok", func(*Config) {}, ""},
 		{"format case", func(c *Config) { c.Voice.TTS.Format = " WAV " }, ""},
 		{"negative", func(c *Config) { c.Voice.TTS.MaxChars = -1 }, "voice.tts.max_chars"},
+		{"detect port", func(c *Config) { c.Voice.TTS.DetectPorts = []int{9000, 70000} }, "voice.tts.detect_ports has 70000"},
+		{"detect ports ok", func(c *Config) { c.Voice.TTS.DetectPorts = []int{9000} }, ""},
+		{"detect too many", func(c *Config) { c.Voice.TTS.DetectPorts = make([]int, 17) }, "at most 16"},
 		{"model", func(c *Config) { c.Voice.TTS.Model = " " }, "voice.tts.model"},
 		{"voice", func(c *Config) { c.Voice.TTS.Voice = "" }, "voice.tts.voice"},
 		{"format", func(c *Config) { c.Voice.TTS.Format = "ogg" }, "voice.tts.format"},
@@ -175,5 +178,13 @@ func TestTTSDashScopeDefaults(t *testing.T) {
 	c.Voice.TTS.BaseURL = "https://dashscope.aliyuncs.com/api/v1/"
 	if c.TTSBaseURL() != "https://dashscope.aliyuncs.com/api/v1" {
 		t.Errorf("own base = %q", c.TTSBaseURL())
+	}
+}
+
+func TestDetectPortsAreCheckedEvenWhenTheVoiceIsOff(t *testing.T) {
+	cfg := Default()
+	cfg.Voice.TTS.DetectPorts = []int{0}
+	if err := cfg.validateTTS(); err == nil || !strings.Contains(err.Error(), "detect_ports") {
+		t.Errorf("err = %v", err)
 	}
 }
