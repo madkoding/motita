@@ -233,6 +233,9 @@ type Options struct {
 	// SpeechVoices are the voices offered, the default first; SpeechMaxChars caps one text.
 	SpeechVoices   []string
 	SpeechMaxChars int
+	// SpeechFrom builds the gateway's voice of a configuration, so a change saved from the settings
+	// applies without a restart. Nil means a saved change waits for the next start.
+	SpeechFrom func(config.Config) SpeechService
 	// VoiceModels are the local voices the page can run itself: the catalog and where the
 	// downloaded files are kept. Nil means there are none, and their endpoints answer 501. See
 	// voicemodels.go.
@@ -305,6 +308,8 @@ type Server struct {
 	// options the process started with are the answer. See voice.go.
 	voiceMu   sync.RWMutex
 	voiceLive *voiceSettings
+	// speechLive is the gateway's voice as PUT /v1/voice/tts last applied it; nil until then.
+	speechLive *speechSettings
 
 	// llmLogins are the provider sign-ins started from the browser (see llmlogin.go), and
 	// llmListed the models each provider listed when its connection was last tested (llm.go).
@@ -783,6 +788,8 @@ func (s *Server) voiceRoutes(mux *http.ServeMux, plain func(http.HandlerFunc) ht
 	mux.Handle("POST /v1/voice/wake", plain(s.handleWake))
 	// Speech output: the answer's text goes to the speech service, the audio comes back. See speak.go.
 	mux.Handle("POST /v1/voice/speak", plain(s.handleSpeak))
+	mux.Handle("PUT /v1/voice/tts", plain(s.handlePutTTS))
+	mux.Handle("GET /v1/voice/tts/detect", plain(s.handleDetectSpeech))
 	// Local voices: the catalog, its downloads, and the files the page runs. See voicemodels.go.
 	mux.Handle("GET /v1/voice/models", plain(s.handleVoiceModels))
 	mux.Handle("POST /v1/voice/models/{id}", plain(s.handleInstallVoiceModel))

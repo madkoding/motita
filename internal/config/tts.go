@@ -37,7 +37,13 @@ type TTS struct {
 	Format string `yaml:"format"`
 	// MaxChars caps the text of one request. Zero means the built-in default.
 	MaxChars int `yaml:"max_chars"`
+	// DetectPorts are extra loopback ports the settings and the doctor look at for a speech server,
+	// besides the usual ones. Empty means the usual ones alone.
+	DetectPorts []int `yaml:"detect_ports"`
 }
+
+// maxDetectPorts caps voice.tts.detect_ports: each port is probed twice, on every look.
+const maxDetectPorts = 16
 
 // Defaults of the tts block.
 const (
@@ -159,10 +165,26 @@ func (t TTS) validateAPI() error {
 	return nil
 }
 
+// validateDetectPorts checks the ports looked at for a local speech server, enabled or not.
+func (t TTS) validateDetectPorts() error {
+	if len(t.DetectPorts) > maxDetectPorts {
+		return fmt.Errorf("voice.tts.detect_ports lists %d ports: at most %d", len(t.DetectPorts), maxDetectPorts)
+	}
+	for _, p := range t.DetectPorts {
+		if p < 1 || p > 65535 {
+			return fmt.Errorf("voice.tts.detect_ports has %d: a port is 1 to 65535", p)
+		}
+	}
+	return nil
+}
+
 // validateTTS checks the tts block. A disabled block is not checked.
 func (c *Config) validateTTS() error {
 	t := &c.Voice.TTS
 	t.normalize()
+	if err := t.validateDetectPorts(); err != nil {
+		return err
+	}
 	if !t.Enabled {
 		return nil
 	}

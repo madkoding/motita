@@ -302,7 +302,9 @@ func (op Options) startGateway(
 		// A change saved from the settings builds its transcriber the same way, without a restart.
 		VoiceFrom: voiceFor,
 		// The gateway's voice, off unless voice.tts.enabled; the text is forwarded, never stored.
-		Speech:         speechFor(cfg),
+		Speech: speechFor(cfg),
+		// A change saved from the settings builds its voice the same way, without a restart.
+		SpeechFrom:     speechFor,
 		SpeechVoices:   cfg.TTSVoices(),
 		SpeechMaxChars: cfg.TTSMaxChars(),
 		// Local voices, downloaded on request to ~/.motita/voices from a fixed catalog.

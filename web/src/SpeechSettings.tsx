@@ -6,6 +6,8 @@ import type { Lang } from "./i18n";
 import { choose } from "./choose";
 import type { Api } from "./gitApi";
 import { LocalVoices } from "./LocalVoiceSettings";
+import { SpeechServiceRow } from "./SpeechService";
+import type { VoiceInfo } from "./voice";
 import {
   LENGTHS,
   MEDIUM_CHARS,
@@ -50,6 +52,9 @@ export interface SpeechSettingsProps {
   // local says the gateway offers local voices this browser can run; api reaches them.
   local?: boolean;
   api?: Api;
+  // service reaches the gateway's voice configuration (voice.tts), to turn it on from here.
+  // Absent on a page without the API.
+  service?: { info: VoiceInfo | null; onInfo: (i: VoiceInfo) => void };
 }
 
 // SLIDER_STEP is how far one step of a voice slider moves.
@@ -324,6 +329,7 @@ export function SpeechSettings({
   canListen = false,
   local = false,
   api,
+  service,
 }: SpeechSettingsProps) {
   const set = useCallback(
     (patch: Partial<SpeechPrefs>) => setPrefs({ ...prefs, ...patch }),
@@ -436,6 +442,7 @@ export function SpeechSettings({
             />
           </Row>
         )}
+        <SpeechServiceRow service={service} api={api} />
         <SpeechVoice
           engine={engineShown}
           api={api}
