@@ -91,7 +91,6 @@ func textBindings(c *Config) []binding[string] {
 		{"MOTITA_VOICE_TTS_MODEL", &c.Voice.TTS.Model},
 		{"MOTITA_VOICE_TTS_VOICE", &c.Voice.TTS.Voice},
 		{"MOTITA_VOICE_TTS_FORMAT", &c.Voice.TTS.Format},
-		{"MOTITA_VOICE_TTS_API", &c.Voice.TTS.API},
 
 		{"MOTITA_FINAL_ACTION_KIND", &c.FinalAction.Kind},
 		{"MOTITA_FINAL_ACTION_COMMAND", &c.FinalAction.Command},

@@ -5,13 +5,13 @@ import (
 	"testing"
 )
 
-// The one-shot knobs: a subtask is retried twice and the criteria audit is on by default, both
+// The one-shot knobs: a subtask is retried once and the criteria audit is on by default, both
 // can be changed from the file or the environment, and a negative retry count is refused.
 func TestOneShotSettings(t *testing.T) {
 	t.Setenv("MOTITA_AGENT_SUBTASK_RETRIES", "")
 	t.Setenv("MOTITA_AGENT_CRITERIA_AUDIT", "")
 	cfg, err := LoadWithoutKey(diskFile(t, "agent:\n  max_retries: 2\n"))
-	if err != nil || cfg.Agent.SubtaskRetries != 2 || !cfg.Agent.CriteriaAudit {
+	if err != nil || cfg.Agent.SubtaskRetries != 1 || !cfg.Agent.CriteriaAudit {
 		t.Fatalf("defaults: %+v, %v", cfg.Agent, err)
 	}
 	if !strings.Contains(cfg.Prompts.Audit.User, "## CRITERIA AUDIT") {

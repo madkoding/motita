@@ -721,7 +721,7 @@ Three things keep a request from needing a second one:
   Makefile, `pyproject.toml`) so that it cannot fail are refused before they touch the disk, and the
   refusal tells the model to install the real dependencies and run the framework's own command
   (`php artisan test`, `npm test`, `pytest`). A check that could not run (`command not found`,
-  `vendor/autoload.php` missing, `curl error 6`) sends a claim of done back up to five times; if
+  `vendor/autoload.php` missing, `curl error 6`) sends a claim of done back up to three times; if
   the environment still blocks it, the result reads `NOT VALIDATED: <check> could not run (<cause>)`,
   the report's status is `partial`, and the check is listed as `blocked` (drawn apart from `skipped` in the web report), never `pass`. The criteria
   audit is shown those checks by name, so a criterion about tests is not met on a simulated run. In
@@ -730,7 +730,7 @@ Three things keep a request from needing a second one:
   an answer that recommends removing or rewriting something without having looked is sent back once to
   look first. A failed dependency install (`composer install`, `npm ci`, ...) is remembered as the
   cause when the registry cannot be reached.
-- **Subtask retries** (`agent.subtask_retries`, `MOTITA_AGENT_SUBTASK_RETRIES`, default `2`). A
+- **Subtask retries** (`agent.subtask_retries`, `MOTITA_AGENT_SUBTASK_RETRIES`, default `1`). A
   subtask that fails is tried again, told why the last attempt failed and that its changes are
   still in the working directory, before the parent gives up on the subtasks after it. `0` restores
   the old stop at the first failure.
@@ -1821,8 +1821,7 @@ a first tap on the page.
 
 For a better voice than the device has, or the same one on every device, the gateway can speak
 through an endpoint of the OpenAI speech API (`POST {base_url}/audio/speech`): OpenAI itself, or a
-local server such as Kokoro-FastAPI or openedai-speech, which keeps the text on this machine. Qwen3-TTS
-on Alibaba Model Studio is also supported (`api: dashscope`, below). It is
+local server such as Kokoro-FastAPI or openedai-speech, which keeps the text on this machine. It is
 off by default, because turning it on sends the text of every answer read to that service.
 
 ```yaml
@@ -1831,7 +1830,6 @@ voice:
     enabled: false
     base_url: "" # empty = the transcription endpoint (voice.base_url, resolved), with its key
     api_key: ""
-    api: "" # openai (/audio/speech) or dashscope (Qwen3-TTS); empty = dashscope when base_url names a DashScope host
     model: gpt-4o-mini-tts # tts-1 on OpenAI, kokoro on Kokoro-FastAPI
     voice: alloy # the default voice
     voices: [] # more voices the settings offer, besides the default
@@ -1850,15 +1848,10 @@ work the same with either.
 | ----------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `POST /v1/voice/speak`  | `{"text":"...","voice":"nova"}`; `voice` is optional and must be one `voice.tts` offers. Answers the audio, typed by its `Content-Type`, never cached. `413` over `max_chars`, `501` when the gateway has no voice, `502` with the endpoint's answer when it refused. |
 
-**Qwen3-TTS.** With a DashScope key, set `api: dashscope`, `base_url: https://dashscope-intl.aliyuncs.com`
-(or `https://dashscope.aliyuncs.com`; a `/compatible-mode/v1` suffix is ignored), `model: qwen3-tts-flash` and a
-`voice` such as `Cherry` (list more in `voices`). The audio always comes back as WAV, whatever `format` says.
-For a private Qwen3-TTS server that speaks `/audio/speech`, keep `api: openai`.
-
 `GET /v1/voice` also answers `"tts":{"enabled":true,"voices":["alloy","nova"],"max_chars":4000}`.
 The variables are `MOTITA_VOICE_TTS_ENABLED`, `MOTITA_VOICE_TTS_BASE_URL`,
 `MOTITA_VOICE_TTS_API_KEY`, `MOTITA_VOICE_TTS_MODEL`, `MOTITA_VOICE_TTS_VOICE`,
-`MOTITA_VOICE_TTS_API`, `MOTITA_VOICE_TTS_FORMAT` and `MOTITA_VOICE_TTS_MAX_CHARS`; the list of voices is set in the file.
+`MOTITA_VOICE_TTS_FORMAT` and `MOTITA_VOICE_TTS_MAX_CHARS`; the list of voices is set in the file.
 
 #### Local voices
 

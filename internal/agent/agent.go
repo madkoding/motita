@@ -879,8 +879,8 @@ func taskOutcome(r TaskResult) string {
 }
 
 // readOnlyWarnAt is how many progress rounds in a row may only read before the model is told to
-// write. Four is enough to explore a real project and too few to re-read it twice.
-const readOnlyWarnAt = 4
+// write. Five is enough to explore a real project and too few to re-read it twice.
+const readOnlyWarnAt = 5
 
 // doneGuardAfter is how many rounds that only read must have gone by before a claim of "done"
 // over an unchanged tree is questioned. A run that claims done at once is not second-guessed
@@ -889,7 +889,7 @@ const readOnlyWarnAt = 4
 const doneGuardAfter = 2
 
 // maxToolingRetries is how many refusals caused by a missing tool are not charged to max_retries.
-const maxToolingRetries = 5
+const maxToolingRetries = 3
 
 // missingTooling reports whether every check that failed did so because a program or module it
 // needs is not installed, which is a fact about the machine and not about the change.
@@ -920,7 +920,7 @@ func missingTooling(v anchor.Result) bool {
 // maxUnusableReplies is how many replies IN A ROW may be unusable before the run stops.
 // One malformed reply is noise a model recovers from when told; three in a row is a model
 // that cannot follow the format, and more rounds will not change that.
-const maxUnusableReplies = 8
+const maxUnusableReplies = 5
 
 // stallWarnAt and stallStopAt bound a run that repeats itself: after stallWarnAt identical
 // progress rounds in a row the model is warned, and at stallStopAt the run stops. Identical

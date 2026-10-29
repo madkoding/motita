@@ -267,3 +267,18 @@ func TestLastUserTurnIsTheMostRecentQuestion(t *testing.T) {
 		t.Errorf("lastUserTurn with no question = %q", got)
 	}
 }
+
+// The session shows only Plan turns, so the archive's cut is counted over every turn from the
+// oldest Plan turn the session still holds.
+func TestPlanSpanCountsTheTaskTurnsBetweenLivePlanTurns(t *testing.T) {
+	r := newContextRunner(t, config.Default())
+	r.RestoreTranscript([]agent.DialogueTurn{
+		{Kind: "plan", User: "a"}, {Kind: agent.KindTask, User: "b"},
+		{Kind: "plan", User: "c"}, {Kind: agent.KindTask, User: "d"},
+	})
+	for live, want := range map[int]int{-1: 0, 0: 0, 1: 2, 2: 4, 5: 4} {
+		if got := r.planSpan(live); got != want {
+			t.Errorf("planSpan(%d) = %d, want %d", live, got, want)
+		}
+	}
+}
