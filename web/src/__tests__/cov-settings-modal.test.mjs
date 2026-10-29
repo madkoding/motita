@@ -160,7 +160,6 @@ test("each section the page hands adds its tab, in order, and draws its pane", a
     speech: { label: "speech out" },
     security: { api, sessionId: "" },
     friction: { api },
-    codeIndex: { api },
     autopilot: { api },
     network: { api },
     llm: { api, onNotice() {} },
@@ -176,7 +175,6 @@ test("each section the page hands adds its tab, in order, and draws its pane", a
     "speech",
     "security",
     "journal",
-    "codeindex",
     "autopilot",
     "network",
     "providers",
@@ -198,7 +196,6 @@ test("each section the page hands adds its tab, in order, and draws its pane", a
     text(shown.journal.querySelector("[data-testid=friction-summary]")),
     /Nothing got in the way/,
   );
-  assert.ok(shown.codeindex.querySelector("section"));
   assert.ok(shown.autopilot.querySelector("section"));
   assert.ok(shown.network.querySelector("[data-testid=network-setting]"));
   assert.ok(shown.providers.querySelector("[data-testid=provider-settings]"));

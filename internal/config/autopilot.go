@@ -69,6 +69,9 @@ func (c AutopilotChange) appliedTo(x Autopilot) bool {
 	return same(c.WeeklyAudit, x.WeeklyAudit) && same(c.AutoPR, x.AutoPR) && same(c.MaxOpenPRs, x.MaxOpenPRs)
 }
 
+// same says whether a leaf change leaves the loaded value alone or sets it to what was loaded.
+func same[T comparable](set *T, loaded T) bool { return set == nil || *set == loaded }
+
 // SetAutopilot writes the change into the autopilot block, in place, inside a transaction. The file
 // must still load afterwards, and the loaded configuration must carry what was written: the
 // environment (MOTITA_AUTOPILOT_*) overrides the file, and a change it would hide is refused.

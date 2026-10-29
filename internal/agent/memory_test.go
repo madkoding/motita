@@ -104,3 +104,14 @@ func TestATaskLearnsAndTheNextOneIsTold(t *testing.T) {
 	e.agent.cfg.Agent.WorkspaceDir = blocked
 	e.agent.saveLessons(&Report{Lessons: []string{"x"}})
 }
+
+// TestOneLineBoundsALesson: a lesson is one line, and a long one is cut instead of wrapping the
+// memory file.
+func TestOneLineBoundsALesson(t *testing.T) {
+	if got := oneLine("  a   lesson\nwith\tspaces "); got != "a lesson with spaces" {
+		t.Errorf("oneLine = %q", got)
+	}
+	if got := oneLine(strings.Repeat("a ", 200)); len(got) > 125 || !strings.HasSuffix(got, "…") {
+		t.Errorf("oneLine = %d bytes, %q", len(got), got)
+	}
+}

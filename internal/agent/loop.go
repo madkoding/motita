@@ -277,9 +277,9 @@ func (r *taskRun) askOrAssume() (res TaskResult, done bool) {
 }
 
 // shouldAssume says whether a question with a stated assumption is answered by the agent itself:
-// a person is there, the setting is on, and the question is not a real decision.
+// a person is there, the setting is on, and the request does not carry several independent gaps.
 func (r *taskRun) shouldAssume() bool {
-	return r.a.cfg.Agent.AssumeFirst && r.res.Assumption != "" && !r.analysis.Decision &&
+	return r.a.cfg.Agent.AssumeFirst && r.res.Assumption != "" &&
 		len(r.res.Questions) < 2
 }
 

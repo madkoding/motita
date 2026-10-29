@@ -36,14 +36,16 @@ type Config struct {
 	FinalAction FinalAction `yaml:"final_action"`
 	Agent       Agent       `yaml:"agent"`
 	Skills      Skills      `yaml:"skills"`
-	Gateway     Gateway     `yaml:"gateway"`
-	Review      Review      `yaml:"review"`
-	Curator     Curator     `yaml:"curator"`
-	Schedule    Schedule    `yaml:"schedule"`
-	UI          UI          `yaml:"ui"`
-	Voice       Voice       `yaml:"voice"`
-	CodeIndex   CodeIndex   `yaml:"code_index"`
-	Autopilot   Autopilot   `yaml:"autopilot"`
+	// ContextMemory archives the conversation in progress so a turn that left the window
+	// can still be recalled. See contextmemory.go.
+	ContextMemory ContextMemory `yaml:"context_memory"`
+	Gateway       Gateway       `yaml:"gateway"`
+	Review        Review        `yaml:"review"`
+	Curator       Curator       `yaml:"curator"`
+	Schedule      Schedule      `yaml:"schedule"`
+	UI            UI            `yaml:"ui"`
+	Voice         Voice         `yaml:"voice"`
+	Autopilot     Autopilot     `yaml:"autopilot"`
 }
 
 // Gateway is the HTTP face of the agent: what other front ends - a web page, a phone, a
@@ -474,6 +476,15 @@ func Default() Config {
 			Dir:          defaultSkillsDir(),
 			MaxFileBytes: 64 * 1024,
 		},
+		// On: a conversation that outlives its own context window is the case this
+		// exists for, and an archive of one conversation is small and local. The switch
+		// is `enabled: false` for a person who does not want it written at all.
+		ContextMemory: ContextMemory{
+			Enabled:      true,
+			RecallTokens: 2000,
+			RecallHits:   5,
+			MaxTurns:     400,
+		},
 		Gateway: Gateway{
 			Enabled: true,
 			// A FIXED port, and the reason is that the gateway can now be a service that a LATER
@@ -591,7 +602,6 @@ func Default() Config {
 		},
 		UI:        UI{Language: "auto"},
 		Voice:     defaultVoice(),
-		CodeIndex: defaultCodeIndex(),
 		Autopilot: defaultAutopilot(),
 	}
 }
@@ -922,6 +932,9 @@ func (c *Config) validate(requireKey bool) error {
 	if err := c.validateGateway(); err != nil {
 		return err
 	}
+	if err := c.validateContextMemory(); err != nil {
+		return err
+	}
 	if err := c.validateSchedule(); err != nil {
 		return err
 	}
@@ -931,7 +944,7 @@ func (c *Config) validate(requireKey bool) error {
 	if err := c.validateVoice(); err != nil {
 		return err
 	}
-	if err := errors.Join(c.validateCodeIndex(), c.validateAutopilot()); err != nil {
+	if err := errors.Join(c.validateAutopilot()); err != nil {
 		return err
 	}
 	return c.validateAgent()

@@ -21,6 +21,28 @@ func (a *Agent) analysisPhase(ctx context.Context, t task.Task, rules string, de
 	vars["rules"] = rules
 	vars["attempt"] = "1"
 	vars["max_attempts"] = fmt.Sprint(a.cfg.Agent.MaxRetries + 1)
+	// Earlier turns of this conversation, retrieved from the archive rather than carried in
+	// the prompt. The block is data, and it says so; a task piped in from a script has no
+	// conversation, and then there is nothing to add. The variable is always set, even empty,
+	// so the template does not warn about a name it cannot find.
+	vars["recall"] = ""
+	if a.recall != nil {
+		// The prompt already carries the last DialogueTurns turns, and a recall must not
+		// repeat them. The count is the real one, so a short conversation does not hide
+		// archived turns the prompt never showed. On a top-level task the turn in progress
+		// is one of those (it was recorded when the task started); a subtask has none.
+		live := len(a.Transcript())
+		if live > DialogueTurns {
+			live = DialogueTurns
+		}
+		if depth == 0 && live > 0 {
+			live--
+		}
+		if block, n := a.recall(ctx, t.Description, live); n > 0 {
+			vars["recall"] = block
+			a.report("[recalled %d passages from earlier]", n)
+		}
+	}
 
 	text, err := a.ask(ctx, a.cfg.Prompts.Analyze, vars, "analyze")
 	if err != nil {

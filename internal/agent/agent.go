@@ -94,6 +94,12 @@ type Agent struct {
 	// Memory window shows. Task mode reaches it through memory_* actions.
 	memory *memory.Store
 
+	// recall finds turns of THIS conversation that have left the context window (see
+	// internal/contextmem), and reports how many passages it brought. live is how many
+	// earlier turns the prompt still carries verbatim. Nil when the interface installed
+	// none, which is the case for a task piped in from a script.
+	recall func(ctx context.Context, query string, live int) (string, int)
+
 	// threads hands work to the project's threads. It is set only on the main session of a project
 	// (a thread cannot open threads), and Task mode reaches it through the thread action.
 	threads func(command string) string
@@ -202,6 +208,13 @@ func (a *Agent) SetThreads(route func(command string) string) { a.threads = rout
 
 // SetMemory installs the memory.
 func (a *Agent) SetMemory(m *memory.Store) { a.memory = m }
+
+// SetRecall installs the recall of earlier turns of this conversation. It is a hook rather
+// than a store because the agent does not own the conversation: the interface does, and it
+// knows which turns are still in the window.
+func (a *Agent) SetRecall(fn func(ctx context.Context, query string, live int) (string, int)) {
+	a.recall = fn
+}
 
 // SetReward installs the long-term value ledger.
 func (a *Agent) SetReward(l *reward.Ledger) { a.reward = l }
@@ -380,12 +393,6 @@ type Analysis struct {
 	// a stated assumption lets the user confirm in one word instead of writing a new request, and
 	// it gives the agent a defensible reading if nobody answers.
 	Assumption string `json:"assumption"`
-
-	// Decision marks a question the agent must not answer for the user: the work would be
-	// destructive or hard to undo depending on the answer, or the readings lead to materially
-	// different results. Any other question with an assumption is assumed and the work goes on
-	// (see agent.assume_first); the assumption is stated in the report so it can be corrected.
-	Decision bool `json:"decision"`
 
 	// Questions are the questions to ask, in order, when more than one thing is unclear.
 	//
@@ -774,14 +781,10 @@ func (a *Agent) processTask(ctx context.Context, t task.Task, depth int) TaskRes
 		a.startFleet(t)
 	}
 	run := t
-	isGoal := false
 	if depth == 0 {
-		run, isGoal = a.prepareGoal(t)
+		run = a.prepareGoal(t)
 	}
 	r := a.loop(ctx, run, depth)
-	if isGoal && r.Report != nil {
-		a.saveGoalDecisions(t, r.Report)
-	}
 	if depth == 0 {
 		a.saveLessons(r.Report)
 	}
@@ -810,29 +813,15 @@ func (a *Agent) processTask(ctx context.Context, t task.Task, depth int) TaskRes
 	return r
 }
 
-// prepareGoal is the task as the outermost run works on it: a goal becomes autonomous, and the
-// decisions taken in earlier goals of this workspace are added to it. It reports whether the task
-// is a goal.
-func (a *Agent) prepareGoal(t task.Task) (task.Task, bool) {
+// prepareGoal is the task as the outermost run works on it: a goal becomes autonomous.
+func (a *Agent) prepareGoal(t task.Task) task.Task {
 	run := t
-	isGoal := false
 	if goal, ok := goalOf(t.Description); ok {
 		// A goal is autonomous: nobody is asked, the stated assumption is the answer.
 		a.Interactive = false
 		run.Description = goal + goalDirective
-		isGoal = true
 	}
-	if ctxText := decisionsContext(a.cfg.Agent.WorkspaceDir); ctxText != "" {
-		run.Description += ctxText
-	}
-	return run, isGoal
-}
-
-// saveGoalDecisions keeps the decisions a goal's run reported, for the goals after it.
-func (a *Agent) saveGoalDecisions(t task.Task, report *Report) {
-	if err := recordDecisions(a.cfg.Agent.WorkspaceDir, t.Description, report.Decisions); err != nil {
-		a.log.Warn("could not save the goal's decisions", "error", err)
-	}
+	return run
 }
 
 // noteOutcome records the outcome of a task that ran in the conversation.
@@ -852,12 +841,11 @@ func (a *Agent) noteOutcome(t task.Task, r TaskResult) {
 // goalPrefix is what the user types to hand over a goal: "/goal <what they want>".
 const goalPrefix = "/goal"
 
-// goalDirective is appended to a goal's description. Spec-driven work normally stops at a real
-// decision and lets the user choose; a goal is the user saying "decide for me", so the agent picks
-// the option it would recommend, and reports every decision it made so they can be audited later.
+// goalDirective is appended to a goal's description. A goal is the user saying "decide for me",
+// so the agent picks the option it would recommend and goes on without asking.
 const goalDirective = "\n\nThis is a GOAL: the user delegated every decision. Do NOT ask questions " +
-	"and do NOT offer alternatives. Where a choice is needed, take the option you would recommend, " +
-	"and list each decision you took, with one line of why, in the final report."
+	"and do NOT offer alternatives. Where a choice is needed, take the option you would recommend " +
+	"and continue."
 
 // goalOf reports whether a task is a goal and returns it without the prefix.
 func goalOf(description string) (string, bool) {
@@ -1309,6 +1297,8 @@ func truncate(s string, max int) string {
 const (
 	terminalOutputChars = 32 << 10
 	roundOutputChars    = 16 << 10
+	// actionOutputChars caps what one side action (memory, thread) puts in the model's context.
+	actionOutputChars = 8000
 )
 
 // truncateMiddle keeps the first and the last part of s and drops the middle, when s is

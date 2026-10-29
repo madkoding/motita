@@ -5,6 +5,7 @@ import (
 	"os"
 	"strings"
 
+	"github.com/madkoding/motita/internal/contextmem"
 	"github.com/madkoding/motita/internal/devbox"
 	"github.com/madkoding/motita/internal/gitx"
 )
@@ -29,17 +30,7 @@ func (s *Server) loadPersistedSessions() {
 		s.warn("could not load persisted sessions", "error", err.Error())
 		return
 	}
-	// The directories of free-standing sessions that no record names any more are pruned once, on
-	// the way in: nothing is running yet, so none of them can be in use.
-	known := map[string]bool{}
-	for _, rec := range records {
-		known[rec.ID] = true
-	}
-	for _, c := range s.snapshot() {
-		known[c.id] = true
-	}
-	s.pruneFreeSessionDirs(known)
-	s.pruneSessionBranches(known)
+	s.sweepOrphans(records)
 	// The ceiling applies to RESTORE the same way it applies to creation: a gateway
 	// configured to hold 8 that finds 60 on disk must NOT load all 60. The records
 	// from loadAll are sorted by last_used DESCENDING, so the first N non-default
@@ -81,9 +72,29 @@ func (s *Server) loadPersistedSessions() {
 	s.adoptThreads()
 }
 
+// sweepOrphans removes the directories and conversation archives of the sessions no record
+// names any more. It runs once, on the way in: nothing is running yet, so none of them can be
+// in use. An archive is orphaned when its conversation was deleted while the process was down,
+// or a crash left one behind.
+func (s *Server) sweepOrphans(records []sessionRecord) {
+	known := map[string]bool{}
+	for _, rec := range records {
+		known[rec.ID] = true
+	}
+	for _, c := range s.snapshot() {
+		known[c.id] = true
+	}
+	s.pruneFreeSessionDirs(known)
+	s.pruneSessionBranches(known)
+	if err := contextmem.Sweep(s.opts.ContextDir, known); err != nil {
+		s.warn("could not sweep the conversation archives", "error", err.Error())
+	}
+}
+
 // restoreDefaultSession restores a record of the default session into its existing service.
 func (s *Server) restoreDefaultSession(rec sessionRecord) {
 	def := s.sessions[DefaultSession]
+	s.bindContext(def)
 	if len(rec.Turns) > 0 {
 		def.svc.RestoreTranscript(rec.Turns)
 	}
@@ -115,6 +126,7 @@ func (s *Server) restoreSession(rec sessionRecord) bool {
 		return false
 	}
 	conv := newConversation(rec.ID, svc)
+	s.bindContext(conv)
 	conv.created = rec.Created
 	conv.lastUsed = rec.LastUsed
 	conv.setTitle(rec.Title)
@@ -346,13 +358,38 @@ func (s *Server) saveAllSessions() {
 	}
 }
 
-// deletePersistedSession removes a conversation's file from disk.
+// deletePersistedSession removes a conversation's file from disk, and the archive that
+// belonged to it: a conversation nobody can return to has no history worth keeping.
 func (s *Server) deletePersistedSession(id string) {
 	s.removeArtifacts(id)
+	s.deleteContext(id)
 	if s.store == nil {
 		return
 	}
 	if err := s.store.delete(id); err != nil && s.opts.Log != nil {
 		s.opts.Log.Warn("could not delete the persisted session", "id", id, "error", err.Error())
+	}
+}
+
+// deleteContext removes one conversation's archive. It does nothing when the gateway was not
+// told where the archives live, which is how a test never touches the machine's own.
+func (s *Server) deleteContext(id string) {
+	dir := contextmem.Dir(s.opts.ContextDir, id)
+	if dir == "" {
+		return
+	}
+	if err := contextmem.Delete(dir); err != nil && s.opts.Log != nil {
+		s.opts.Log.Warn("could not delete the conversation archive", "id", id, "error", err.Error())
+	}
+}
+
+// bindContext tells a conversation's service which archive belongs to it. The service is an
+// interface, so a test double that does not keep one simply has nothing to bind.
+func (s *Server) bindContext(c *conversation) {
+	if c == nil || c.svc == nil {
+		return
+	}
+	if setter, ok := c.svc.(interface{ SetContextID(string) }); ok {
+		setter.SetContextID(c.id)
 	}
 }

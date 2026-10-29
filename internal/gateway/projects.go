@@ -209,7 +209,6 @@ func (s *Server) handleCreateProject(w http.ResponseWriter, r *http.Request) {
 	if cur := s.projectOf(p.ID); cur != nil {
 		p = *cur
 	}
-	s.indexNewProject(p.Dir)
 	writeJSON(w, http.StatusCreated, map[string]any{
 		"id":          p.ID,
 		"title":       p.Title,

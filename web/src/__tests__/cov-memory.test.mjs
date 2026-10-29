@@ -1332,7 +1332,7 @@ test("searchPath sends only the filters that are set", () => {
   );
 });
 
-test("the filters rerun the search, and the answer shows related entries, bylines and warnings", async () => {
+test("the filters rerun the search, and the answer shows related entries and bylines", async () => {
   const v = vault(BOOK);
   v.state.namespaces = SPACES;
   const answer = {
@@ -1373,7 +1373,6 @@ test("the filters rerun the search, and the answer shows related entries, byline
         via: "Payroll",
       },
     ],
-    warning: "embeddings unavailable",
   };
   const base = v.gw;
   const searches = [];
@@ -1399,7 +1398,6 @@ test("the filters rerun the search, and the answer shows related entries, byline
   assert.doesNotMatch(hits[1], /·/);
   assert.match(hits[2], /via Payroll/);
   assert.ok(q(m.root, "memory-related"));
-  assert.match(text(q(m.root, "memory-warning")), /embeddings unavailable/);
 
   select.value = "HR";
   await act(() =>
@@ -1423,10 +1421,8 @@ test("the filters rerun the search, and the answer shows related entries, byline
   assert.ok(q(m.root, "entry-mode"));
   answer.hits = [];
   answer.related = undefined;
-  answer.warning = "";
   await type(q(m.root, "memory-search"), "none");
   assert.match(text(m.root), /Nothing matches that/);
-  assert.equal(q(m.root, "memory-warning"), null);
   await m.done();
 });
 

@@ -234,9 +234,20 @@ func TestABadApprovalFileStartsEmpty(t *testing.T) {
 	if got := srv.rememberApproval(c, "shell", "   "); got != "none" {
 		t.Errorf("a blank line has no shape to keep: %q", got)
 	}
-	_ = os.Remove(filepath.Join(dir, approvalsFile))
-	_ = os.Mkdir(filepath.Join(dir, approvalsFile+".tmp"), 0o700)
-	srv.rememberApproval(c, "shell", "git push")
+
+	// The store above fell back to memory after the corrupt file, which never writes. A store
+	// backed by its file is what a gateway normally has, and it is the one whose write can fail.
+	backed := t.TempDir()
+	if err := os.WriteFile(filepath.Join(backed, approvalsFile), []byte("{}"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	srv = newTestServer(t, &fakeService{}, func(o *Options) { o.SessionDir = backed })
+	c = srv.sessions[DefaultSession]
+	_ = os.Remove(filepath.Join(backed, approvalsFile))
+	_ = os.Mkdir(filepath.Join(backed, approvalsFile+".tmp"), 0o700)
+	if got := srv.rememberApproval(c, "shell", "git push"); got != "kept" {
+		t.Errorf("always allow on a store that cannot write = %q, want kept", got)
+	}
 	if !srv.alwaysAllowed(c, "shell", "git push --force") {
 		t.Fatal("remembered in memory even when the file could not be written")
 	}

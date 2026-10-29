@@ -28,9 +28,9 @@ func (a *Agent) memoryReply(kind, command string) string {
 	}
 	switch kind {
 	case "memory_search":
-		return truncateMiddle(a.memory.SearchText(command), indexOutputChars)
+		return truncateMiddle(a.memory.SearchText(command), actionOutputChars)
 	case "memory_read":
-		return truncateMiddle(a.memory.ReadText(command), indexOutputChars)
+		return truncateMiddle(a.memory.ReadText(command), actionOutputChars)
 	default:
 		// memory_write and memory_append carry a body: handled below
 	}

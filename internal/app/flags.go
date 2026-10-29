@@ -120,8 +120,6 @@ func (b *flags) subcommandAt(args []string, i int) ([]string, bool, error) {
 		return withoutArgs(args, i, 1), true, nil
 	case "curator":
 		return b.curatorSubcommand(args, i)
-	case "index":
-		return b.indexSubcommand(args, i)
 	case "sandbox":
 		return b.sandboxSubcommand(args, i)
 	default:
@@ -179,20 +177,6 @@ func (b *flags) gatewayCodeAction(args []string, i int) ([]string, bool, error) 
 	b.gatewayAction = action
 	b.gatewayCode = code
 	return withoutArgs(args, i, n), true, nil
-}
-
-// indexSubcommand reads `index <status|clear>` at args[i].
-func (b *flags) indexSubcommand(args []string, i int) ([]string, bool, error) {
-	if i+1 >= len(args) {
-		return nil, false, fmt.Errorf("index needs an action: %s", indexActions)
-	}
-	switch action := strings.ToLower(strings.TrimSpace(args[i+1])); action {
-	case "status", "clear":
-		b.indexAction = action
-		return withoutArgs(args, i, 2), true, nil
-	default:
-		return nil, false, fmt.Errorf("unknown index action %q: %s", args[i+1], indexActions)
-	}
 }
 
 // sandboxSubcommand reads `sandbox apparmor <print|install|remove>` at args[i].

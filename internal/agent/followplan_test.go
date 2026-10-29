@@ -37,7 +37,7 @@ func TestAPlanFollowingTurnSkipsPlanningAndNeverAsks(t *testing.T) {
 		switch {
 		case strings.Contains(text, "## ANALYSIS OF THE TASK"):
 			fmt.Fprint(w, `{"choices":[{"message":{"content":"{\"kind\":\"ask\",\"understandable\":false,`+
-				`\"question\":\"Which one?\",\"assumption\":\"the first\",\"decision\":true}"}}]}`)
+				`\"question\":\"Which one?\",\"assumption\":\"the first\"}"}}]}`)
 		case strings.Contains(text, "## ACTION PLAN"):
 			planned = true
 			fmt.Fprint(w, `{"choices":[{"message":{"content":"{\"plan\":[]}"}}]}`)

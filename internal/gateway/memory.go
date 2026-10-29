@@ -192,9 +192,6 @@ func (s *Server) handleSearchMemory(w http.ResponseWriter, r *http.Request) {
 	}
 	q.Graph = q.Graph || v.Get("graph") == "1"
 	q.Limit, _ = strconv.Atoi(v.Get("limit"))
-	if cfg, _, err := s.securityConfig(); err == nil {
-		m = m.WithEmbedder(cfg.CodeIndex.MemoryEmbedder)
-	}
 	writeJSON(w, http.StatusOK, m.Search(r.Context(), q))
 }
 

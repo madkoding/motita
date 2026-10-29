@@ -189,12 +189,9 @@ func (s *Server) routeDisk(mux *http.ServeMux, wrap func(http.HandlerFunc) http.
 	mux.Handle("GET /v1/boxes", wrap(s.handleListBoxes))
 	mux.Handle("DELETE /v1/boxes", wrap(s.handleStopBoxes))
 	mux.Handle("DELETE /v1/boxes/{id}", wrap(s.handleRemoveBox))
-	mux.Handle("GET /v1/code-index", wrap(s.handleGetCodeIndex))
-	mux.Handle("PUT /v1/code-index", wrap(s.handlePutCodeIndex))
 	mux.Handle("GET /v1/autopilot", wrap(s.handleGetAutopilot))
 	mux.Handle("PUT /v1/autopilot", wrap(s.handlePutAutopilot))
 	mux.Handle("POST /v1/autopilot/run", wrap(s.handleRunAutopilot))
-	mux.Handle("DELETE /v1/code-index/cache", wrap(s.handleDeleteCodeIndexCache))
 	mux.Handle("GET /v1/fs/dirs", wrap(s.handleListDirs))
 	mux.Handle("POST /v1/fs/dirs", wrap(s.handleMakeDir))
 }
@@ -293,9 +290,10 @@ func makeChild(parent, name string) error {
 	return root.Mkdir(name, 0o755)
 }
 
-// isDir reports whether path is a folder, following a symbolic link.
+// isDir reports whether path is a folder, following a symbolic link. The path may come from a
+// request, but Stat only asks the filesystem about it: nothing is opened, read or written.
 func isDir(path string) bool {
-	info, err := os.Stat(path)
+	info, err := os.Stat(path) // #nosec G703 -- metadata only: the answer is a bool, no data is served.
 	return err == nil && info.IsDir()
 }
 

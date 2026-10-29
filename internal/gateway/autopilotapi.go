@@ -12,6 +12,9 @@ import (
 // switches, the limit of open draft pull requests, and when each routine last ran. See autopilot.go
 // for what the routines do and what they can never do.
 
+// errConfigUnreadable starts the message when the configuration file cannot be read.
+const errConfigUnreadable = "the configuration could not be read: "
+
 // autopilotRoutine is one routine as the page draws it.
 type autopilotRoutine struct {
 	LastRun     string `json:"last_run"`

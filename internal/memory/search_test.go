@@ -2,7 +2,6 @@ package memory
 
 import (
 	"context"
-	"errors"
 	"strings"
 	"testing"
 	"time"
@@ -232,132 +231,6 @@ func TestIndexFollowsTheFiles(t *testing.T) {
 	}
 }
 
-type fakeEmbedder struct {
-	calls int
-	fail  error
-	short bool
-	text  []string
-}
-
-// Embed makes one-hot-ish vectors: dimension 0 for "ocean" texts, 1 for "garden" ones.
-func (f *fakeEmbedder) Embed(_ context.Context, texts []string) ([][]float32, error) {
-	f.calls++
-	f.text = append(f.text, texts...)
-	if f.fail != nil {
-		return nil, f.fail
-	}
-	if f.short {
-		return nil, nil
-	}
-	out := make([][]float32, len(texts))
-	for i, s := range texts {
-		v := []float32{0.01, 0.01}
-		if strings.Contains(s, "sea") || strings.Contains(s, "ocean") || strings.Contains(s, "waves") {
-			v[0] = 1
-		}
-		if strings.Contains(s, "garden") {
-			v[1] = 1
-		}
-		out[i] = v
-	}
-	return out, nil
-}
-
-func TestEmbeddingsAddRecallAndAreSentOnce(t *testing.T) {
-	v := Open(t.TempDir())
-	write(t, v, "Sea.md", "# Sea\n\nThe sea was calm, waves everywhere.")
-	write(t, v, "Garden.md", "# Garden\n\nThe garden needs water.")
-	f := &fakeEmbedder{}
-	e := v.WithEmbedder(fixed(f, "m1"))
-	// "ocean" shares no word with Sea.md: only the embeddings connect them
-	res := e.Search(context.Background(), Query{Text: "ocean"})
-	if len(res.Hits) == 0 || res.Hits[0].Path != "Sea.md" || res.Warning != "" {
-		t.Fatalf("res = %+v", res)
-	}
-	first := f.calls
-	e.Search(context.Background(), Query{Text: "ocean"})
-	if sent := len(f.text); sent != 2+1+1 {
-		t.Errorf("two passages and the query twice, got %d texts", sent)
-	}
-	if f.calls != first+1 {
-		t.Errorf("the second search sends only the query: %d calls after %d", f.calls, first)
-	}
-	// a rebuilt index keeps the vectors already paid for; another model starts over
-	write(t, v, "Garden.md", "# Garden\n\nThe garden needs water.\nAnd compost.")
-	f.text = nil
-	e.Search(context.Background(), Query{Text: "ocean"})
-	if len(f.text) != 2 {
-		t.Errorf("only the changed passage and the query: %v", f.text)
-	}
-	f.text = nil
-	v.WithEmbedder(fixed(f, "m2")).Search(context.Background(), Query{Text: "ocean"})
-	if len(f.text) != 3 {
-		t.Errorf("a new model re-embeds everything: %v", f.text)
-	}
-}
-
-func TestEmbeddingFailuresDegradeToWordsAndVectors(t *testing.T) {
-	v := Open(t.TempDir())
-	write(t, v, "Sea.md", "# Sea\n\nThe sea was calm.")
-	for name, f := range map[string]*fakeEmbedder{
-		"error": {fail: errors.New("offline")}, "short": {short: true},
-	} {
-		res := v.WithEmbedder(fixed(f, name)).Search(context.Background(), Query{Text: "calm sea"})
-		if res.Warning == "" || len(res.Hits) != 1 {
-			t.Errorf("%s: %+v", name, res)
-		}
-	}
-	// the query is the call that fails
-	f := &queryFails{}
-	v.WithEmbedder(fixed(f, "q")).Search(context.Background(), Query{Text: "calm sea"}) // fills the cache
-	for _, mode := range []int{1, 2} {
-		f.mode = mode
-		if res := v.WithEmbedder(fixed(f, "q")).Search(context.Background(), Query{Text: "calm sea"}); res.Warning == "" {
-			t.Errorf("mode %d: %+v", mode, res)
-		}
-	}
-}
-
-// queryFails embeds the passages and then fails (mode 1) or answers nothing (mode 2) for the query.
-type queryFails struct{ mode int }
-
-func (q *queryFails) Embed(_ context.Context, texts []string) ([][]float32, error) {
-	if len(texts) == 1 && !strings.Contains(texts[0], "\n") {
-		switch q.mode {
-		case 1:
-			return nil, errors.New("down")
-		case 2:
-			return nil, nil
-		default:
-		}
-	}
-	out := make([][]float32, len(texts))
-	for i := range out {
-		out[i] = []float32{1, 0}
-	}
-	return out, nil
-}
-
-func TestEmbeddingCapAndMismatchedVectors(t *testing.T) {
-	old := maxEmbedded
-	defer func() { maxEmbedded = old }()
-	maxEmbedded = 1
-	v := Open(t.TempDir())
-	write(t, v, "a.md", "# A\n\nsea one")
-	write(t, v, "b.md", "# B\n\nsea two")
-	f := &fakeEmbedder{}
-	v.WithEmbedder(fixed(f, "cap")).Search(context.Background(), Query{Text: "sea"})
-	if len(f.text) != 2 { // one passage under the cap, plus the query
-		t.Errorf("sent %v", f.text)
-	}
-	if cosine(vec{1}, vec{1, 0}) != 0 || cosine(vec{1}, vec{1}) != 1 {
-		t.Error("cosine")
-	}
-	if got := unitOf([]float32{0, 0}); got[0] != 0 {
-		t.Errorf("zero = %v", got)
-	}
-}
-
 func TestNamespacesListTheCollections(t *testing.T) {
 	v := corpus(t)
 	got := v.Namespaces()
@@ -487,19 +360,5 @@ func TestVeryLongPassagesKeepTheirRarestWords(t *testing.T) {
 	write(t, v, "long.md", strings.Join(words, " "))
 	if got := paths(v.Search(context.Background(), Query{Text: words[0] + " " + words[1]}).Hits); got != "long.md" {
 		t.Errorf("hits = %q", got)
-	}
-}
-
-// fixed is a Source that always answers the same embedder.
-func fixed(e Embedder, id string) Source {
-	return func(context.Context) (Embedder, string) { return e, id }
-}
-
-func TestASourceWithNothingToOfferIsSkipped(t *testing.T) {
-	v := Open(t.TempDir())
-	write(t, v, "Sea.md", "# Sea\n\nThe sea was calm.")
-	none := v.WithEmbedder(func(context.Context) (Embedder, string) { return nil, "" })
-	if res := none.Search(context.Background(), Query{Text: "calm"}); len(res.Hits) != 1 || res.Warning != "" {
-		t.Errorf("res = %+v", res)
 	}
 }

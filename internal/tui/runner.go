@@ -15,6 +15,7 @@ import (
 
 	"github.com/madkoding/motita/internal/agent"
 	"github.com/madkoding/motita/internal/config"
+	"github.com/madkoding/motita/internal/contextmem"
 	"github.com/madkoding/motita/internal/llm"
 	"github.com/madkoding/motita/internal/logx"
 	"github.com/madkoding/motita/internal/plan"
@@ -134,6 +135,16 @@ type AppRunner struct {
 	sessionMu sync.Mutex
 	session   *session.Session
 
+	// context is the archive of THIS conversation: the turns that left the window, kept so
+	// a later turn can recall them (see internal/contextmem). It is per-runner because the
+	// conversation is, and it is deleted with it.
+	//
+	// Guarded by contextMu. contextID is the conversation the archive belongs to: the
+	// gateway's session id when served, a random one for a local conversation.
+	contextMu sync.Mutex
+	context   *contextmem.Store
+	contextID string
+
 	// pending is the questions the last turn asked and the request they clarify, waiting for
 	// the interface to open the window on them. Guarded by pendingMu for the same reason the
 	// transcript is: a run can finish while the interface is reading.
@@ -234,6 +245,7 @@ func NewAppRunner(out, errs io.Writer, cfg config.Config, engine *llm.Client, bo
 		newAgent:     defaultAgentFactory,
 		claudeModels: llm.ClaudeCodeModels,
 		rootDir:      root,
+		contextID:    contextmem.NewID(),
 	}
 }
 
@@ -814,8 +826,10 @@ func (r *AppRunner) RunPlan(ctx context.Context, prompt string, progress func(st
 		// reviewed at all. Both come from the RUNNER because a planner does not outlive
 		// its turn.
 		WithReview(r.reviewOrNil()).
-		WithCodeIndex(cfg.CodeIndex.Enabled, cfg.CodeIndex.Options()).
-		WithMemory(config.OpenMemory(cfg.CodeIndex)).
+		WithMemory(config.OpenMemory()).
+		// The conversation's own archive: the turns a compaction folded away are exactly
+		// what the summary keeps only in outline.
+		WithRecall(r.recallPlan).
 		// Reading a page follows the commands' network, which Settings → Security can change
 		// while the session is open, so it is asked at every fetch.
 		WithWeb(webfetch.New(r.networkIsolated))
@@ -842,6 +856,7 @@ func (r *AppRunner) RunPlan(ctx context.Context, prompt string, progress func(st
 	// transcript says what was ASKED either way, and inventing a reply the model never gave
 	// would be worse than showing none.
 	r.rememberTurn(prompt, answer, err)
+	r.syncContext()
 	if err != nil {
 		return "", err
 	}
@@ -929,36 +944,8 @@ func (r *AppRunner) ResetConversation() {
 	// not think of themselves as being in two modes — so /new has to clear both, or a fresh
 	// start would still know what was said before.
 	r.ResetTranscript()
-}
-
-// ConversationReport describes the conversation for the interface: how much of the window is
-// in use, how it compacts, and what the carried summary holds.
-//
-// It is exposed because a session the user cannot see is a session they cannot trust: an
-// agent whose history was folded without a word looks like one that simply forgot.
-func (r *AppRunner) ConversationReport() string {
-	r.sessionMu.Lock()
-	defer r.sessionMu.Unlock()
-	if r.session == nil {
-		return "This conversation has not started yet. Ask something in Plan mode."
-	}
-	s := r.session
-	var b strings.Builder
-	fmt.Fprintf(&b, "model       %s\n", s.Model)
-	fmt.Fprintf(&b, "context     %d tokens\n", s.Window)
-	fmt.Fprintf(&b, "in use      %d tokens (%.0f%% of the usable window)\n", s.Tokens(), s.Used()*100)
-	fmt.Fprintf(&b, "compaction  at %.0f%%, keeping the last %d messages\n", s.CompactAt*100, s.KeepRecent)
-	fmt.Fprintf(&b, "messages    %d held", s.Len())
-	if n := s.Compactions(); n > 0 {
-		fmt.Fprintf(&b, ", %d compaction(s)", n)
-	}
-	b.WriteString("\n")
-	if s.Summary() != "" {
-		b.WriteString("\n--- carried summary ---\n")
-		b.WriteString(s.Summary())
-		b.WriteString("\n")
-	}
-	return b.String()
+	// And the archive: a new conversation must not recall the one the user just left.
+	r.resetContext()
 }
 
 func planDefaultTimeout(cfg config.Config) time.Duration {
@@ -1125,6 +1112,7 @@ func (r *AppRunner) RunTask(ctx context.Context, task string, progress func(stri
 	// Kept even when the run failed: the attempt is part of the conversation, and dropping it
 	// would make the agent repeat a mistake it cannot see.
 	r.remember(ag.Transcript())
+	r.syncContext()
 	// What this turn read from the library, ready for the verdict that follows it. Recorded on
 	// the failure path too: a turn that failed is exactly the one a user marks.
 	if consult, ok := ag.(interface{ Consulted() map[string]int }); ok {
@@ -1237,43 +1225,4 @@ func (r *AppRunner) TakeReport() *agent.Report {
 	rep := r.report
 	r.report = nil
 	return rep
-}
-
-// history returns the Task-mode conversation to seed a new agent with.
-func (r *AppRunner) history() []agent.DialogueTurn {
-	r.transcriptMu.Lock()
-	defer r.transcriptMu.Unlock()
-	return append([]agent.DialogueTurn(nil), r.transcript...)
-}
-
-// Transcript returns the Task-mode conversation, which is what a front end draws.
-//
-// It is the EXPORTED half of history(), and it exists so that the gateway's Service contract can
-// reach it without this package importing internal/gateway - the interface is declared
-// structurally, so the method name is the whole coupling. The copy is deliberate: the caller gets
-// the turns as they were, and a turn appended a moment later cannot change the slice it holds.
-func (r *AppRunner) Transcript() []agent.DialogueTurn { return r.history() }
-
-// remember stores the conversation a finished turn ended with.
-func (r *AppRunner) remember(turns []agent.DialogueTurn) {
-	r.transcriptMu.Lock()
-	defer r.transcriptMu.Unlock()
-	r.transcript = append([]agent.DialogueTurn(nil), turns...)
-}
-
-// RestoreTranscript loads a saved conversation into the runner, replacing
-// anything it currently holds. It is how a session persisted to disk and
-// reloaded on startup carries its history forward.
-func (r *AppRunner) RestoreTranscript(turns []agent.DialogueTurn) {
-	// Loading a saved conversation is storing it, exactly as a finished turn does.
-	r.remember(turns)
-}
-
-// ResetTranscript drops the Task-mode conversation, which is how /new leaves a subject
-// behind. Plan mode's session is reset alongside it, because to the user they are the same
-// conversation.
-func (r *AppRunner) ResetTranscript() {
-	r.transcriptMu.Lock()
-	defer r.transcriptMu.Unlock()
-	r.transcript = nil
 }

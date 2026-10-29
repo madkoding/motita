@@ -7,8 +7,8 @@ import (
 )
 
 // MemoryFile is where what the agent learned about a project is kept, relative to the workspace:
-// a command that works, a convention, a trap, a decision the person made. It is plain Markdown
-// next to the decisions file, so the person can read it, fix a line or delete it.
+// a command that works, a convention, a trap, a decision the person made. It is plain Markdown,
+// so the person can read it, fix a line or delete it.
 const MemoryFile = ".motita/memory.md"
 
 // maxMemoryLines bounds the file: the newest lessons stay, the oldest go.
@@ -19,6 +19,15 @@ const maxMemoryContext = 3000
 
 // memoryHeading opens the file the first time it is written.
 const memoryHeading = "# What earlier tasks learned about this project\n\n"
+
+// oneLine flattens s to a single bounded line, so one lesson stays one line in the file.
+func oneLine(s string) string {
+	s = strings.Join(strings.Fields(s), " ")
+	if len(s) > 120 {
+		s = s[:120] + "…"
+	}
+	return s
+}
 
 // recordLessons appends what a finished task learned, skipping what the file already says.
 func recordLessons(workspace string, lessons []string) error {

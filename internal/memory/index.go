@@ -40,15 +40,6 @@ type index struct {
 	holo    *holo
 	out     [][]int // the entries each entry links to
 	in      [][]int // the entries that link to each entry
-	emb     *embedCache
-}
-
-// embedCache keeps the embedding of every child text already sent to the endpoint, so a rebuilt
-// index sends only the texts that are new. It outlives the index it was made with.
-type embedCache struct {
-	mu sync.Mutex
-	id string
-	m  map[uint64]vec
 }
 
 var (
@@ -76,16 +67,13 @@ func (s *Store) index() *index {
 		return old
 	}
 	ix := s.build(all, fp)
-	if old != nil {
-		ix.emb = old.emb
-	}
 	cache[s.root] = ix
 	return ix
 }
 
 // build reads every entry and cuts, indexes and encodes it.
 func (s *Store) build(all []Entry, fp string) *index {
-	ix := &index{print: fp, post: map[string][]posting{}, emb: &embedCache{m: map[uint64]vec{}}}
+	ix := &index{print: fp, post: map[string][]posting{}}
 	bodies := make([]string, len(all))
 	for i, e := range all {
 		body, _, err := s.Read(e.Path)
@@ -203,13 +191,3 @@ func resolveFast(all []Entry, byName map[string][]int, at map[string]int, target
 	}
 	return at[p], true
 }
-
-// textKey identifies the text of a child for the cache of embeddings.
-func textKey(s string) uint64 {
-	h := fnv.New64a()
-	h.Write([]byte(s))
-	return h.Sum64()
-}
-
-// embedText is what a child is sent as: its context line and its text.
-func (c child) embedText() string { return c.ctx + "\n" + c.text }

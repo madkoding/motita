@@ -643,14 +643,11 @@ How it is organised (a hybrid retrieval architecture):
 4. **Graph (optional).** `graph:1`, or **Follow links**, also returns the entries linked from the
    best three answers (one hop, up to four), each marked with the entry it was reached through.
 
-Recall is **hybrid**: BM25 word search, a *holographic* memory and, when configured, neural
-embeddings, merged by reciprocal rank fusion. The holographic memory is a vector-symbolic
-(hyperdimensional) one: every word has a random 512-dimension code, a passage is the superposition
-of its words' contexts, and title and heading are bound to their role by element-wise product, so
-similar passages have a high cosine without any model, any download or any network. Neural
-embeddings reuse the **Indexing** settings of the code index (an explicit endpoint, or a local
-Ollama with `nomic-embed-text`); passage text leaves the machine only if that endpoint is remote.
-With none available the memory still works from BM25 and the holographic vectors, and says so.
+Recall is **hybrid**: BM25 word search and a *holographic* memory, merged by reciprocal rank fusion.
+The holographic memory is a vector-symbolic (hyperdimensional) one: every word has a random
+512-dimension code, a passage is the superposition of its words' contexts, and title and heading
+are bound to their role by element-wise product, so similar passages have a high cosine without any
+model, any download or any network.
 
 - **Tree and editor.** Collections and entries on the left; the open entry is a preview you can
   switch to a text editor. A draft is saved with the Save button, when you open another entry and
@@ -1016,9 +1013,8 @@ ports — they are **two views of one conversation**.
 | Command                                                                            | What it does                                                                                                                                                                                                                                                                                                                                                                      |
 | ---------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `/task` `/plan`                                                                    | switch between doing work and read-only exploration                                                                                                                                                                                                                                                                                                                               |
-| `/goal <text>`                                                                     | autonomous task: never asks, takes the recommended option and reports each decision                                                                                                                                                                                                                                                                                               |
+| `/goal <text>`                                                                     | autonomous task: never asks, takes the recommended option                                                                                                                                                                                                                                                                                                                         |
 | `/init` | runs a task that reads the project and writes (or fixes) its `AGENTS.md`, which later sessions load |
-| `/decisions` `/decisions undo <n>`                                                 | what `/goal` decided, numbered; `undo` removes one. Kept in `.motita/decisions.md`, which is versioned with the project on purpose (it is the spec) and respected by later runs                                                                                                                                                                                                   |
 | `/models` `/models <id>`                                                           | your provider, your key status and the models it really publishes; with an id, switch to that model for this session                                                                                                                                                                                                                                                              |
 | `/reasoning`                                                                       | cycle the thinking budget                                                                                                                                                                                                                                                                                                                                                         |
 | `/good` `/bad`                                                                     | tell the agent how a turn went                                                                                                                                                                                                                                                                                                                                                    |

@@ -912,6 +912,7 @@ func (s *Server) newSession(svc Service) (*conversation, error) {
 		return nil, err
 	}
 	conv := newConversation(id, svc)
+	s.bindContext(conv)
 	s.sessions[id] = conv
 	return conv, nil
 }

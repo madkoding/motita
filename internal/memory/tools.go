@@ -45,9 +45,6 @@ func (s *Store) SearchText(query string) string {
 			writeHit(&b, h)
 		}
 	}
-	if res.Warning != "" {
-		b.WriteString(res.Warning + "\n")
-	}
 	b.WriteString("Open one with read_memory before relying on it, and cite it as [[Title]].")
 	return b.String()
 }

@@ -199,6 +199,7 @@ type wiringAgent struct {
 	threads func(string) string
 	read    map[string]int
 	runFail error
+	recall  func(context.Context, string, int) (string, int)
 }
 
 func (w *wiringAgent) SetLibrary(l *skills.Library)     { w.lib = l }
@@ -206,6 +207,9 @@ func (w *wiringAgent) SetReward(r *reward.Ledger)       { w.reward = r }
 func (w *wiringAgent) SetUsage(u *usage.Ledger)         { w.usage = u }
 func (w *wiringAgent) SetMemory(v *memory.Store)        { w.vault = v }
 func (w *wiringAgent) SetThreads(f func(string) string) { w.threads = f }
+func (w *wiringAgent) SetRecall(f func(context.Context, string, int) (string, int)) {
+	w.recall = f
+}
 func (w *wiringAgent) Consulted() map[string]int {
 	if w.read == nil {
 		return nil
@@ -250,6 +254,9 @@ func TestTaskModeGetsTheSameLibraryAndLedgerAsPlan(t *testing.T) {
 	}
 	if wired.vault == nil {
 		t.Error("Task mode must be given the memory")
+	}
+	if wired.recall == nil {
+		t.Error("Task mode must be given the conversation's archive, or it cannot recall earlier turns")
 	}
 	if wired.threads != nil {
 		t.Error("a runner nobody gave the thread action to must not hand one out")

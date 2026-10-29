@@ -5,6 +5,8 @@ package i18n
 //
 // Terms, kept the same everywhere: task = tarea, plan mode = modo plan, session = sesión,
 // conversation = conversación, check = verificación, setup = configuración, gateway = gateway.
+//
+// #nosec G101 -- this is translation text; "token" here is a model token, not a credential.
 var esTUI = map[string]string{
 	// The agents panel and footer.
 	"No agents yet: a task lists here the agents it starts, with their time and tokens.": "Todavía no hay agentes: una " +
@@ -77,11 +79,6 @@ var esTUI = map[string]string{
 	"goal":                                              "objetivo",
 	"write an AGENTS.md for this project, which later sessions load": "escribe un AGENTS.md para este proyecto, " +
 		"que cargan las sesiones siguientes",
-	"what /goal decided; undo n removes one": "lo que /goal decidió; undo n quita una",
-	"usage: /decisions undo <number>":        "uso: /decisions undo <número>",
-	"decision removed: ":                     "decisión quitada: ",
-	"no decisions yet: a /goal records the ones it takes": "todavía no hay decisiones: un /goal anota las que " +
-		"toma",
 	"usage: /goal <what you want>":             "uso: /goal <lo que quieres>",
 	"context used, and what was carried over":  "contexto usado, y lo que se conservó",
 	"list the conversations the gateway holds": "lista las conversaciones que tiene el gateway",

@@ -623,34 +623,6 @@ const more: Record<string, string> = {
   "The local listener took too long and was stopped.":
     "La transcripción local tardó demasiado y se detuvo.",
   On: "Encendido",
-  Indexing: "Indexado",
-  "Search the workspace": "Buscar en el espacio de trabajo",
-  "Motita reads the folder once and answers with passages instead of whole files.":
-    "Motita lee la carpeta una vez y responde con pasajes en vez de archivos enteros.",
-  "Ranking by meaning": "Ranking por significado",
-  "Learned from your own code. No network.":
-    "Aprendido de tu propio código. Sin red.",
-  "Find a local Ollama": "Buscar un Ollama local",
-  "Index cache": "Caché del índice",
-  "{n} files, {size} on disk. The index is rebuilt when it is gone.":
-    "{n} archivos, {size} en disco. El índice se reconstruye si falta.",
-  "Code index": "Índice de código",
-  "Up to date": "Al día",
-  "Out of date": "Desactualizado",
-  "Not indexed": "Sin indexar",
-  "Indexed share of the project": "Parte del proyecto indexada",
-  files: "archivos",
-  passages: "pasajes",
-  terms: "términos",
-  "on disk": "en disco",
-  "{files} files indexed; {skipped} binary or unreadable skipped.":
-    "{files} archivos indexados; {skipped} binarios o ilegibles omitidos.",
-  "{files} of {total} files covered.": "{files} de {total} archivos cubiertos.",
-  "The limit of {max} files is reached: raise it in Settings.":
-    "Se alcanzó el límite de {max} archivos: súbelo en Ajustes.",
-  "Ranked also by embeddings.": "Ordena también con embeddings.",
-  "Ranked also by meaning.": "Ordena también por significado.",
-  "Index now": "Indexar ahora",
   "Provider usage": "Uso de proveedores",
   Week: "Semana",
   Month: "Mes",
@@ -673,44 +645,6 @@ const more: Record<string, string> = {
   "+{n} more": "+{n} más",
   "{left} of {max} tokens left in the rate window":
     "quedan {left} de {max} tokens en la ventana de límite",
-  "Indexing…": "Indexando…",
-  "Already up to date.": "Ya estaba al día.",
-  "Reading the project's files…": "Leyendo los archivos del proyecto…",
-  "Index updated: {files} files, {chunks} passages.":
-    "Índice actualizado: {files} archivos, {chunks} pasajes.",
-  "Clear index cache": "Borrar caché del índice",
-  "{n} index files deleted ({kb} KB). The next search builds it again.":
-    "{n} archivos de índice borrados ({kb} KB). La próxima búsqueda lo reconstruye.",
-  "Looks on this machine for nomic-embed-text. The text does not leave it.":
-    "Busca nomic-embed-text en este equipo. El texto no sale de él.",
-  "Embeddings come from {endpoint} ({model}), on this machine or its network.":
-    "Los embeddings vienen de {endpoint} ({model}), en este equipo o en tu red.",
-  "Embeddings come from {endpoint} ({model}). The text of your files and every question go there.":
-    "Los embeddings vienen de {endpoint} ({model}). El texto de tus archivos y cada pregunta se envían allí.",
-  "Embeddings use a local Ollama with nomic-embed-text when there is one (ollama pull nomic-embed-text). The text stays on this machine.":
-    "Los embeddings usan un Ollama local con nomic-embed-text si lo hay (ollama pull nomic-embed-text). El texto se queda en este equipo.",
-  "No embeddings: passages are ranked by words and by meaning learned from your code.":
-    "Sin embeddings: los pasajes se ordenan por palabras y por el significado aprendido de tu código.",
-  "The text of the indexed files, in pieces, is sent to {endpoint} once.":
-    "El texto de los archivos indexados, por trozos, se envía una vez a {endpoint}.",
-  "Every question searched is sent there too.":
-    "Cada pregunta que se busca también se envía allí.",
-  "Use it only with a provider you would already show your code to.":
-    "Úsalo solo con un proveedor al que ya le mostrarías tu código.",
-  "Embeddings endpoint": "Endpoint de embeddings",
-  "An OpenAI-compatible /embeddings address. Empty uses only the local Ollama, if any.":
-    "Una dirección /embeddings compatible con OpenAI. Vacía, solo usa el Ollama local, si lo hay.",
-  "Embeddings model": "Modelo de embeddings",
-  Limits: "Límites",
-  "Files larger than this many KB, or beyond this many files, are not indexed.":
-    "No se indexan los archivos de más KB que esto, ni los que pasen de esta cantidad.",
-  "Largest file (KB)": "Archivo más grande (KB)",
-  "Most files": "Máximo de archivos",
-  "Send your code to this endpoint?": "¿Enviar tu código a este endpoint?",
-  "Send my code there": "Enviar mi código allí",
-  "The embeddings key goes in MOTITA_CODE_INDEX_EMBEDDINGS_API_KEY. Changes apply to new sessions.":
-    "La clave de embeddings va en MOTITA_CODE_INDEX_EMBEDDINGS_API_KEY. Los cambios se aplican a las sesiones nuevas.",
-  "A key is set.": "Hay una clave definida.",
   "Network for commands": "Red para los comandos",
   "No network": "Sin red",
   "Allow the network": "Permitir la red",
@@ -738,8 +672,8 @@ const more: Record<string, string> = {
   'Create the project "{name}" from this repository and move this session into it?':
     '¿Crear el proyecto "{name}" desde este repositorio y mover esta sesión a él?',
   "Create project": "Crear proyecto",
-  "It is cloned, indexed and set up with its defaults; this conversation goes on inside it.":
-    "Se clona, se indexa y se configura con sus valores por defecto; esta conversación sigue dentro.",
+  "It is cloned and set up with its defaults; this conversation goes on inside it.":
+    "Se clona y se configura con sus valores por defecto; esta conversación sigue dentro.",
   "Not now": "Ahora no",
   'The project "{title}" was created, but the session was not moved: {err}':
     'El proyecto "{title}" se creó, pero la sesión no se movió: {err}',
@@ -750,9 +684,6 @@ const more: Record<string, string> = {
     '¿Mover esta sesión a un proyecto nuevo "{title}"?',
   "The files it made stay in its previous folder; the conversation goes on in the new project.":
     "Los archivos que creó se quedan en su carpeta anterior; la conversación sigue en el proyecto nuevo.",
-  "The project is not indexed: the code index is off":
-    "El proyecto no se indexó: el índice de código está desactivado",
-  "Turn it on in Settings → Indexing.": "Actívalo en Ajustes → Indexado.",
   "Test containers": "Contenedores de prueba",
   "Services Motita starts in a container only it can reach, to test a project and take screenshots. They are not where its commands run (that is the sandbox above). A run removes its own when it ends; stop here any that stay.":
     "Servicios que Motita levanta en un contenedor al que solo ella llega, para probar un proyecto y sacar capturas. No es donde corren sus comandos (eso es el sandbox de arriba). Cada ejecución quita los suyos al terminar; detén aquí los que queden.",

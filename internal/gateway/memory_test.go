@@ -285,43 +285,6 @@ func TestMemorySearchFollowsLinksOnRequest(t *testing.T) {
 	}
 }
 
-func TestMemorySearchUsesTheEmbeddingsOfTheCodeIndex(t *testing.T) {
-	sea := func(w http.ResponseWriter, r *http.Request) {
-		var req struct{ Input []string }
-		_ = json.NewDecoder(r.Body).Decode(&req)
-		data := make([]map[string]any, len(req.Input))
-		for i, s := range req.Input {
-			v := []float32{0.01, 1}
-			if strings.Contains(s, "waves") || strings.Contains(s, "ocean") {
-				v = []float32{1, 0.01}
-			}
-			data[i] = map[string]any{"embedding": v, "index": i}
-		}
-		_ = json.NewEncoder(w).Encode(map[string]any{"data": data})
-	}
-	emb := httptest.NewServer(http.HandlerFunc(sea))
-	t.Cleanup(emb.Close)
-	cfg := networkConfig(t, "llm:\n  provider: openai\ncode_index:\n  enabled: true\n"+
-		"  embeddings_auto: false\n  embeddings_url: "+emb.URL+
-		"\n  embeddings_model: m\n  cache_dir: "+t.TempDir()+"\n")
-	srv, _ := memoryServer(t, func(o *Options) { o.ConfigPath = cfg })
-	memoryCall(t, srv, http.MethodPut, entryPath("Sea.md"), `{"body":"# Sea\n\nThe waves were calm."}`)
-	memoryCall(t, srv, http.MethodPut, entryPath("Garden.md"), `{"body":"# Garden\n\nTomatoes need water."}`)
-	var out struct{ Hits []memory.Hit }
-	w := memoryCall(t, srv, http.MethodGet, "/v1/memory/search?q=ocean", "")
-	if err := json.Unmarshal(w.Body.Bytes(), &out); err != nil || len(out.Hits) == 0 || out.Hits[0].Path != "Sea.md" {
-		t.Fatalf("ocean = %s", w.Body)
-	}
-	// a configuration that cannot be read leaves the memory searched by words and vectors
-	broken := networkConfig(t, "llm: [\n")
-	bsrv, _ := memoryServer(t, func(o *Options) { o.ConfigPath = broken })
-	memoryCall(t, bsrv, http.MethodPut, entryPath("bread.md"), `{"body":"dough"}`)
-	w = memoryCall(t, bsrv, http.MethodGet, "/v1/memory/search?q=dough", "")
-	if !strings.Contains(w.Body.String(), "bread.md") {
-		t.Errorf("fallback = %s", w.Body)
-	}
-}
-
 func TestMemoryGraphListsEntriesAndLinks(t *testing.T) {
 	srv, _ := memoryServer(t)
 	memoryCall(t, srv, http.MethodPut, entryPath("a.md"), `{"body":"[[b]] [[ghost]]"}`)

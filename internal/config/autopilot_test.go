@@ -8,6 +8,9 @@ import (
 	"testing"
 )
 
+// ptr is the pointer to v a change carries for each field it sets.
+func ptr[T any](v T) *T { return &v }
+
 func setAutopilot(path string, c AutopilotChange) error {
 	return Transaction(path, func(tx Tx) error { return tx.SetAutopilot(c) })
 }

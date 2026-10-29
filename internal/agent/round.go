@@ -80,9 +80,9 @@ func (rr *roundRun) workAction(i int, kind string, action Command) bool {
 		rr.desktopAction(i, kind, action)
 }
 
-// readAction is an action answered from the library or the code index, which change nothing.
+// readAction is an action answered from the library, the memory or the session, which change nothing.
 func (rr *roundRun) readAction(kind string, action Command) bool {
-	return rr.libraryAction(kind, action) || rr.indexAction(kind, action) || rr.memoryAction(kind, action) ||
+	return rr.libraryAction(kind, action) || rr.memoryAction(kind, action) ||
 		rr.threadAction(kind, action)
 }
 
@@ -202,7 +202,7 @@ func (rr *roundRun) unknownKind(i int, kind string, action Command) bool {
 	}
 	fmt.Fprintf(&rr.sb, "[%s] %s\n[refused: %q is not an action this mode has. "+
 		"Available: command, write_file, edit_file, spawn_agent, wait_agents, list_skills, "+
-		"thread, search_skills, read_skill, save_skill, search_index, memory_search, memory_read, "+
+		"thread, search_skills, read_skill, save_skill, memory_search, memory_read, "+
 		"memory_write, memory_append, "+
 		"box_up, box_get, box_shot, box_down, "+
 		"desktop_shot, desktop_click, desktop_move, desktop_scroll, desktop_type, desktop_key, "+

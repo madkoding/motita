@@ -565,6 +565,7 @@ honoured. The documented one wins when both are set.
 | `final_action` | `kind` (`none`/`command`/`api`/`git_commit`), `command`, `args`, `url`, `method`, `commit_message`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               |
 | `agent`        | `max_retries`, `max_steps`, `subtask_depth`, `subtask_retries`, `criteria_audit`, `assume_first`, `quick_plan`, `max_parallel` (background agents started with `spawn_agent` running at once, default `3`; `0` turns it off), `max_tasks`, `workspace_dir`, `log_file`, `log_level`, `log_console`, `log_max_mb`, `log_backups`, `graceful_shutdown_timeout`, `read_only`, `approval_timeout` (`MOTITA_AGENT_APPROVAL_TIMEOUT`, duration, default `0` = wait for as long as it takes: a question about a command nobody answers within it is refused and the run goes on), `auto_mode_rules_only`, `auto_mode_ask_all_suggestions`, `auto_apply_suggestions`, `approve_all_commands`, `shell`, `policy{enforce,strict}`, `on_failure`                                                                                                                                                                                                                 |
 | `skills`       | `dir`, `max_file_bytes`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          |
+| `context_memory` | `enabled` (bool, default `true`: the archive of the conversation in progress, see below), `recall_tokens` (default `2000`: the hard budget one recall may add to a prompt), `recall_hits` (default `5`: archived sections one recall carries), `max_turns` (default `400`: turns kept per conversation, oldest first out). `MOTITA_CONTEXT_MEMORY_ENABLED`, `MOTITA_CONTEXT_MEMORY_RECALL_TOKENS`, `MOTITA_CONTEXT_MEMORY_RECALL_HITS` and `MOTITA_CONTEXT_MEMORY_MAX_TURNS` override them                                                                                                                                                |
 | `gateway`      | `enabled`, `listen`, `token_file`, `allow`, `hosts`, `origins`, `max_body_kb`, `webui`, `show_actions` (bool, default `false`: the chat shows a counter of the commands and actions a turn ran instead of each one; the web UI's counter expands on click)                                                                                                                                                                                                                                                                                                                                                                                  |
 | `schedule`     | `enabled`, `tick`, `min_every`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   |
 | `ui`           | `language` (`auto`/`en`/`es`, default `auto`: the language of the terminal, the browser and the setup wizard; `auto` follows the locale and the browser)                                                                                                                                                                                                                                                                                                                                                                                                                                                                         |
@@ -629,6 +630,22 @@ and every later task reads them with the project note; the person can edit or de
 the web UI the files, checks and lessons of a finished task are folded under one line, open only
 when the task is not done.
 
+**The conversation's own archive.** A conversation longer than the model's window used to lose
+the detail of what had been said: compaction keeps its shape as a summary, and the turns it folded
+away were gone. Each finished turn is now also written, redacted, as one Markdown file under
+`~/.motita/context/<session>/` — one folder per conversation, `0700`, deleted with the
+conversation. Before a turn, what it may need is retrieved from the turns no longer shown verbatim,
+locally and with no model call: the memory's own hybrid search (BM25 plus holographic vectors),
+answered with the section that matched (the request, the answer, or the report of a task). Task
+mode receives it through `{{recall}}` in the analysis prompt; Plan mode receives it as an extra
+system message for that turn only, never stored in the session. It is presented as background data
+and never as instructions, and a turn that used it says so in its trail:
+`[recalled N passages from earlier]`. What is archived is the turn and the report of a task, not
+the output of its commands; the archive belongs to one conversation and is never searched by
+another, so it is not a second memory. `context_memory.enabled: false` (or
+`MOTITA_CONTEXT_MEMORY_ENABLED=false`) turns it off, and `recall_tokens`, `recall_hits` and
+`max_turns` bound the budget, the passages of one recall and the turns kept.
+
 When a command needs approval, the panel's second answer, **Always allow this here**, runs it
 and keeps that shape of command (its policy rule and program, `git push`, `npm install`) allowed
 in the project: later sessions of the project run it without asking, and the run says so
@@ -690,8 +707,8 @@ Three things keep a request from needing a second one:
   always plans apart.
 - **Assume first** (`agent.assume_first`, `MOTITA_AGENT_ASSUME_FIRST`, default `true`). When the
   analysis has a question and states what it would do, the agent does it and the report says what was
-  assumed; only a question marked as a real decision (destructive, irreversible, materially different
-  results) stops the turn. `false` asks every time.
+  assumed. A request with two or more independent questions still stops the turn and asks them
+  together. `false` asks every time.
 - **Criteria audit** (`agent.criteria_audit`, `MOTITA_AGENT_CRITERIA_AUDIT`, default `true`). When the
   model claims the task is done, one short model call reads the claim against the success criteria
   the analysis wrote down ("done means ..."). A criterion the run never showed (a behaviour no check
@@ -1595,63 +1612,6 @@ The coordinates are the picture's pixels and are mapped back to the screen with 
 
 motita must run inside the graphical session (`DISPLAY` or `WAYLAND_DISPLAY` set on Linux): a gateway started as a system service has no desktop, and Settings → Security says so. A connected computer is controlled through its own setting, from its box in the sidebar. The picture reaches every provider (Anthropic, OpenAI-compatible, Gemini, Codex and claude-code); the model must be one that reads images.
 
-### Searching the workspace with search_index
-
-Plan mode has a `search_index` tool next to `search_in_files`, and task mode reaches the same index with the action `{"kind": "search_index", "command": "the question"}`. It reads the workspace into an index and
-answers a question in plain words, or a symbol name, with `path:line` and a few lines instead of whole
-matches. It runs in this process and nothing is sent anywhere; the idea comes from
-[XERJ](https://github.com/xerj-org/xerj).
-
-- **Words:** BM25 over the code split at camelCase and snake_case, with definitions and file names
-  weighted up.
-- **Meaning:** a second ranking learned from the folder's own vocabulary (random indexing: a term is
-  described by the terms it shares windows with), fused with the first by reciprocal rank. It finds
-  code that shares context with the question even without sharing the word. It is not a neural
-  embedding: it knows this codebase's vocabulary and nothing else. The vectors are kept on disk with
-  the index.
-- **Real embeddings (off by default):** with `embeddings_url` set, a third ranking comes from an
-  OpenAI-compatible `POST <url>/embeddings`. **This sends the text of the indexed files (windows of up
-  to 1500 characters, at most 4000 of them) and every query to that endpoint**, so use it only with a
-  provider you would already show the code to. If the endpoint fails the search still answers with the
-  other rankings and says so in a note after the passages. Plain http with a key is refused unless the
-  host is on this machine or its network.
-- **Local Ollama (automatic):** with no `embeddings_url`, the first search looks for an Ollama on this
-  machine (`127.0.0.1:11434`, 0.4 s at most, again once a minute while it is not there). If it has
-  `nomic-embed-text` (`ollama pull nomic-embed-text`), that model is used through its `/v1/embeddings`.
-  The text only goes to your own machine. `embeddings_auto: false` (or `MOTITA_CODE_INDEX_EMBEDDINGS_AUTO=false`)
-  turns the look-up off.
-- **On disk:** the index is kept in `cache_dir` and reused while no file's name, size or time changed,
-  so the next start does not read everything again. It holds the terms of the source, not its text
-  (passages are read from the files when answered), in a file only you can read.
-
-```yaml
-code_index:
-  enabled: true
-  max_file_kb: 256 # larger files are not indexed
-  max_files: 5000 # indexing stops after this many files
-  semantic: true # the ranking by meaning
-  # cache_dir: ~/.motita/index # the default; an empty value keeps the index in memory only
-  # embeddings_auto: true # use a local Ollama with nomic-embed-text when there is one
-  # embeddings_url: https://api.openai.com/v1 # OFF while empty: setting it sends code to that endpoint
-  # embeddings_model: text-embedding-3-small
-  # embeddings_api_key: ... # or MOTITA_CODE_INDEX_EMBEDDINGS_API_KEY
-```
-
-Everything above can be changed from **Settings → Indexing**, or through `GET/PUT /v1/code-index` on
-the gateway (the toggles, the embeddings address and model, the two limits). **Clear index cache** (`DELETE /v1/code-index/cache`) deletes the `*.gob` files in `cache_dir` and nothing else; the next search builds the index again. `motita index status` and `motita index clear` do the same from the terminal. The edit-project dialog shows how much of the project's folder the index covers (a bar, files, passages, terms, size on disk) and **Index now** brings it up to date. A project created while the index is on is indexed in the background, so its first search is already warm. At start the gateway also brings the index of every project that has none or an old one up to date, one after the other; the project's panel shows **Indexing…** meanwhile, and `GET /v1/projects/{id}/code-index` carries `indexing: true`. The change is written to the
-configuration file and applies to the sessions started after it. An address outside this machine and its
-network is saved only after the page told the person that the text of the indexed files will be sent
-there (`confirm: true` in the request). The embeddings key is not handled by the page: set
-`MOTITA_CODE_INDEX_EMBEDDINGS_API_KEY`.
-
-The `.gitignore` of the folder, and of the folders below it, is respected. Hidden files and folders
-(`.env`, `.git`), `node_modules`, `vendor`, build output, symbolic links and binary files are never
-indexed. The tool reads only what the session may read: a `path` outside it is refused like `read_file`
-does. `search_index` takes `query`, `path` (a folder to search in, default the working directory) and
-`limit` (default 5, at most 20). What it returns goes into the model's context like any tool result, with
-secrets masked. It only knows what it indexed, so a negative is confirmed with `search_in_files`.
-
-
 ### Upkeep: weekly audit and draft pull requests
 
 Two independent switches in **Settings → Upkeep**, both **off** by default (the first spends model turns every week, the second publishes under your account):
@@ -1670,8 +1630,8 @@ Both routines are records of the scheduled tasks (`autopilot-audit`, `autopilot-
 
 ### Reading files, repositories and the web in plan mode
 
-Plan mode never writes, but it is not blind: besides `read_file`, `list_directory`, `search_in_files` and
-`search_index`, its `execute_command` runs any command the read-only list knows (`cat`, `ls`, `grep`,
+Plan mode never writes, but it is not blind: besides `read_file`, `list_directory` and
+`search_in_files`, its `execute_command` runs any command the read-only list knows (`cat`, `ls`, `grep`,
 `rg`, `find`, `sed -n`, `git log`/`show`/`diff`/`status`/`blame`/`grep`/`ls-tree`/`rev-list`/`merge-base`/`worktree list`/`stash list`/`ls-remote`, `go list`, `systemctl status`,
 and so on). The list is `internal/readonly`; a command that is not on it, or that writes through an
 argument (`sed -i`, `find -exec`, `git commit`), is refused with the reason.
@@ -1806,11 +1766,6 @@ that only motita's own file edits are limited.
 | `GET /v1/autopilot` | `{"weekly_audit":false,"auto_pr":false,"max_open_prs":3,"can_save":true,"audit":null,"fixes":null}`; `audit` and `fixes` are `{last_run,next_run,last_outcome,running}` once a switch was turned on |
 | `PUT /v1/autopilot` | any of `weekly_audit`, `auto_pr`, `max_open_prs`; `400` for a refused value (or a `MOTITA_AUTOPILOT_*` variable that overrides it), `409` without a configuration file |
 | `POST /v1/autopilot/run` | `{"what":"audit"}` or `{"what":"fixes"}`: runs it now (`202`); `409` if it is switched off or already running |
-| `GET /v1/code-index` | `{"enabled":true,"semantic":true,"embeddings_auto":true,"embeddings_url":"","embeddings_model":"","embeddings_key":false,"max_file_kb":256,"max_files":5000,"embeddings":"auto","endpoint_local":false,"cache_files":0,"cache_bytes":0,"can_save":true}`; `embeddings` is `endpoint`, `auto` or `off`; the key is never returned, only whether one is set |
-| `PUT /v1/code-index` | any of `enabled`, `semantic`, `embeddings_auto`, `embeddings_url`, `embeddings_model`, `max_file_kb`, `max_files`, plus `confirm`; `confirm: true` is required to set an `embeddings_url` outside this machine and its network, `400` for a refused or invalid change (or a `MOTITA_CODE_INDEX_*` variable that overrides it), `409` without a configuration file |
-| `DELETE /v1/code-index/cache` | none; deletes the index files kept in `code_index.cache_dir` and answers `{removed, bytes}` |
-| `GET /v1/projects/{id}/code-index` | `{state, candidates, files, percent, chunks, terms, max_files, capped, cache_bytes, semantic, embeddings, indexing}`; `state` is `none`, `stale` or `ready`, `409` while `code_index.enabled` is off |
-| `POST /v1/projects/{id}/code-index` | builds or refreshes the project's index, then answers like the GET |
 | `GET /v1/sessions/{id}/scope` | `{"workspace":…,"project_dir":…,"home":…,"private_roots":[…]}`: where the session's commands work, their HOME, and the folders kept from them |
 
 ### Reading answers aloud
@@ -2201,7 +2156,7 @@ question or ask about a compile flag. An assignment in front of a command
 ### Variables available in prompts
 
 `{{task}}` `{{workspace}}` `{{origin}}` `{{attempt}}` `{{max_attempts}}`
-`{{rules}}` `{{analysis}}` `{{plan}}` `{{history}}` `{{model}}`
+`{{rules}}` `{{analysis}}` `{{plan}}` `{{history}}` `{{recall}}` `{{model}}`
 `{{provider}}` `{{context_*}}`
 
 If a template uses a variable with no value, **a warning is logged** and the
@@ -2385,6 +2340,7 @@ internal/app/         program logic (options, layers, shutdown, TUI wiring)
 internal/tui/         interactive text user interface (stdlib only)
 internal/termcap/     what the console can show: colour depth, escapes, ASCII glyphs
 internal/plan/        read-only plan/chat mode with native tool calling
+internal/contextmem/   the conversation's own archive: turns past the window, recalled locally
 internal/skills/        the procedure library: the documents, and their archive
 internal/curator/       the maintenance pass: stale, archive, and consolidation
 internal/procedures/    the library as the tools see it (search, load, save)
