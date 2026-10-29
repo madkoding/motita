@@ -6,9 +6,11 @@ import {
   type SpeechChange,
   type TtsSaved,
   type VoiceInfo,
+  type FoundSpeech,
   DASHSCOPE_BASE,
   SPEECH_PRESETS,
   putSpeech,
+  detectSpeech,
 } from "./voice";
 import type { Api } from "./gitApi";
 import { errorMessage } from "./errors";
@@ -194,6 +196,7 @@ export function SpeechService({
           busy={busy}
           setEditing={setEditing}
           save={save}
+          api={api}
         />
       )}
       {info.restart_needed && (
@@ -224,7 +227,9 @@ function SpeechServiceForm({
   busy,
   setEditing,
   save,
+  api,
 }: {
+  api: Api;
   saved: TtsSaved;
   form: SpeechForm;
   setForm: Dispatch<StateUpdater<SpeechForm>>;
@@ -233,6 +238,19 @@ function SpeechServiceForm({
   save: (change: SpeechChange) => Promise<void>;
 }) {
   const target = speechTarget(saved, form);
+  const [found, setFound] = useState<FoundSpeech[] | null>(null);
+  const [looking, setLooking] = useState(false);
+  const [lookErr, setLookErr] = useState("");
+  const look = async () => {
+    setLooking(true);
+    setLookErr("");
+    try {
+      setFound(await detectSpeech(api));
+    } catch (e) {
+      setLookErr(errorMessage(e));
+    }
+    setLooking(false);
+  };
   const field = (k: keyof SpeechForm) => (e: Event) =>
     setForm({ ...form, [k]: (e.target as HTMLInputElement).value });
   return (
@@ -272,6 +290,49 @@ function SpeechServiceForm({
           </button>
         ))}
       </div>
+      <div class="flex flex-wrap items-center gap-2">
+        <button
+          type="button"
+          class={smallBtn}
+          disabled={looking}
+          data-testid="speech-detect"
+          onClick={() => void look()}
+        >
+          {t("Find one on this computer")}
+        </button>
+        {found && found.length === 0 && (
+          <span class="text-xs" data-testid="speech-detect-none">
+            {t("No speech server found on the gateway's computer.")}
+          </span>
+        )}
+        {lookErr && (
+          <span class="text-xs text-danger" role="alert">
+            {lookErr}
+          </span>
+        )}
+      </div>
+      {found && found.length > 0 && (
+        <div class="flex flex-wrap gap-2">
+          {found.map((f) => (
+            <button
+              key={f.base_url}
+              type="button"
+              class={smallBtn}
+              data-testid="speech-found"
+              onClick={() =>
+                setForm({
+                  ...form,
+                  api: "openai",
+                  base_url: f.base_url,
+                  model: f.models[0] ?? form.model,
+                })
+              }
+            >
+              {f.base_url}
+            </button>
+          ))}
+        </div>
+      )}
       <label class="llm-label">
         <span>{t("Endpoint")}</span>
         <input

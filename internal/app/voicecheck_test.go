@@ -1,6 +1,7 @@
 package app
 
 import (
+	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"os"
@@ -97,5 +98,28 @@ func TestLocalVoicesCheck(t *testing.T) {
 	put("b", "model.onnx", "XX")
 	if c := localVoicesCheck(lib); c.Status != doctor.Warn || !strings.Contains(c.Detail, "b: model.onnx does not match") {
 		t.Fatalf("a changed file: %+v", c)
+	}
+}
+
+// TestLocalSpeechCheckSaysWhatIsListening: the doctor reports a speech server on this machine and,
+// when the voice is off, where to turn it on.
+func TestLocalSpeechCheckSaysWhatIsListening(t *testing.T) {
+	old := detectSpeech
+	t.Cleanup(func() { detectSpeech = old })
+	cfg := config.Default()
+	detectSpeech = func(context.Context, ...string) []voice.Endpoint { return nil }
+	if c := localSpeechCheck(cfg); c.Status != doctor.OK || !strings.Contains(c.Detail, "no speech server") {
+		t.Errorf("none: %+v", c)
+	}
+	detectSpeech = func(context.Context, ...string) []voice.Endpoint {
+		return []voice.Endpoint{{Base: "http://127.0.0.1:8880/v1"}, {Base: "http://127.0.0.1:8000/v1"}}
+	}
+	if c := localSpeechCheck(cfg); c.Status != doctor.OK || !strings.Contains(c.Detail, "8880/v1, http://127.0.0.1:8000") ||
+		!strings.Contains(c.Detail, "Settings") {
+		t.Errorf("off: %+v", c)
+	}
+	cfg.Voice.TTS.Enabled = true
+	if c := localSpeechCheck(cfg); strings.Contains(c.Detail, "Settings") {
+		t.Errorf("on: %+v", c)
 	}
 }

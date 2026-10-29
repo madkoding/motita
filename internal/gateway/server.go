@@ -789,6 +789,7 @@ func (s *Server) voiceRoutes(mux *http.ServeMux, plain func(http.HandlerFunc) ht
 	// Speech output: the answer's text goes to the speech service, the audio comes back. See speak.go.
 	mux.Handle("POST /v1/voice/speak", plain(s.handleSpeak))
 	mux.Handle("PUT /v1/voice/tts", plain(s.handlePutTTS))
+	mux.Handle("GET /v1/voice/tts/detect", plain(s.handleDetectSpeech))
 	// Local voices: the catalog, its downloads, and the files the page runs. See voicemodels.go.
 	mux.Handle("GET /v1/voice/models", plain(s.handleVoiceModels))
 	mux.Handle("POST /v1/voice/models/{id}", plain(s.handleInstallVoiceModel))

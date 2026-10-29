@@ -14,6 +14,9 @@ const speechService: Record<string, string> = {
     "Indica un servicio de síntesis para leer en voz alta.",
   "The text of every answer read aloud is sent to {endpoint}.":
     "El texto de cada respuesta leída en voz alta se envía a {endpoint}.",
+  "Find one on this computer": "Buscar uno en este equipo",
+  "No speech server found on the gateway's computer.":
+    "No hay ningún servidor de voz en el equipo del gateway.",
 };
 
 export default speechService;

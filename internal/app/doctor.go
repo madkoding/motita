@@ -1,10 +1,12 @@
 package app
 
 import (
+	"context"
 	"fmt"
 	"net"
 	"net/url"
 	"strings"
+	"time"
 
 	"github.com/madkoding/motita/internal/config"
 	"github.com/madkoding/motita/internal/doctor"
@@ -39,7 +41,7 @@ func (op Options) doctorConfig(fl flags) []doctor.Check {
 		return []doctor.Check{{Name: "config", Status: doctor.Fail, Detail: fmt.Sprintf("%s: %v", path, err)}}
 	}
 	checks := []doctor.Check{{Name: "config", Detail: path + ": " + DescribeConfig(cfg)},
-		voiceCheck(cfg), speechCheck(cfg), localVoicesCheck(voiceLibrary())}
+		voiceCheck(cfg), speechCheck(cfg), localSpeechCheck(cfg), localVoicesCheck(voiceLibrary())}
 
 	cfg.Agent.LogFile = ""
 	cfg.Agent.LogConsole = false
@@ -92,6 +94,31 @@ func speechCheck(cfg config.Config) doctor.Check {
 			Detail: detail + "; no key for a remote endpoint: set voice.tts.api_key or MOTITA_VOICE_TTS_API_KEY"}
 	}
 	return doctor.Check{Name: "speech", Detail: detail}
+}
+
+// detectSpeech is voice.DetectSpeech, as a variable so a test need not listen on the common ports.
+var detectSpeech = voice.DetectSpeech
+
+// localSpeechCheck looks, on this machine only, for a server that speaks the OpenAI speech API
+// (/audio/speech) and says where to turn it on. The probe carries no text; it only asks whether the
+// route exists. Nothing is switched on: sending answers to it is the person's choice.
+func localSpeechCheck(cfg config.Config) doctor.Check {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	found := detectSpeech(ctx, cfg.TTSBaseURL())
+	if len(found) == 0 {
+		return doctor.Check{Name: "speech", Detail: "no speech server (/audio/speech) found on this machine"}
+	}
+	bases := make([]string, len(found))
+	for i, f := range found {
+		bases[i] = f.Base
+	}
+	detail := "speech server found on this machine: " + strings.Join(bases, ", ")
+	if cfg.Voice.TTS.Enabled {
+		return doctor.Check{Name: "speech", Detail: detail}
+	}
+	return doctor.Check{Name: "speech",
+		Detail: detail + "; use it in Settings, Read aloud, Voice service (or set voice.tts.enabled and base_url)"}
 }
 
 // localVoicesCheck names the local voices downloaded and hashes their files again: a file that

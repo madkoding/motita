@@ -9,6 +9,7 @@ import (
 	"unicode/utf8"
 
 	"github.com/madkoding/motita/internal/config"
+	"github.com/madkoding/motita/internal/voice"
 )
 
 // SPEECH OUTPUT for the browser interface: the gateway's voice.
@@ -216,4 +217,21 @@ func (s *Server) ttsNeedsConfirm(api, baseURL *string) bool {
 		return next != nil && strings.TrimSpace(*next) != strings.TrimSpace(now)
 	}
 	return changed(api, cfg.Voice.TTS.API) || changed(baseURL, cfg.Voice.TTS.BaseURL)
+}
+
+// detectSpeech is voice.DetectSpeech, as a variable so a test need not listen on the common ports.
+var detectSpeech = voice.DetectSpeech
+
+// handleDetectSpeech looks on the gateway's machine for servers that speak the OpenAI speech API and
+// answers where they are. It runs only when the person asks (the settings' button): it probes the
+// loopback with OPTIONS and GET /models, sends no text, and changes nothing. Using a server found
+// is a separate step, PUT /v1/voice/tts, which needs confirm.
+func (s *Server) handleDetectSpeech(w http.ResponseWriter, r *http.Request) {
+	var extra []string
+	if s.opts.ConfigPath != "" {
+		if cfg, err := loadConfig(s.opts.ConfigPath); err == nil {
+			extra = append(extra, cfg.TTSBaseURL())
+		}
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"servers": detectSpeech(r.Context(), extra...)})
 }

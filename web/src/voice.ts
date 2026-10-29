@@ -72,6 +72,12 @@ export interface SpeechChange {
   api_key?: string;
 }
 
+// A speech server the gateway found on its own machine (GET /v1/voice/tts/detect).
+export interface FoundSpeech {
+  base_url: string;
+  models: string[];
+}
+
 // DashScope's international endpoint, where Qwen3-TTS is when base_url is left empty.
 export const DASHSCOPE_BASE = "https://dashscope-intl.aliyuncs.com/api/v1";
 
@@ -632,6 +638,16 @@ export async function putSpeech(
     throw new Error(await errorOf(res));
   }
   return (await res.json()) as VoiceInfo;
+}
+
+// detectSpeech asks the gateway which servers on its machine answer the OpenAI speech API. The
+// probe sends no text and changes nothing.
+export async function detectSpeech(api: Api): Promise<FoundSpeech[]> {
+  const res = await api("/v1/voice/tts/detect");
+  if (!res.ok) {
+    throw new Error(await errorOf(res));
+  }
+  return ((await res.json()) as { servers: FoundSpeech[] }).servers;
 }
 
 // transcribe sends one recording. With wake, the answer also names the wake phrase it opened with.
