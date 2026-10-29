@@ -103,9 +103,9 @@ llm:
                        # for reasoning models (gpt-5, o-series) use 65536: hidden thinking counts against it
   # temperature: 0.2  # optional; unset = provider default (0.2 on OpenAI/Gemini). Anthropic 4+ models refuse it, so leave it unset there
   timeout: 90s         # a whole plain answer; for a streamed one (and every claude-code turn), the wait for each new piece
-  max_attempts: 3      # retries with exponential backoff on 429/5xx/network
-  backoff_initial: 1s
-  backoff_max: 30s
+  max_attempts: 5      # retries with exponential backoff on 429/5xx/network
+  backoff_initial: 2s
+  backoff_max: 60s
 
 # ---------------------------------------------------------------------------
 # Prompt templates. Available variables:
@@ -172,9 +172,9 @@ final_action:
 # Main loop, logging and shutdown
 # ---------------------------------------------------------------------------
 agent:
-  max_retries: 3               # total attempts = max_retries + 1. default: 5
+  max_retries: 3               # total attempts = max_retries + 1. default: 8
   subtask_depth: 1             # allowed splitting levels
-  subtask_retries: 1           # tries again a failed subtask, told why, before the parent gives up; 0 = off
+  subtask_retries: 2           # tries again a failed subtask, told why, before the parent gives up; 0 = off
   quick_plan: true             # the analysis writes the plan itself (one model call before the first action); false = always plan apart
   assume_first: true           # goes on with its stated assumption instead of asking; false = always ask
   criteria_audit: true         # sends a "done" back when a success criterion is not shown (1 short model call)
