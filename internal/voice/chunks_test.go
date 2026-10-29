@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/binary"
+	"math"
 	"net/http"
 	"net/http/httptest"
 	"slices"
@@ -118,5 +119,15 @@ func TestSpeakDashScopeLaterChunkFailures(t *testing.T) {
 	text := strings.Repeat("x", 500) + ". " + strings.Repeat("y", 500) + "."
 	if _, _, err := (Speaker{API: "dashscope", BaseURL: srv.URL}).Speak(context.Background(), text, "v"); err == nil {
 		t.Error("audio that is not a wav cannot be joined")
+	}
+}
+
+func TestPutSizeClampsWhatDoesNotFit(t *testing.T) {
+	for n, want := range map[int]uint32{7: 7, -1: math.MaxUint32, math.MaxUint32 + 1: math.MaxUint32} {
+		b := make([]byte, 4)
+		putSize(b, n)
+		if got := binary.LittleEndian.Uint32(b); got != want {
+			t.Errorf("%d: %d, want %d", n, got, want)
+		}
 	}
 }

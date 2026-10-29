@@ -3,6 +3,7 @@ package voice
 import (
 	"encoding/binary"
 	"errors"
+	"math"
 	"strings"
 )
 
@@ -81,7 +82,16 @@ func joinWAV(parts [][]byte) ([]byte, error) {
 		}
 		out = append(out, p[s:e]...)
 	}
-	binary.LittleEndian.PutUint32(out[4:8], uint32(len(out)-8))
-	binary.LittleEndian.PutUint32(out[start-4:start], uint32(len(out)-start))
+	putSize(out[4:8], len(out)-8)
+	putSize(out[start-4:start], len(out)-start)
 	return out, nil
+}
+
+// putSize writes a wav chunk size, a 32-bit field, into b: a size the field cannot hold (4 GB of
+// speech) is written as the largest it can, which players read as "until the end".
+func putSize(b []byte, n int) {
+	if n < 0 || int64(n) > math.MaxUint32 {
+		n = math.MaxUint32
+	}
+	binary.LittleEndian.PutUint32(b, uint32(n))
 }
