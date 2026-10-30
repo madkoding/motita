@@ -346,7 +346,12 @@ Preserve, in this order of importance:
 4. What was tried and failed, so it is not tried again.
 5. What remains to be done.
 
-Omit: pleasantries, restatements of the plan, and tool output that carried no conclusion.
+THE ACTIVE PLAN: if the conversation holds a plan the user is following or approved, copy it
+into a "Plan" section with every step and its state (done, in progress, pending) and any
+change the user asked for. Never shorten it to "a plan was made". When the account carried from
+earlier already has a Plan section, update it and keep it, do not drop it.
+
+Omit: pleasantries, and tool output that carried no conclusion.
 Write in the third person, as notes to be read before continuing. Be specific: names,
 paths and numbers, never "some files" or "the version". Do not invent anything that is
 not in the conversation.`

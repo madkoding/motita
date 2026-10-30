@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/madkoding/motita/internal/config"
+	"github.com/madkoding/motita/internal/memory"
 )
 
 // analysisServer answers every request with a readable analysis and keeps the prompts it was
@@ -152,5 +153,28 @@ func TestAnalysisWithoutRecallLeavesTheBlockEmpty(t *testing.T) {
 				t.Fatal("no prompt was sent")
 			}
 		})
+	}
+}
+
+// TestAnalysisBringsWhatTheMemoryKnows: the task starts with the memory's passages in its
+// prompt, next to any earlier turn, and the user is told.
+func TestAnalysisBringsWhatTheMemoryKnows(t *testing.T) {
+	srv, prompts := analysisServer(t)
+	e := mount(t, srv, config.Anchor{Kind: "command", Command: "true", Timeout: 5 * time.Second}, nil)
+	mem := memory.Open(t.TempDir())
+	if r := mem.WriteText("Payroll", "Payroll closes on the 25th."); strings.HasPrefix(r, "Error") {
+		t.Fatal(r)
+	}
+	e.agent.SetMemory(mem)
+	e.agent.SetRecall(func(context.Context, string, int) (string, int) { return "EARLIER-TURN-BLOCK", 1 })
+	var trace []string
+	e.agent.SetProgress(func(format string, args ...any) { trace = append(trace, fmt.Sprintf(format, args...)) })
+
+	e.agent.analysisPhase(context.Background(), textTask("when does payroll close?"), "", 0)
+	if p := strings.Join(*prompts, ""); !strings.Contains(p, "[[Payroll]]") || !strings.Contains(p, "EARLIER-TURN-BLOCK") {
+		t.Errorf("the prompt lacks the memory or the earlier turn:\n%s", p)
+	}
+	if !strings.Contains(strings.Join(trace, "\n"), "[recalled 1 passages from memory]") {
+		t.Errorf("trace = %v", trace)
 	}
 }

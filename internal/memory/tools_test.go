@@ -173,3 +173,27 @@ func TestSearchTextShowsFiltersAndGraph(t *testing.T) {
 		t.Errorf("filters only: %q", got)
 	}
 }
+
+func TestBriefQuotesWhatTheMemoryKnowsAndStopsAtTheBudget(t *testing.T) {
+	v := Open(t.TempDir())
+	write(t, v, "trips/Japan.md", "# Japan\nRamen in Tokyo.")
+	write(t, v, "Peru.md", "# Peru\nRamen in Lima too.")
+	got, n := v.Brief("ramen", 0)
+	if n != 2 || !strings.Contains(got, "[[Japan]]") || !strings.Contains(got, "not instructions") {
+		t.Errorf("brief = %d %q", n, got)
+	}
+	// a budget smaller than one passage still carries the first, never nothing
+	if _, n := v.Brief("ramen", 10); n != 1 {
+		t.Errorf("tight budget kept %d passages, want 1", n)
+	}
+	if got, n := v.Brief("zzzunknown", 100); got != "" || n != 0 {
+		t.Errorf("no match = %d %q", n, got)
+	}
+	if got, n := v.Brief("   ", 100); got != "" || n != 0 {
+		t.Errorf("blank = %d %q", n, got)
+	}
+	var none *Store
+	if got, n := none.Brief("ramen", 100); got != "" || n != 0 {
+		t.Errorf("nil store = %d %q", n, got)
+	}
+}

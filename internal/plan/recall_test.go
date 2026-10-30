@@ -10,6 +10,7 @@ import (
 	"testing"
 
 	"github.com/madkoding/motita/internal/llm"
+	"github.com/madkoding/motita/internal/memory"
 	"github.com/madkoding/motita/internal/session"
 )
 
@@ -211,5 +212,35 @@ func TestWithRecallPlacesTheBlockAfterTheLeadingSystemMessages(t *testing.T) {
 	out = p.withRecall(allSystem)
 	if len(out) != 2 || out[1].Content != "ARCHIVED" {
 		t.Errorf("the block of an all-system request = %+v", out)
+	}
+}
+
+// TestTheTurnStartsWithWhatTheMemoryKnows: the planner looks the memory up itself, before the
+// model decides whether to, and the block is not kept in the session.
+func TestTheTurnStartsWithWhatTheMemoryKnows(t *testing.T) {
+	a, _ := makeAgent(t, true)
+	srv, requests := recordingServer(t, "an answer")
+	mem := memory.Open(t.TempDir())
+	if r := mem.WriteText("Deploys", "Deploys go out through the blue pipeline."); strings.HasPrefix(r, "Error") {
+		t.Fatal(r)
+	}
+	var trace []string
+	p := New(newClient(t, srv), a).WithMemory(mem).WithTrace(func(format string, args ...any) {
+		trace = append(trace, fmt.Sprintf(format, args...))
+	})
+	if _, err := p.Run(context.Background(), "how do deploys go out?"); err != nil {
+		t.Fatal(err)
+	}
+	first := (*requests)[0]
+	if !strings.Contains(first[1].Content, "[[Deploys]]") || first[1].Role != "system" {
+		t.Errorf("the memory was not brought to the turn: %+v", first)
+	}
+	if !strings.Contains(strings.Join(trace, "\n"), "[recalled 1 passages from memory]") {
+		t.Errorf("trace = %v", trace)
+	}
+	for _, m := range p.Session().Messages() {
+		if strings.Contains(m.Content, "[[Deploys]]") {
+			t.Errorf("the memory block was written to the session: %q", m.Content)
+		}
 	}
 }

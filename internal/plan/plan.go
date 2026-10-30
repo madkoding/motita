@@ -696,26 +696,35 @@ func (p *Planner) tracef(format string, args ...any) {
 // the message just appended is the current turn, which is not in the archive yet.
 func (p *Planner) recallFor(ctx context.Context, sess *session.Session, input string) {
 	p.turnRecall = ""
-	if p.recall == nil {
-		return
-	}
-	live := 0
-	for _, m := range sess.Messages() {
-		if m.Role == "user" {
-			live++
+	var blocks []string
+	// The memory is consulted for the agent: a model that is not told what is in it does not ask.
+	if p.memory != nil {
+		if block, n := p.memory.Brief(input, memoryBriefChars); n > 0 {
+			blocks = append(blocks, block)
+			p.tracef("[recalled %d passages from memory]", n)
 		}
 	}
-	live--
-	if live < 0 {
-		live = 0
+	if p.recall != nil {
+		live := 0
+		for _, m := range sess.Messages() {
+			if m.Role == "user" {
+				live++
+			}
+		}
+		live--
+		if live < 0 {
+			live = 0
+		}
+		if block, n := p.recall(ctx, input, live); n > 0 {
+			blocks = append(blocks, block)
+			p.tracef("[recalled %d passages from earlier]", n)
+		}
 	}
-	block, n := p.recall(ctx, input, live)
-	if n == 0 {
-		return
-	}
-	p.turnRecall = block
-	p.tracef("[recalled %d passages from earlier]", n)
+	p.turnRecall = strings.Join(blocks, "\n\n")
 }
+
+// memoryBriefChars bounds the memory passages one turn starts with.
+const memoryBriefChars = 3000
 
 // withRecall puts the recalled block among the leading system messages, before the
 // conversation. It is never written to the session: it belongs to this turn, and carrying it

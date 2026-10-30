@@ -14,6 +14,9 @@ import (
 	"github.com/madkoding/motita/internal/template"
 )
 
+// memoryBriefChars bounds the memory passages one task starts with.
+const memoryBriefChars = 3000
+
 // --- Phases -----------------------------------------------------------------
 
 func (a *Agent) analysisPhase(ctx context.Context, t task.Task, rules string, depth int) Analysis {
@@ -41,6 +44,17 @@ func (a *Agent) analysisPhase(ctx context.Context, t task.Task, rules string, de
 		if block, n := a.recall(ctx, t.Description, live); n > 0 {
 			vars["recall"] = block
 			a.report("[recalled %d passages from earlier]", n)
+		}
+	}
+
+	// And what the person's memory already says about the task, looked up for the agent.
+	if a.memory != nil {
+		if block, n := a.memory.Brief(t.Description, memoryBriefChars); n > 0 {
+			if vars["recall"] != "" {
+				vars["recall"] += "\n\n"
+			}
+			vars["recall"] += block
+			a.report("[recalled %d passages from memory]", n)
 		}
 	}
 
