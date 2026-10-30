@@ -364,11 +364,40 @@ function Results() {
   );
 }
 
+// EmptyList says why the library has nothing to show: the memory is empty, or it could not be read.
+function EmptyList({
+  failed,
+  reload,
+}: {
+  failed: boolean;
+  reload: () => Promise<void>;
+}) {
+  if (!failed) {
+    return (
+      <p class="text-sm text-[#9a9aaa] px-1">
+        {t("Nothing in the memory yet. Write the first entry above.")}
+      </p>
+    );
+  }
+  return (
+    <div class="text-sm px-1" data-testid="memory-load-failed">
+      <p class="text-[#9a9aaa]">{t("could not load the memory")}</p>
+      <button
+        type="button"
+        class={SMALL_BTN + " mt-2"}
+        onClick={() => void reload()}
+      >
+        {t("Try again")}
+      </button>
+    </div>
+  );
+}
+
 // MemoryList is the left side: the search and its filters, the new entry form and the library or
 // the search results.
 export function MemoryList() {
   const { memory } = useApp();
-  const { current, graph, query, entries, search } = memory;
+  const { current, graph, query, entries, search, loadFailed, reload } = memory;
   const [writing, setWriting] = useState(false);
   const closeForm = useCallback(() => setWriting(false), []);
   function toggleForm() {
@@ -407,9 +436,7 @@ export function MemoryList() {
           <>
             <FolderContent folder={buildTree(entries)} depth={0} />
             {entries.length === 0 && (
-              <p class="text-sm text-[#9a9aaa] px-1">
-                {t("Nothing in the memory yet. Write the first entry above.")}
-              </p>
+              <EmptyList failed={loadFailed} reload={reload} />
             )}
           </>
         )}
