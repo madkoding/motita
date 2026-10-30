@@ -516,6 +516,9 @@ type Action struct {
 	// Notes is the model's own running summary: what it has decided, what is done, what is
 	// left. It is kept whole between rounds and replaced whenever a reply carries new ones.
 	Notes string `json:"notes"`
+	// Salvaged names the shape the reply was read from when it was not the object asked for
+	// (see decodeAction), and is empty when it was. It is for the log, never for the chat.
+	Salvaged string `json:"-"`
 }
 
 // isDone reports whether the model considers the task finished.

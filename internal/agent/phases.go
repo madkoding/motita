@@ -135,6 +135,12 @@ func (r *taskRun) actionPhase() (Action, error) {
 	if err != nil {
 		return Action{}, err
 	}
+	if action.Salvaged != "" {
+		// The commands were read, so the round goes on; how often a model needs this is what
+		// says whether its provider enforces the schema (llm.WithJSONSchema).
+		a.log.Warn(r.prefix+"the reply was not the JSON object asked for; its commands were read",
+			"shape", action.Salvaged)
+	}
 	a.log.Info(r.prefix+"action proposed", "reasoning", truncate(action.Reasoning, 200),
 		"actions", len(action.Actions), "done", action.isDone())
 	return action, nil

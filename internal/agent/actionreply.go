@@ -65,20 +65,45 @@ func decodeAction(text string) (Action, error) {
 	if raw, xerr := llm.ExtractJSON(text); xerr == nil {
 		var cmds []Command
 		if json.Unmarshal(raw, &cmds) == nil && hasCommand(cmds) {
-			return salvaged(cmds), nil
+			return salvaged(cmds, proseBefore(text, strings.Index(text, string(raw))), shapeList), nil
 		}
 	}
 	if cmds := invokeCommands(text); len(cmds) > 0 {
-		return salvaged(cmds), nil
+		return salvaged(cmds, proseBefore(text, strings.Index(text, "<invoke")), shapeToolCalls), nil
 	}
 	return Action{}, err
 }
 
+// The shapes a reply is salvaged from, as the log names them.
+const (
+	shapeList      = "a list of commands"
+	shapeToolCalls = "pseudo tool calls"
+)
+
 // salvaged is a round of commands read from a reply in another shape. It is never "done": a
 // model that is writing commands is still working.
-func salvaged(cmds []Command) Action {
+//
+// Its reasoning is the prose the model wrote before the commands, or nothing. It used to be a fixed
+// "(read from a reply that was not the JSON object asked for)", and that line was shown in the
+// chat as the model's thinking on every such round: the commands had been read correctly, so it
+// told the person about a problem that was not theirs. The shape now goes to the log (Salvaged).
+func salvaged(cmds []Command, reasoning, shape string) Action {
 	done := false
-	return Action{Reasoning: "(read from a reply that was not the JSON object asked for)", Actions: cmds, Done: &done}
+	return Action{Reasoning: reasoning, Actions: cmds, Done: &done, Salvaged: shape}
+}
+
+// proseBefore is the text before at, collapsed to one paragraph, when it reads as prose: what a
+// model writes before its commands is its reasoning. Nothing when at is not found, or the text
+// before it holds a bracket or a fence (then it is not plain prose, and is not shown as such).
+func proseBefore(text string, at int) string {
+	if at <= 0 {
+		return ""
+	}
+	prose := strings.TrimSpace(text[:at])
+	if strings.ContainsAny(prose, "{}[]<>`") {
+		return ""
+	}
+	return strings.Join(strings.Fields(prose), " ")
 }
 
 // hasCommand reports whether any of the commands has something to run.
