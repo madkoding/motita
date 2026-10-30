@@ -489,8 +489,8 @@ func TestAStepKeepsTheWordsOfItsAction(t *testing.T) {
 	if len(s) != 2 {
 		t.Fatalf("steps = %+v", s)
 	}
-	if s[0].Kind != stepCommand || s[0].Text != "running: go test ./..." || s[0].Label != "Running the tests" ||
-		s[0].Exit == nil || *s[0].Exit != 1 {
+	isCommand := s[0].Kind == stepCommand && s[0].Text == "running: go test ./..."
+	if !isCommand || s[0].Label != "Running the tests" || s[0].Exit == nil || *s[0].Exit != 1 {
 		t.Errorf("the command = %+v", s[0])
 	}
 	if s[1].Kind != stepPlain || s[1].Text != "doing: Reading a skill" || s[1].Label != "" {

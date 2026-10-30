@@ -34,8 +34,11 @@ type stepLog struct{ commands, outputs, thoughts, lives, doings []string }
 
 func (l *stepLog) steps() Steps {
 	return Steps{
-		Command: func(c, doing string) { l.commands = append(l.commands, c); l.doings = append(l.doings, doing) },
-		Doing:   func(d string) { l.doings = append(l.doings, d) },
+		Command: func(c, doing string) {
+			l.commands = append(l.commands, c)
+			l.doings = append(l.doings, doing)
+		},
+		Doing: func(d string) { l.doings = append(l.doings, d) },
 		Output: func(exit int, out string) {
 			l.outputs = append(l.outputs, strings.TrimSpace(out)+"|"+string(rune('0'+exit)))
 		},

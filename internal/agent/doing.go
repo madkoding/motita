@@ -36,19 +36,38 @@ var kindDoing = map[string]string{
 	"box_down":      "Stopping a service",
 }
 
-// programDoing is what a shell command is called when the model did not describe it, by the program
-// it runs.
-var programDoing = map[string]string{
-	"ls": "Listing files", "tree": "Listing files", "find": "Listing files", "fd": "Listing files",
-	"cat": "Reading a file", "head": "Reading a file", "tail": "Reading a file", "sed": "Reading a file",
-	"less": "Reading a file", "bat": "Reading a file", "nl": "Reading a file", "wc": "Reading a file",
-	"grep": "Searching the code", "rg": "Searching the code", "ag": "Searching the code",
-	"git": "Using git", "gh": "Using GitHub",
-	"mkdir": "Changing files", "touch": "Changing files", "cp": "Changing files", "mv": "Changing files",
-	"rm": "Changing files", "chmod": "Changing files",
-	"curl": "Fetching a page", "wget": "Fetching a page",
-	"pwd": "Looking around", "echo": "Looking around", "which": "Looking around", "env": "Looking around",
-}
+// The names a shell command is given by the program it runs.
+const (
+	doingListing  = "Listing files"
+	doingReading  = "Reading a file"
+	doingSearch   = "Searching the code"
+	doingChanging = "Changing files"
+	doingLooking  = "Looking around"
+	doingFetching = "Fetching a page"
+	doingRunning  = "Running a command"
+)
+
+// programDoing is what a shell command is called when the model did not describe it, by the
+// programs that run it.
+var programDoing = func() map[string]string {
+	groups := map[string][]string{
+		doingListing:   {"ls", "tree", "find", "fd"},
+		doingReading:   {"cat", "head", "tail", "sed", "less", "bat", "nl", "wc"},
+		doingSearch:    {"grep", "rg", "ag"},
+		"Using git":    {"git"},
+		"Using GitHub": {"gh"},
+		doingChanging:  {"mkdir", "touch", "cp", "mv", "rm", "chmod"},
+		doingFetching:  {"curl", "wget"},
+		doingLooking:   {"pwd", "echo", "which", "env"},
+	}
+	byProgram := map[string]string{}
+	for name, programs := range groups {
+		for _, program := range programs {
+			byProgram[program] = name
+		}
+	}
+	return byProgram
+}()
 
 // doing is the words that say what an action is for: the model's own description when it gave one,
 // otherwise a name derived from the kind of action and, for a shell command, the program it runs.
@@ -84,8 +103,10 @@ func describeCommand(command string) string {
 	switch program {
 	case "go", "npm", "npx", "yarn", "pnpm", "cargo", "make", "pytest", "python", "python3", "mvn", "gradle":
 		return toolDoing(program, rest)
+	default:
+		// Any other program is just a command.
 	}
-	return "Running a command"
+	return doingRunning
 }
 
 // toolDoing names a build tool's command: its tests, its build or just a run.
@@ -98,8 +119,10 @@ func toolDoing(program, rest string) string {
 		return "Building and checking the project"
 	case strings.Contains(words, " install ") || strings.Contains(words, " get ") || strings.Contains(words, " add "):
 		return "Installing dependencies"
+	default:
+		// A run of the tool that is neither of those.
 	}
-	return "Running a command"
+	return doingRunning
 }
 
 // programOf is the program a command line runs and the words after it: the first command of the
