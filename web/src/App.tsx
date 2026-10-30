@@ -42,6 +42,7 @@ import { AgentsDrawer, TermDrawer, ThinkDrawer } from "./Drawers";
 import { PtyDrawer } from "./PtyDrawer";
 import { ApprovalPanel, ChatLoadingModal } from "./ChatPanels";
 import { Composer } from "./Composer";
+import { PinnedPlanBar } from "./PinnedPlan";
 import { NewSessionButton } from "./NewSessionButton";
 import {
   ActivityLine,
@@ -679,6 +680,7 @@ function MainColumn({ pr }: { pr: PullRequest }) {
       {rs.approval && <ApprovalPanel approval={rs.approval} />}
       <PRBar pr={pr} />
       <ProjectHintCard />
+      <PinnedPlanBar />
       <Composer />
     </div>
   );

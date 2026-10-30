@@ -95,3 +95,42 @@ func seedMessages(turns []agent.DialogueTurn) []llm.Message {
 	}
 	return out
 }
+
+// PinnedPlan is the plan the conversation keeps word for word, or "" when there is none. The
+// person can read it, change it or drop it from the web (see SetPinnedPlan).
+func (r *AppRunner) PinnedPlan() string {
+	r.sessionMu.Lock()
+	s := r.session
+	r.sessionMu.Unlock()
+	if s == nil {
+		return r.savedPin()
+	}
+	return s.Pinned()
+}
+
+// SetPinnedPlan replaces the plan the conversation keeps, or drops it when text is blank. A
+// conversation with no session yet (after a restart, before the next turn) builds it, so the
+// change is the one the next turn starts from, and it is kept on disk at once.
+func (r *AppRunner) SetPinnedPlan(text string) {
+	cfg := r.Config()
+	s := r.conversation(cfg, nil)
+	s.Pin(text)
+	r.saveCarry()
+}
+
+// savedPin is the plan kept on disk, for a conversation whose session is not built yet.
+func (r *AppRunner) savedPin() string {
+	path := r.carryPath()
+	if path == "" {
+		return ""
+	}
+	raw, err := os.ReadFile(path) // #nosec G304 -- the conversation's own archive file.
+	if err != nil {
+		return ""
+	}
+	var c carried
+	if json.Unmarshal(raw, &c) != nil {
+		return ""
+	}
+	return c.Pinned
+}

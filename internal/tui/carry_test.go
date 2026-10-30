@@ -97,3 +97,46 @@ func TestCarryIsSkippedWithoutAnArchiveOrASession(t *testing.T) {
 	on.Log = nil
 	on.saveCarry()
 }
+
+// TestThePersonCanChangeAndDropThePlan: the plan read from disk before any turn, changed (which
+// builds the session and keeps the change), and dropped.
+func TestThePersonCanChangeAndDropThePlan(t *testing.T) {
+	cfg := config.Default()
+	r := newContextRunner(t, cfg)
+	r.SetContextID("conv-3")
+	if r.PinnedPlan() != "" {
+		t.Error("a plan with nothing on disk")
+	}
+	if err := os.WriteFile(r.carryPath(), []byte(`{"pinned":"1. a\n2. b\n3. c"}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if got := r.PinnedPlan(); got != "1. a\n2. b\n3. c" {
+		t.Errorf("before a turn, read %q from disk", got)
+	}
+	r.SetPinnedPlan("1. x\n2. y\n3. z")
+	if r.session == nil || r.PinnedPlan() != "1. x\n2. y\n3. z" {
+		t.Errorf("the change was not kept: %q", r.PinnedPlan())
+	}
+	again := NewAppRunner(nil, nil, cfg, nil, nil, r.Log)
+	again.SetContextID("conv-3")
+	if got := again.PinnedPlan(); got != "1. x\n2. y\n3. z" {
+		t.Errorf("the change was not on disk: %q", got)
+	}
+	r.SetPinnedPlan("  ")
+	if r.PinnedPlan() != "" || again.PinnedPlan() != "" {
+		t.Error("the plan was not dropped")
+	}
+
+	// a broken file reads as no plan, and so does a runner with no archive
+	if err := os.WriteFile(again.carryPath(), []byte("{"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if again.PinnedPlan() != "" {
+		t.Error("a broken file gave a plan")
+	}
+	off := config.Default()
+	off.ContextMemory.Enabled = false
+	if newContextRunner(t, off).PinnedPlan() != "" {
+		t.Error("a plan without an archive")
+	}
+}

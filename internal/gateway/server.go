@@ -948,6 +948,8 @@ func (s *Server) routes() *http.ServeMux {
 	mux.Handle("POST /v1/sessions/{id}/artifacts/{name}/pin", scoped(s.handlePinArtifact))
 	mux.Handle("DELETE /v1/sessions/{id}/artifacts/{name}", scoped(s.handleDeleteArtifact))
 	mux.Handle("GET /v1/sessions/{id}/messages", scoped(s.handleMessages))
+	mux.Handle("GET /v1/sessions/{id}/plan", scoped(s.handleGetPlan))
+	mux.Handle("PUT /v1/sessions/{id}/plan", scoped(s.handlePutPlan))
 	mux.Handle("POST /v1/sessions/{id}/reset", scoped(s.handleReset))
 	mux.Handle("GET /v1/sessions/{id}/checkpoints", scoped(s.handleCheckpoints))
 	mux.Handle("POST /v1/sessions/{id}/checkpoints/{turn}/restore", scoped(s.handleRestoreCheckpoint))

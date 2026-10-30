@@ -9,6 +9,7 @@ import { useChatScroll } from "./useChatScroll";
 import { useModelSwitcher } from "./useModelSwitcher";
 import { useSkills } from "./useSkills";
 import { useReviewMemory } from "./useReviewMemory";
+import { usePinnedPlan } from "./usePinnedPlan";
 import { useMemory } from "./useMemory";
 import { useProjects } from "./useProjects";
 import { useArtifacts } from "./useArtifacts";
@@ -63,6 +64,7 @@ export function useAppStore(api: Api, machine = "") {
   const projectHint = useProjectHint({ api, rs, lists, setToast });
   const artifacts = useArtifacts(api, rs.sessionId, setState);
   const memory = useMemory(api, setState);
+  const pinnedPlan = usePinnedPlan(api, rs.sessionId, rs.running, setState);
   const schedules = useSchedules(api, setToast);
   const conv = useConversation({
     api,
@@ -213,6 +215,7 @@ export function useAppStore(api: Api, machine = "") {
     projectHint,
     artifacts,
     memory,
+    pinnedPlan,
     reviewMemory,
     schedules,
     conv,
