@@ -835,6 +835,7 @@ const more: Record<string, string> = {
   "New entry name": "Nombre de la entrada nueva",
   "No other entry mentions this one yet.":
     "Ninguna otra entrada menciona esta todavía.",
+  "Recently saved": "Guardado hace poco",
   "Nothing in the memory yet. Write the first entry above.":
     "Todavía no hay nada en la memoria. Escribe la primera entrada arriba.",
   "Open the entry": "Abrir la entrada",

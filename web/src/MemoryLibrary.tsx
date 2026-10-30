@@ -7,9 +7,11 @@ import { useApp } from "./appStore";
 import { DotsMenu, type MenuItem } from "./MemoryMenus";
 import { IconFile, IconFolder, IconNotes } from "./icons";
 import {
+  ageKey,
   buildTree,
   countEntries,
   plainWiki,
+  recentEntries,
   type EntryFolder,
   type MemoryEntry,
   type MemoryHit,
@@ -48,6 +50,39 @@ function EntryButton({ n }: { n: MemoryEntry }) {
       <IconFile size={15} class="flex-none opacity-70" />
       <span class="truncate">{n.title}</span>
     </button>
+  );
+}
+
+// RecentList is the newest entries, on top of the library, each with how long ago it was saved:
+// what the agent wrote down a moment ago is the first thing in the window.
+function RecentList({ entries }: { entries: MemoryEntry[] }) {
+  const recent = recentEntries(entries);
+  if (recent.length === 0) {
+    return null;
+  }
+  const now = Date.now();
+  return (
+    <section class="mb-2" data-testid="memory-recent">
+      <h3 class="px-2.5 pt-1 pb-1 text-xs text-[#9a9aaa]">
+        {t("Recently saved")}
+      </h3>
+      {recent.map((n) => {
+        const age = ageKey(n.modified, now);
+        return (
+          <div key={n.path} class="flex items-center gap-1">
+            <div class="flex-1 min-w-0">
+              <EntryButton n={n} />
+            </div>
+            <span
+              class="flex-none text-[11px] text-[#7a7a8c] pr-2"
+              data-testid="recent-age"
+            >
+              {tf(age.key, { n: age.n })}
+            </span>
+          </div>
+        );
+      })}
+    </section>
   );
 }
 
@@ -434,6 +469,7 @@ export function MemoryList() {
       <div class="overflow-auto flex-1 min-h-0">
         {!searching && (
           <>
+            <RecentList entries={entries} />
             <FolderContent folder={buildTree(entries)} depth={0} />
             {entries.length === 0 && (
               <EmptyList failed={loadFailed} reload={reload} />
