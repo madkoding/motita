@@ -23,6 +23,8 @@ var toolNames = map[string]string{
 	"write_memory":    "Writing to the memory",
 	"append_memory":   "Writing to the memory",
 	"fetch_url":       "Reading a web page",
+	"recall":          "Looking up what is known",
+	"remember":        "Keeping what was learned",
 }
 
 // toolDoing says in plain words what a tool call is for: the "description" the model gave it, or the

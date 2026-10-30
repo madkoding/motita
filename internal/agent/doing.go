@@ -30,6 +30,8 @@ var kindDoing = map[string]string{
 	"memory_read":   "Reading the memory",
 	"memory_write":  "Writing to the memory",
 	"memory_append": "Writing to the memory",
+	"recall":        "Looking up what is known",
+	"remember":      "Keeping what was learned",
 	"box_up":        "Starting a service",
 	"box_get":       "Reading a service",
 	"box_shot":      "Taking a picture of a service",

@@ -1,6 +1,6 @@
 # Modelo de contexto del agente: diagnóstico y propuesta
 
-Estado: fase 1 implementada en este PR; fase 2 propuesta, pendiente de aprobación.
+Estado: fase 1 (#401) y fase 2 implementadas.
 
 ## Síntoma
 
@@ -61,7 +61,7 @@ interna (memorias del proyecto) todavía los describe.
 4. **Presupuestos independientes**: memoria 3000 car., archivo 2000 tokens, lecciones 3000 car.,
    diálogo hasta 12 KB, cada uno con su propio encabezado y sin orden de prioridad.
 
-## Fase 1 (este PR): un único brief por turno
+## Fase 1 (#401): un único brief por turno
 
 - Nuevo paquete `internal/brief`: `Compose(budget, parts...)` junta las fuentes en orden de
   prioridad bajo **un solo presupuesto de 8000 caracteres** (~2000 tokens) y un solo encabezado
@@ -75,31 +75,37 @@ interna (memorias del proyecto) todavía los describe.
   turnos que la sesión de verdad tiene.
 - Sin migración de datos: no cambia ningún formato en disco.
 
-## Fase 2 (propuesta): una sola fuente de verdad
+## Fase 2: una sola puerta
 
-Objetivo: un solo almacén, una herramienta de lectura, una de escritura y un brief por turno.
+El contexto queda en **3 capas**, y el modelo ve **2 herramientas**:
 
-1. **Un almacén** (`internal/memory`) con namespaces tipados:
-   - `persona/…` lo que hoy es la memoria de la persona (sin mover archivos: el namespace es la
-     carpeta actual).
-   - `proyecto/<clave>/lecciones.md` lo que hoy es `<proyecto>/.motita/memory.md`. Migración: al
-     abrir el proyecto, si existe el archivo viejo se copia (no se borra) y se marca como migrado.
-   - `procedimientos/…` los skills, leídos por el mismo buscador. La biblioteca, el reward y el
-     curator siguen funcionando sobre esos archivos; solo cambia la puerta de entrada.
-   - El archivo de la conversación sigue aparte (es por sesión y se borra con ella), pero se
-     consulta por la misma herramienta con `ns:conversación`.
-2. **Dos herramientas en ambos modos, con el mismo nombre**: `recall` (busca y lee; `ns:` para
-   acotar) y `remember` (crea o añade; nunca reemplaza). Sustituyen a las 8 de memoria + 4 de skills
-   en ambos modos (de 13 a 7 en plan; de 18 a 12 tipos en tarea). `save_skill` pasa a ser
-   `remember` en `procedimientos/`.
-3. **Un brief por turno** en ambos modos (fase 1 ya lo deja listo) que incluye también las
-   lecciones del proyecto, hoy ausentes en el modo plan.
-4. **Prompts más cortos**: las secciones de memoria y biblioteca se fusionan en una sola
-   ("Lo que sabes y cómo recordarlo"), lo que libera unos 3–4 KB por prompt.
+| Capa | Qué contiene | Cómo llega al modelo |
+|---|---|---|
+| La tarea en curso | memoria de trabajo, rondas previas | el prompt de cada ronda (sin cambios) |
+| La conversación | transcripción, archivo, resumen, plan fijado | el brief de cada turno (fase 1) y `recall in: conversation` |
+| Lo que se sabe a largo plazo | memoria de la persona, lecciones del proyecto, procedimientos | el brief de cada turno y `recall` / `remember` |
 
-Riesgos: cambiar nombres de herramientas toca prompts, tests de contrato, la web (chips de
-"memoria usada") y las skills ya guardadas que citan `memory_search`. Por eso se propone como
-PR separado, con alias de los nombres viejos durante una versión.
+- Nuevo paquete `internal/knowledge`: `Base.Recall(in, query, open)` y `Base.Remember(in, entry,
+  content)` sobre cuatro lugares: `memory`, `procedures`, `project` y `conversation` (con alias en
+  español: `memoria`, `procedimientos`, `proyecto`, `conversación`). Sin `in`, recall busca en todos
+  y dice de dónde viene cada respuesta.
+- **Modo chat**: de 13 herramientas a 7 (`list_directory`, `read_file`, `execute_command`,
+  `search_in_files`, `recall`, `remember`, `fetch_url`). La revisión en segundo plano y el curator
+  conservan sus 4 herramientas de biblioteca, porque trabajan solo sobre ella.
+- **Modo tarea**: de 18 tipos de acción a 12; `recall` y `remember` reemplazan los 4 de memoria y
+  los 4 de skills.
+- Los nombres viejos (`search_memory`, `memory_append`, `search_skills`…) siguen respondiendo, pero
+  ya no se ofrecen. Así una skill guardada o un modelo que los use no se rompe, y las respuestas
+  ya nombran las herramientas nuevas.
+- Las **lecciones del proyecto** ahora también llegan al chat (en el brief) y se pueden buscar y
+  escribir (`in: project`).
+- **Sin migración de datos**: cada lugar sigue guardándose donde estaba (`~/.motita/memory`, la
+  biblioteca, `<proyecto>/.motita/memory.md` y el archivo de la conversación). Solo cambió la
+  puerta, así que no hay nada que se pueda perder. Mover los archivos a un único almacén quedaría
+  como paso aparte, solo si hiciera falta.
+- **Prompts más cortos**: las secciones de memoria y biblioteca se fusionaron en una ("What you
+  know, and how to remember it"). El prompt operativo del chat pasó de 8,9 a 7,0 KB y el de tarea de
+  24,6 a 23,5 KB.
 
 ## Cómo medir
 

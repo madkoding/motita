@@ -18,7 +18,7 @@ func TestResolveSoulFallsBackToTheEmbeddedDefault(t *testing.T) {
 	if !strings.Contains(got, "Motita") {
 		t.Error("the default soul must identify itself as Motita")
 	}
-	if !strings.Contains(got, "search_skills") {
+	if !strings.Contains(got, "recall") {
 		t.Error("the default soul must carry the operational instructions")
 	}
 }
@@ -44,7 +44,7 @@ func TestResolveSoulReadsAUserFile(t *testing.T) {
 	if strings.Contains(got, "Motita") {
 		t.Error("a user SOUL.md must NOT carry the embedded personality")
 	}
-	if !strings.Contains(got, "search_skills") {
+	if !strings.Contains(got, "recall") {
 		t.Error("the operational instructions must follow whatever the soul says")
 	}
 }

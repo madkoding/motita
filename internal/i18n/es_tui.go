@@ -309,6 +309,8 @@ var esTUI = map[string]string{
 	"Searching the memory":                  "Buscando en la memoria",
 	"Reading the memory":                    "Leyendo la memoria",
 	"Writing to the memory":                 "Escribiendo en la memoria",
+	"Looking up what is known":              "Buscando lo que ya se sabe",
+	"Keeping what was learned":              "Guardando lo aprendido",
 	"Starting a service":                    "Iniciando un servicio",
 	"Reading a service":                     "Leyendo un servicio",
 	"Taking a picture of a service":         "Sacando una captura de un servicio",

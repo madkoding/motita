@@ -191,8 +191,9 @@ Each entry of `actions` has a `kind`. `command` runs a shell line in the sandbox
 `edit_file` (path, then one `<<<<<<< SEARCH` / `=======` / `>>>>>>> REPLACE` block whose
 search text must occur exactly once) write files directly, without a shell, so source with
 tabs and quotes needs no escaping. Both stay inside the working directory and are refused in
-read-only mode. The procedure-library kinds (`list_skills`, `search_skills`, `read_skill`,
-`save_skill`) are described in the execute prompt.
+read-only mode. `recall` and `remember` reach everything the agent knows (this conversation,
+the project's lessons, the person's memory and the procedure library) and are described in the
+execute prompt; the older memory and library kinds are still answered but no longer offered.
 
 When the anchor refuses a claim of done and `anchor.baseline` is on, the failing checks are run
 once more on a clean checkout of the tree the run started from. A check that failed there too

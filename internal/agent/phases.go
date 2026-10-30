@@ -9,6 +9,7 @@ import (
 
 	"github.com/madkoding/motita/internal/anchor"
 	"github.com/madkoding/motita/internal/config"
+	"github.com/madkoding/motita/internal/knowledge"
 	"github.com/madkoding/motita/internal/llm"
 	"github.com/madkoding/motita/internal/task"
 	"github.com/madkoding/motita/internal/template"
@@ -240,7 +241,7 @@ func (a *Agent) baseVariables(t task.Task) map[string]string {
 	vars := map[string]string{
 		"task":         t.Description,
 		"workspace":    a.cfg.Agent.WorkspaceDir,
-		"project":      a.projectNote + memoryContext(a.cfg.Agent.WorkspaceDir),
+		"project":      a.projectNote + knowledge.LessonsContext(a.cfg.Agent.WorkspaceDir),
 		"origin":       t.Origin,
 		"attempt":      "1",
 		"max_attempts": fmt.Sprint(a.cfg.Agent.MaxRetries + 1),

@@ -661,13 +661,17 @@ model, any download or any network.
 - **Review the memory.** Opens a conversation that runs the `reviewing-the-memory` skill over the
   whole memory: contradictions, stale entries, no source, broken links, orphans. It changes
   nothing until you agree.
-- **The agent reads and writes it too.** In plan mode the tools `search_memory` (with `query`,
-  `namespace`, `graph`), `read_memory`, `write_memory` and `append_memory`; in task mode the actions
-  `memory_search`, `memory_read`, `memory_write` and `memory_append` (`"command": "entry :: the
-  Markdown"` for the last two). Writes never replace or delete: `write_memory` creates a new entry
-  and refuses an existing one, `append_memory` adds to the end; both stamp `author: motita` and the
-  date, and text goes through the secret redactor first. The built-in skills `using-the-memory`
-  and `reviewing-the-memory` teach the agent when to search, cite and record.
+- **The agent reads and writes it too.** Both modes have the same two tools over everything the
+  agent knows: `recall` searches this conversation, the project's lessons, the memory and the
+  procedure library (or one of them, with `in: memory`, `procedures`, `project` or `conversation`)
+  and opens one entry or procedure in full; `remember` keeps something in one of them. In plan mode
+  they are tools with `query`/`open`/`in` and `entry`/`content`/`in`; in task mode they are actions
+  whose command starts with `in:<place>` (`"in:memory open: Japan"`, `"Trips/Japan :: the
+  Markdown"`). In the memory, `remember` adds to the end of an entry or creates it, never replacing
+  or deleting; it stamps `author: motita` and the date, and text goes through the secret redactor
+  first. The older names (`search_memory`, `memory_append`, `search_skills`...) are still answered
+  but no longer offered. The built-in skills `using-the-memory` and `reviewing-the-memory` teach
+  the agent when to search, cite and record.
 - **Rename.** Gives an entry another name in the same folder and rewrites the `[[links]]` that
   led to it.
 - **Limits.** 5000 entries, 192 KB each; only `.md` files, no hidden folders, and no path that
@@ -1188,7 +1192,7 @@ This is tested the way you'd test something you were about to bet on.
 
 |                           |                                                                                                                                                                                                           |
 | ------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **Statement coverage**    | **100% in every package that ships** — 55 of 55 (`./internal/... ./cmd/...`), checked package by package so a gap can't hide behind an average. `tools/` holds the CI harnesses and is counted separately |
+| **Statement coverage**    | **100% in every package that ships** — 56 of 56 (`./internal/... ./cmd/...`), checked package by package so a gap can't hide behind an average. `tools/` holds the CI harnesses and is counted separately |
 | **Test functions**        | 5,603 across 624 files                                                                                                                                                                                    |
 | **Code vs tests**         | 95,916 lines of Go · 149,610 lines of test                                                                                                                                                                |
 | **External dependencies** | 0                                                                                                                                                                                                         |

@@ -13,51 +13,8 @@ import (
 	"time"
 
 	"github.com/madkoding/motita/internal/config"
+	"github.com/madkoding/motita/internal/knowledge"
 )
-
-func TestLessonsAreKeptOncePerLineAndBounded(t *testing.T) {
-	dir := t.TempDir()
-	if err := recordLessons(dir, nil); err != nil || memoryContext(dir) != "" {
-		t.Fatal("nothing to record, nothing to read")
-	}
-	if err := recordLessons("", []string{"x"}); err != nil {
-		t.Fatal("no workspace, nothing written, no error")
-	}
-	lessons := []string{" make test runs the gate ", "", "Make test runs the gate", "pnpm, not npm"}
-	if err := recordLessons(dir, lessons); err != nil {
-		t.Fatal(err)
-	}
-	if got := memoryLines(dir); len(got) != 2 || got[0] != "make test runs the gate" || got[1] != "pnpm, not npm" {
-		t.Fatalf("lines = %q", got)
-	}
-	ctx := memoryContext(dir)
-	if !strings.Contains(ctx, "earlier tasks learned") || !strings.Contains(ctx, "- pnpm, not npm") {
-		t.Errorf("context = %q", ctx)
-	}
-	raw, _ := os.ReadFile(filepath.Join(dir, MemoryFile))
-	if !strings.HasPrefix(string(raw), memoryHeading) {
-		t.Errorf("file = %q", raw)
-	}
-	var many []string
-	for i := 0; i < maxMemoryLines+5; i++ {
-		many = append(many, fmt.Sprintf("lesson %03d %s", i, strings.Repeat("x", 80)))
-	}
-	if err := recordLessons(dir, many); err != nil {
-		t.Fatal(err)
-	}
-	lines := memoryLines(dir)
-	if len(lines) != maxMemoryLines || !strings.HasPrefix(lines[0], "lesson 005") {
-		t.Errorf("the oldest go: %d lines, first %q", len(lines), lines[0])
-	}
-	if len(memoryContext(dir)) > maxMemoryContext+120 {
-		t.Error("the context is bounded")
-	}
-	blocked := filepath.Join(dir, "file")
-	_ = os.WriteFile(blocked, []byte("x"), 0o600)
-	if err := recordLessons(blocked, []string{"x"}); err == nil {
-		t.Error("a workspace that is a file is reported")
-	}
-}
 
 // TestATaskLearnsAndTheNextOneIsTold: the report's lessons are written to the project and the
 // next task's prompts carry them.
@@ -83,7 +40,7 @@ func TestATaskLearnsAndTheNextOneIsTold(t *testing.T) {
 	e := mount(t, srv, config.Anchor{Kind: "command", Command: "true", Timeout: 5 * time.Second}, nil)
 	e.agent.cfg.Agent.CriteriaAudit = false
 	_ = e.agent.Run(context.Background())
-	if got := memoryLines(e.dir); len(got) != 1 || got[0] != "tests run with make test" {
+	if got := knowledge.Lessons(e.dir); len(got) != 1 || got[0] != "tests run with make test" {
 		t.Fatalf("the lesson must be in the project: %q", got)
 	}
 	// A second agent over the same workspace reads it in its first prompt.
@@ -103,15 +60,4 @@ func TestATaskLearnsAndTheNextOneIsTold(t *testing.T) {
 	_ = os.WriteFile(blocked, []byte("x"), 0o600)
 	e.agent.cfg.Agent.WorkspaceDir = blocked
 	e.agent.saveLessons(&Report{Lessons: []string{"x"}})
-}
-
-// TestOneLineBoundsALesson: a lesson is one line, and a long one is cut instead of wrapping the
-// memory file.
-func TestOneLineBoundsALesson(t *testing.T) {
-	if got := oneLine("  a   lesson\nwith\tspaces "); got != "a lesson with spaces" {
-		t.Errorf("oneLine = %q", got)
-	}
-	if got := oneLine(strings.Repeat("a ", 200)); len(got) > 125 || !strings.HasSuffix(got, "…") {
-		t.Errorf("oneLine = %d bytes, %q", len(got), got)
-	}
 }

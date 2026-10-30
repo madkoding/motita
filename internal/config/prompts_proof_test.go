@@ -67,7 +67,7 @@ func TestTheExecutePromptTeachesGettingToTheFinish(t *testing.T) {
 		"no node_modules, no venv, no vendor",
 		"RUN the project's own checks",
 		"Then stop: do not re-read what you just wrote",
-		"skip the procedure library",
+		"skip recall, threads and background agents",
 		"say in \"notes\" exactly what is left",
 	} {
 		if !strings.Contains(BaseExecuteTemplate.User, want) {

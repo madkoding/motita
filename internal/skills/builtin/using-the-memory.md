@@ -7,10 +7,11 @@ the person can also open in Obsidian, so what you write there is theirs.
 
 ## First: whether you have the memory at all
 
-The tools exist only when the session has a memory. Plan mode lists `search_memory`, `read_memory`,
-`write_memory` and `append_memory`; task mode takes the actions `memory_search`, `memory_read`,
-`memory_write` and `memory_append`. If none is offered, say the memory is not reachable here and do
-not answer from recall as if you had read it.
+Both modes reach the memory through two tools: `recall` (search, or open one entry) and `remember`
+(add to an entry). Use `in: memory` (task mode: start the command with `in:memory`) to look only
+there; without it, recall also searches this conversation, the project's lessons and the
+procedures. If recall says there is no memory in this session, say the memory is not reachable here
+and do not answer as if you had read it.
 
 ## How the memory is organised
 
@@ -29,10 +30,10 @@ not answer from recall as if you had read it.
 
 ## Answering from the memory
 
-1. **Search before you answer.** `search_memory` with the plain words of the question, plus the
+1. **Search before you answer.** `recall` with the plain words of the question, plus the
    filters above when they apply. Try fewer or different words when nothing matches before saying
    there is nothing.
-2. **Read the entry, not only the section.** `read_memory` takes a title or a path and also lists
+2. **Read the entry, not only the section.** `recall` with `open` (task mode: `open: <title>`) takes a title or a path and also lists
    what it links to and what links to it. Follow a link that bears on the question.
 3. **Cite where it came from.** Name the entry as `[[Title]]` with its path, so the person can open
    it. A fact with no entry behind it is your guess: say so.
@@ -44,10 +45,9 @@ not answer from recall as if you had read it.
 - **Write without being asked to.** Nothing is kept unless you write it. When a decision, a
   preference, a fact about the person's plans, people or setup, or a result worth keeping comes up,
   or they say "remember" or "note that", save it in the same turn: search for the entry that covers
-  it, `append_memory` to it, or `write_memory` a new one. Do it before you answer, not "later".
+  it, then `remember` it in that entry (or a new one). Do it before you answer, not "later".
 
-- `write_memory` creates an entry and refuses to replace one. `append_memory` adds to the end of an
-  existing entry, or creates it. Nothing here deletes or overwrites: to change a fact, append the
+- `remember` adds to the end of an existing entry, or creates it. Nothing here deletes or overwrites: to change a fact, append the
   new one and say what it replaces. A new entry is stamped with `author: motita` and today's date.
 - Task mode takes `"entry :: the Markdown"`; the part before `::` is the title or path.
 - Put the entry in the collection that fits: `Engineering/Rollback policy`, `HR/Hiring`. Write it
