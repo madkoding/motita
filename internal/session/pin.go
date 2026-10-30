@@ -51,3 +51,19 @@ func (s *Session) pinShownLocked() bool {
 	}
 	return false
 }
+
+// Carried is what a session holds beyond its messages: the summary of what compaction folded and
+// the pinned plan. They are what a conversation needs to be continued after a restart.
+func (s *Session) Carried() (summary, pinned string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.summary, s.pinned
+}
+
+// Restore puts back what Carried returned, in a session built again after a restart.
+func (s *Session) Restore(summary, pinned string) {
+	s.mu.Lock()
+	s.summary = strings.TrimSpace(summary)
+	s.mu.Unlock()
+	s.Pin(pinned)
+}

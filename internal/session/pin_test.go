@@ -62,3 +62,17 @@ func TestAPinIsBounded(t *testing.T) {
 		t.Errorf("a plan no message shows must be carried")
 	}
 }
+
+// TestWhatASessionCarriesCanBeRestored: the summary and the plan survive a rebuilt session.
+func TestWhatASessionCarriesCanBeRestored(t *testing.T) {
+	s := New("gpt-4o", "system", 0)
+	s.Restore(" the account ", "1. a\n2. b\n3. c")
+	sum, pin := s.Carried()
+	if sum != "the account" || pin != "1. a\n2. b\n3. c" {
+		t.Errorf("carried = %q %q", sum, pin)
+	}
+	msgs := s.Messages()
+	if len(msgs) != 3 || !strings.Contains(msgs[1].Content, "the account") || !strings.Contains(msgs[2].Content, "1. a") {
+		t.Errorf("restored session = %+v", msgs)
+	}
+}

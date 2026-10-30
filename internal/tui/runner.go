@@ -857,6 +857,7 @@ func (r *AppRunner) RunPlan(ctx context.Context, prompt string, progress func(st
 	// would be worse than showing none.
 	r.rememberTurn(prompt, answer, err)
 	r.syncContext()
+	r.saveCarry()
 	if err != nil {
 		return "", err
 	}
@@ -910,6 +911,7 @@ func (r *AppRunner) conversation(cfg config.Config, engine session.Summariser) *
 		if cfg.LLM.Session.KeepRecent > 0 {
 			s.KeepRecent = cfg.LLM.Session.KeepRecent
 		}
+		r.seedSession(s)
 		r.session = s
 		r.runtimeNote = ""
 		r.applyRuntimeNote()
