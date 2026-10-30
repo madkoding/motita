@@ -143,11 +143,14 @@ const DialogueTurns = 12
 // is not worth more than the request being made now. The most recent turns are what a short
 // answer refers to, so the tail is kept and the beginning is dropped with a note that says so.
 func (a *Agent) dialogue() string {
-	turns := a.Transcript()
+	return dialogueOf(a.Transcript(), DialogueTurns, 500)
+}
+
+// dialogueOf renders the last keep turns, each side cut to width.
+func dialogueOf(turns []DialogueTurn, keep, width int) string {
 	if len(turns) == 0 {
 		return "(this is the first message: there is no earlier conversation)"
 	}
-	const keep = DialogueTurns
 	dropped := 0
 	if len(turns) > keep {
 		dropped = len(turns) - keep
@@ -158,13 +161,13 @@ func (a *Agent) dialogue() string {
 		fmt.Fprintf(&b, "(%d earlier exchanges omitted)\n", dropped)
 	}
 	for _, turn := range turns {
-		fmt.Fprintf(&b, "user: %s\n", truncate(collapse(turn.User), 500))
+		fmt.Fprintf(&b, "user: %s\n", truncate(collapse(turn.User), width))
 		if turn.Pending {
 			// Not an outcome: the work trail would read as something the agent said.
 			b.WriteString("you: (that request was cut off before it finished)\n")
 			continue
 		}
-		said := truncate(collapse(turn.Agent), 500)
+		said := truncate(collapse(turn.Agent), width)
 		switch turn.Kind {
 		case KindChat:
 			fmt.Fprintf(&b, "you: %s\n", said)
