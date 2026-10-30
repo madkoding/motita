@@ -282,7 +282,7 @@ func TestAnUnknownActionKindIsRefusedRatherThanExecuted(t *testing.T) {
 		t.Errorf("the refusal must name the problem: %q", output)
 	}
 	// The model has to be able to recover from it, so the message lists what it may use.
-	for _, kind := range []string{"command", "read_skill", "save_skill"} {
+	for _, kind := range []string{"command", "recall", "remember"} {
 		if !strings.Contains(output, kind) {
 			t.Errorf("the refusal must name %q among the kinds that exist: %q", kind, output)
 		}

@@ -266,26 +266,22 @@ func TestListSkillsReportsAnUnreadableLibrary(t *testing.T) {
 	}
 }
 
-// TestTheLibraryToolsAreAdvertised: a tool the model is not told about is a tool it will never
-// call, so the definitions must be there and must say what the library is for.
-func TestTheLibraryToolsAreAdvertised(t *testing.T) {
-	var names []string
-	for _, t2 := range (&Planner{}).tools() {
-		names = append(names, t2.Function.Name)
-	}
-	for _, want := range []string{"list_skills", "search_skills", "read_skill", "save_skill"} {
-		found := false
-		for _, n := range names {
-			if n == want {
-				found = true
-			}
+// TestTheKnowledgeToolsAreAdvertised: a tool the model is not told about is a tool it will never
+// call. A planner reaches the library, the memory, the lessons and the conversation through recall
+// and remember; only the review fork and the curator are handed the four library tools.
+func TestTheKnowledgeToolsAreAdvertised(t *testing.T) {
+	names := func(p *Planner) string {
+		var out []string
+		for _, t2 := range p.tools() {
+			out = append(out, t2.Function.Name)
 		}
-		if !found {
-			t.Errorf("the tool %q must be advertised, got %v", want, names)
-		}
+		return strings.Join(out, " ")
 	}
-	if len(names) != 8 {
-		t.Errorf("the read-only mode advertises %d tools, want 8", len(names))
+	if got := names(&Planner{}); got != "list_directory read_file execute_command search_in_files recall remember" {
+		t.Errorf("a planner offers %q", got)
+	}
+	if got := names(&Planner{IsReviewFork: true}); !strings.HasSuffix(got, "list_skills search_skills read_skill save_skill") {
+		t.Errorf("the review fork offers %q", got)
 	}
 }
 
@@ -303,7 +299,7 @@ func promptText() string {
 // it does. Both are stated, because a model that assumes it has already read them will not.
 func TestTheSystemPromptSaysTheSkillsExistButAreNotInContext(t *testing.T) {
 	for _, want := range []string{
-		"search_skills", "save_skill", "list_skills", "read_skill",
+		"recall", "remember", "in: procedures",
 		"NOT part of your instructions", "reach for",
 		"before starting anything that sounds like a procedure",
 		"A diary is not a skill",

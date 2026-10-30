@@ -9,6 +9,7 @@ import (
 	"github.com/madkoding/motita/internal/config"
 	"github.com/madkoding/motita/internal/logx"
 	"github.com/madkoding/motita/internal/memory"
+	"github.com/madkoding/motita/internal/skills"
 )
 
 func TestMemoryActionsReachTheMemory(t *testing.T) {
@@ -56,5 +57,47 @@ func TestMemoryActionsSayWhenThereIsNoMemory(t *testing.T) {
 	rr.memoryAction("memory_search", Command{Command: "x"})
 	if !strings.Contains(rr.sb.String(), "no memory") {
 		t.Errorf("out = %q", rr.sb.String())
+	}
+}
+
+// recall and remember reach the memory, the library, the project's lessons and the conversation
+// from one action each, with the place and "open:" written in the command.
+func TestRecallAndRememberActions(t *testing.T) {
+	cfg := config.Default()
+	cfg.Agent.WorkspaceDir = t.TempDir()
+	a := &Agent{cfg: cfg, log: logx.Global()}
+	a.SetMemory(memory.Open(t.TempDir()))
+	a.SetLibrary(skills.New(t.TempDir()))
+	a.SetRecall(func(_ context.Context, q string, live int) (string, int) {
+		return "Turn 1: the person picked " + q, 1
+	})
+	rr := &roundRun{a: a, ctx: context.Background()}
+	run := func(kind, command string) string {
+		rr.sb.Reset()
+		if !rr.memoryAction(kind, Command{Description: "why", Command: command}) {
+			t.Fatalf("%s must be handled", kind)
+		}
+		return rr.sb.String()
+	}
+	if out := run("remember", "Trips/Japan :: Ramen in Tokyo"); !strings.Contains(out, "Added to [[Japan]]") {
+		t.Errorf("remember = %q", out)
+	}
+	if out := run("remember", "IN:procedures ramen-hunt :: # Ramen hunt\n1. ask"); !strings.Contains(out, "Saved \"ramen-hunt\"") {
+		t.Errorf("remember a procedure = %q", out)
+	}
+	if out := run("remember", "in:project the menu is in Japanese"); !strings.Contains(out, "this project's lessons") {
+		t.Errorf("remember a lesson = %q", out)
+	}
+	out := run("recall", "ramen japanese")
+	for _, want := range []string{"[[Japan]]", "ramen-hunt", "the menu is in Japanese", "the person picked ramen"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("recall lacks %q:\n%s", want, out)
+		}
+	}
+	if out := run("recall", "in:procedures open: ramen-hunt"); !strings.Contains(out, "1. ask") {
+		t.Errorf("open a procedure = %q", out)
+	}
+	if out := run("recall", "in:"); !strings.Contains(out, "say what to look for") {
+		t.Errorf("an empty recall = %q", out)
 	}
 }

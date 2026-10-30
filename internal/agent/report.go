@@ -39,7 +39,7 @@ type Report struct {
 	Suggestions []ReportSuggestion `json:"suggestions"`
 	// Lessons are facts about the project the task learned that the next task should not have to
 	// rediscover: a command that works, a convention, a trap, a decision the person made. They
-	// are kept in the project (see MemoryFile) and handed to later tasks.
+	// are kept in the project (see knowledge.LessonsFile) and handed to later tasks.
 	Lessons []string `json:"lessons"`
 	// AutoApply says the configuration applies every suggestion without asking
 	// (agent.auto_apply_suggestions) as of this report: the interface starts the applying turn on

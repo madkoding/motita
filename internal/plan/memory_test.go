@@ -10,22 +10,17 @@ import (
 	"github.com/madkoding/motita/internal/memory"
 )
 
-func TestMemoryToolsAreOfferedOnlyWithAMemory(t *testing.T) {
-	count := func(p *Planner) int {
-		n := 0
-		for _, tool := range p.tools() {
-			switch tool.Function.Name {
-			case "search_memory", "read_memory", "write_memory", "append_memory":
-				n++
-			default:
-				// not a note tool
-			}
+// The memory tools are no longer offered (recall and remember reach the memory), and a call by an
+// old name without a memory says so instead of failing.
+func TestMemoryToolsAreNotOfferedButStillAnswered(t *testing.T) {
+	for _, tool := range (&Planner{}).WithMemory(memory.Open(t.TempDir())).tools() {
+		if strings.HasSuffix(tool.Function.Name, "_memory") {
+			t.Errorf("%s is still offered", tool.Function.Name)
 		}
-		return n
 	}
-	v := memory.Open(t.TempDir())
-	if count(&Planner{}) != 0 || count((&Planner{}).WithMemory(v)) != 4 {
-		t.Error("the memory tools must be offered exactly when a memory is set")
+	fn := llm.FunctionCall{Name: "search_memory", Arguments: raw(`{"query":"x"}`)}
+	if got := (&Planner{}).dispatchTool(context.Background(), llm.ToolCall{Function: fn}); !strings.Contains(got, "no memory") {
+		t.Errorf("search_memory without a memory = %q", got)
 	}
 }
 
@@ -97,7 +92,7 @@ func TestSearchMemoryToolPassesTheCollectionAndTheGraph(t *testing.T) {
 }
 
 func TestThePromptTellsThePlannerToSaveToTheMemory(t *testing.T) {
-	for _, want := range []string{"SAVE, do not only read", "append_memory", "remember"} {
+	for _, want := range []string{"SAVE, do not only read", "remember it in memory", "remember"} {
 		if !strings.Contains(SystemPrompt, want) {
 			t.Errorf("the plan prompt must tell the model when to save to the memory; missing %q", want)
 		}
