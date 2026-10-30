@@ -242,25 +242,14 @@ function useEntryEdits(
   return { createEntry, renameEntry, deleteEntry, deleteFolder, confirmDelete };
 }
 
-export function useMemory(api: Api, setState: SetStatus) {
-  const [showMemory, setShowMemory] = useState(false);
+// useMemoryList is the list of entries and collections, read when asked (loadList, which reports a
+// failure) and again in the background (refresh, which does not).
+function useMemoryList(api: Api, setState: SetStatus) {
   const [entries, setEntries] = useState<MemoryEntry[]>([]);
   const [namespaces, setNamespaces] = useState<Namespace[]>([]);
   const [root, setRoot] = useState("");
   // Whether the last look at the list failed, so an unreadable memory is not shown as an empty one.
   const [loadFailed, setLoadFailed] = useState(false);
-  // What the person asked to delete and has not yet confirmed.
-  const [pending, setPending] = useState<Deletion | null>(null);
-  const [current, setCurrent] = useState<EntryView | null>(null);
-  const [draft, setDraft] = useState("");
-  const [editing, setEditing] = useState(false);
-  // The graph of links, when it is the view on screen.
-  const [graph, setGraph] = useState<MemoryGraph | null>(null);
-  const { query, filters, answer, search, filter, reset } =
-    useMemorySearch(api);
-  // The draft and the entry it belongs to, for the save that happens when the person moves on.
-  const live = useRef({ current, draft });
-  live.current = { current, draft };
 
   const loadList = useCallback(async () => {
     try {
@@ -298,6 +287,26 @@ export function useMemory(api: Api, setState: SetStatus) {
     setRoot(d.root);
     setLoadFailed(false);
   }
+
+  return { entries, namespaces, root, loadFailed, loadList, refresh };
+}
+
+export function useMemory(api: Api, setState: SetStatus) {
+  const [showMemory, setShowMemory] = useState(false);
+  const { entries, namespaces, root, loadFailed, loadList, refresh } =
+    useMemoryList(api, setState);
+  // What the person asked to delete and has not yet confirmed.
+  const [pending, setPending] = useState<Deletion | null>(null);
+  const [current, setCurrent] = useState<EntryView | null>(null);
+  const [draft, setDraft] = useState("");
+  const [editing, setEditing] = useState(false);
+  // The graph of links, when it is the view on screen.
+  const [graph, setGraph] = useState<MemoryGraph | null>(null);
+  const { query, filters, answer, search, filter, reset } =
+    useMemorySearch(api);
+  // The draft and the entry it belongs to, for the save that happens when the person moves on.
+  const live = useRef({ current, draft });
+  live.current = { current, draft };
 
   // fetchEntry reads an entry and puts it on screen.
   const fetchEntry = useCallback(

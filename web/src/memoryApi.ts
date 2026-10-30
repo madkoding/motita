@@ -550,19 +550,27 @@ export function recentEntries(
     .slice(0, n);
 }
 
+// The units of an age, in seconds.
+const MINUTE_SECS = 60;
+const HOUR_SECS = 3600;
+const DAY_SECS = 86400;
+const MONTH_SECS = 2592000;
+const YEAR_SECS = 31536000;
+const MS_PER_SEC = 1000;
+
 // The steps of an age, largest first: the unit's length in seconds and its key.
 const AGE_STEPS: [number, string][] = [
-  [365 * 86400, "{n}y ago"],
-  [30 * 86400, "{n}mo ago"],
-  [86400, "{n}d ago"],
-  [3600, "{n}h ago"],
-  [60, "{n}m ago"],
+  [YEAR_SECS, "{n}y ago"],
+  [MONTH_SECS, "{n}mo ago"],
+  [DAY_SECS, "{n}d ago"],
+  [HOUR_SECS, "{n}h ago"],
+  [MINUTE_SECS, "{n}m ago"],
 ];
 
 // ageKey is how long ago iso was, as the key to translate and its number. Under a minute, or in
 // the future (a clock ahead of the gateway's), it is "just now".
 export function ageKey(iso: string, now: number): { key: string; n: number } {
-  const secs = (now - Date.parse(iso)) / 1000;
+  const secs = (now - Date.parse(iso)) / MS_PER_SEC;
   for (const [size, key] of AGE_STEPS) {
     if (secs >= size) {
       return { key, n: Math.floor(secs / size) };
