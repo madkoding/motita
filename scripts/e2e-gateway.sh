@@ -543,6 +543,57 @@ case "$after_transcript" in
 esac
 
 echo
+echo "==> a turn cut by a restart"
+
+# The gateway is stopped while a turn is in flight (the client is gone too, as on a crash). The
+# new process must not show that turn half done: it resumes it, and the conversation ends with the
+# turn finished once, with its outcome, and nothing left pending.
+rm -f $DEFAULT_WORK/report.txt
+before_turns="$(curl -s -H "$AUTH" "$BASE/v1/sessions/default/messages" | grep -o '"User":"leave the report' | wc -l)"
+curl -s -N -H "$AUTH" -H 'Content-Type: application/json' \
+  -d '{"task":"leave the report with the requested content"}' \
+  "$BASE/v1/sessions/default/task" > .e2e/cut.sse 2>&1 &
+cut_pid=$!
+cut_running=0
+for _ in $(seq 1 400); do
+  if curl -s -H "$AUTH" "$BASE/v1/sessions/default/run" 2>/dev/null | grep -q '"last_seq":[1-9]'; then
+    cut_running=1
+    break
+  fi
+  sleep 0.05
+done
+"$CTR" restart -t 0 "$CONTAINER" >/dev/null
+kill "$cut_pid" 2>/dev/null || true
+wait "$cut_pid" 2>/dev/null || true
+[ "$cut_running" -eq 1 ] && ok "the turn was in flight when the gateway stopped" \
+  || bad "the turn was never seen in flight, so the restart cut nothing"
+
+deadline=$((SECONDS + 60))
+while [ "$SECONDS" -lt "$deadline" ]; do
+  curl -fsS -o /dev/null "$BASE/v1/health" 2>/dev/null && break
+  sleep 0.2
+done
+TOKEN="$(cat .e2e/gateway.token)"
+AUTH="Authorization: Bearer $TOKEN"
+# The resumed turn has to finish before the conversation is judged.
+deadline=$((SECONDS + 60))
+while [ "$SECONDS" -lt "$deadline" ]; do
+  code="$(curl -s -o /dev/null -w '%{http_code}' -H "$AUTH" "$BASE/v1/sessions/default/run")"
+  [ "$code" = "404" ] && break
+  sleep 0.2
+done
+cut_transcript="$(curl -s -H "$AUTH" "$BASE/v1/sessions/default/messages")"
+after_turns="$(printf '%s' "$cut_transcript" | grep -o '"User":"leave the report' | wc -l)"
+case "$cut_transcript" in
+  *'"Pending":true'*) bad "a turn is still shown half done after the restart: $cut_transcript" ;;
+  *) ok "no turn is left half done after the restart" ;;
+esac
+[ "$after_turns" -eq $((before_turns + 1)) ] && ok "the cut turn is in the conversation exactly once" \
+  || bad "the cut turn is in the conversation $((after_turns - before_turns)) times, want once"
+[ -f $DEFAULT_WORK/report.txt ] && ok "the cut turn was resumed and finished its work" \
+  || bad "the cut turn was not resumed: no report.txt"
+
+echo
 [ "$failures" -eq 0 ] || { echo "FAILURES: $failures"; exit 1; }
 echo "the gateway works end to end"
 
