@@ -156,10 +156,15 @@ const PROGRESS_PATTERNS: [RegExp, string][] = [
 // The gateway drops the same lines from the steps it keeps (agent.IsPhaseLine), so a conversation
 // opened again shows the trail the live view did.
 const PHASE_LINE =
-  /^(analysing the task\.\.\.|planning\.\.\.|plan ready: \d+ steps?|deciding action \(round \d+\/\d+\)\.\.\.|deciding the (?:first|next) step(?:\.\.\.| after: )|starting with: |round \d+ done; |validating with anchor\.\.\.|validation passed; |synthesizing answer\.\.\.|task complete: )/;
+  /^(analysing the task\.\.\.|planning\.\.\.|plan ready: \d+ steps?|round \d+ done; |validating with anchor\.\.\.|validation passed; |synthesizing answer\.\.\.|task complete: )/;
+
+// DECIDING_LINE is the phase line of a round about to ask for its action: the older round counter
+// and the lines that name what the round is about.
+const DECIDING_LINE =
+  /^(deciding action \(round \d+\/\d+\)\.\.\.|deciding the (?:first|next) step(?:\.\.\.| after: )|starting with: )/;
 
 export function isPhaseLine(text: string): boolean {
-  return PHASE_LINE.test(text);
+  return PHASE_LINE.test(text) || DECIDING_LINE.test(text);
 }
 
 export function classifyProgress(text: string): string | null {

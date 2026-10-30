@@ -419,13 +419,10 @@ export function TurnHead({
 // out: text the agent wrote, not a card of questions or a report.
 export function planOutcome(rest: Message[]): Message | null {
   const last = rest[rest.length - 1];
-  const answer =
-    last && last.role === "agent" && !last.kind && !last.draft && !last.report;
-  return choose(
-    answer && !last.questions && last.text.trim() !== "",
-    last,
-    null,
-  );
+  if (last?.role !== "agent" || last.kind || last.draft || last.report) {
+    return null;
+  }
+  return choose(!last.questions && last.text.trim() !== "", last, null);
 }
 
 // RunPlanBar closes a plan the agent wrote: a plan cannot run commands or change files, so the

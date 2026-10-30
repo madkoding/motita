@@ -82,7 +82,8 @@ const ModelSystem = "You route a user's message to a coding agent. " +
 	"or says not to change anything yet.\n" +
 	`"task": the user wants something done or changed in the project; ` +
 	"also greetings, thanks and small talk.\n" +
-	`A wish is an order ("I need it to...", "quiero que...", "it should have..."), ` + // spanish-fixture: what the model reads
+	`A wish is an order ("I need it to...", "quiero que...", ` + // spanish-fixture: what the model reads
+	`"it should have..."), ` +
 	`a report that something is broken or missing is an order to fix it, ` +
 	`and so is a go-ahead ("ok", "dale"): "task". ` +
 	`Being told not to change anything, or asked to make a plan or a proposal, is "plan".` + "\n" +

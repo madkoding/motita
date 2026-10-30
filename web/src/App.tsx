@@ -457,6 +457,9 @@ function TurnBody({ g, steps, liveHere, activity }: TurnProps) {
   const why = turnWhy(shown);
   // The step in progress is the activity line below, so it is not drawn twice.
   const trail = choose(liveHere && activity, shown.slice(0, -1), shown);
+  // A plan that has finished with an answer is offered to be carried out.
+  const planned = choose(mode === "plan" && !liveHere, head, null);
+  const offer = choose(planned && planOutcome(rest), planned, null);
   return (
     <div class="turn">
       <TurnTop
@@ -470,9 +473,7 @@ function TurnBody({ g, steps, liveHere, activity }: TurnProps) {
       {rest.map((m) => (
         <MessageItem key={m.id} m={m} auto={mode !== null} />
       ))}
-      {head && mode === "plan" && !liveHere && planOutcome(rest) && (
-        <RunPlanBar head={head} />
-      )}
+      {offer && <RunPlanBar head={offer} />}
       {liveHere && activity && (
         <ActivityLine activity={activity} shown={shown} />
       )}
