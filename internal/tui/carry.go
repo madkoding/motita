@@ -134,3 +134,19 @@ func (r *AppRunner) savedPin() string {
 	}
 	return c.Pinned
 }
+
+// shareLastTurn puts the turn the Task path just finished into the Plan session, so a question
+// asked next in chat sees what the work did. The two paths record separately, and the session used
+// to hold only Plan turns: a task done between two questions was invisible to the second one until
+// it left the window and could be recalled from the archive. A session not built yet needs nothing:
+// it is seeded from the transcript when it is.
+func (r *AppRunner) shareLastTurn() {
+	r.sessionMu.Lock()
+	s := r.session
+	r.sessionMu.Unlock()
+	turns := r.history()
+	if s == nil || len(turns) == 0 {
+		return
+	}
+	s.AppendAll(seedMessages(turns[len(turns)-1:])...)
+}

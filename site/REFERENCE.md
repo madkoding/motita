@@ -650,9 +650,15 @@ away were gone. Each finished turn is now also written, redacted, as one Markdow
 `~/.motita/context/<session>/` — one folder per conversation, `0700`, deleted with the
 conversation. Before a turn, what it may need is retrieved from the turns no longer shown verbatim,
 locally and with no model call: the memory's own hybrid search (BM25 plus holographic vectors),
-answered with the section that matched (the request, the answer, or the report of a task). Task
-mode receives it through `{{recall}}` in the analysis prompt; Plan mode receives it as an extra
-system message for that turn only, never stored in the session. It is presented as background data
+answered with the section that matched (the request, the answer, or the report of a task). It is
+one part of the turn's **context brief**: one block, bounded at 8000 characters, that holds, most
+important first, the plan the conversation pinned, these earlier turns, and what the person's
+memory says about the request. Task mode receives the brief through `{{recall}}` in the analysis
+prompt and in every working round (which also get the last four turns through `{{dialogue}}`), and
+the pinned plan is left out when the request already carries it; Plan mode receives the archive and
+the memory as an extra system message for that turn only, never stored in the session, because its
+session already shows the pinned plan. A finished task is also added to the Plan session, so a
+question asked in chat right after a task sees what the task did. It is presented as background data
 and never as instructions, and a turn that used it says so in its trail:
 `[recalled N passages from earlier]`. What is archived is the turn and the report of a task, not
 the output of its commands; the archive belongs to one conversation and is never searched by
@@ -2192,7 +2198,7 @@ question or ask about a compile flag. An assignment in front of a command
 ### Variables available in prompts
 
 `{{task}}` `{{workspace}}` `{{origin}}` `{{attempt}}` `{{max_attempts}}`
-`{{rules}}` `{{analysis}}` `{{plan}}` `{{history}}` `{{recall}}` `{{model}}`
+`{{rules}}` `{{analysis}}` `{{plan}}` `{{history}}` `{{recall}}` `{{dialogue}}` `{{model}}`
 `{{provider}}` `{{context_*}}`
 
 If a template uses a variable with no value, **a warning is logged** and the

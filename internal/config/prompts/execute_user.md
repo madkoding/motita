@@ -269,6 +269,11 @@ Everything above is the same every round. What follows is what changes.
 ## PLAN
 {{plan}}
 
+## CONVERSATION SO FAR
+{{dialogue}}
+
+{{recall}}
+
 ## CONTEXT
 
 - Working directory: {{workspace}}
