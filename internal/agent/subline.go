@@ -78,7 +78,8 @@ func (a *Agent) relayProgress(id, role string, base func(string, ...any)) func(s
 	}
 	return func(format string, args ...any) {
 		base(format, args...)
-		line := fmt.Sprintf(format, args...)
+		// The words of an action belong to the conversation, not to the fleet's command list.
+		_, line, _ := SplitDoing(fmt.Sprintf(format, args...))
 		switch {
 		case strings.HasPrefix(line, "running: "):
 			cmd = strings.TrimPrefix(line, "running: ")

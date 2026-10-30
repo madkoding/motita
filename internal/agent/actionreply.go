@@ -32,7 +32,7 @@ var actionSchema = json.RawMessage(`{
           "description": {"type": "string"},
           "command": {"type": "string"}
         },
-        "required": ["kind", "command"]
+        "required": ["kind", "description", "command"]
       }
     },
     "final_action": {

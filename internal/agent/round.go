@@ -22,6 +22,8 @@ type roundRun struct {
 	round   int
 	sb      strings.Builder
 	lastErr error
+	// told is set once the action being run has announced itself with its words (see announce).
+	told bool
 }
 
 // runRound is runActions with the run's working memory. A read the run already holds, and
@@ -50,7 +52,13 @@ func (rr *roundRun) run(i int, action Command) {
 	// kind, because that is how this mode names things — the same four operations the
 	// planner exposes as tools, reachable from here too.
 	if kind := strings.ToLower(strings.TrimSpace(action.Kind)); kind != "" && kind != "command" {
+		rr.told = false
 		if rr.kindAction(i, kind, action) {
+			if !rr.told {
+				// A read answered from the library, the memory or the session announces no
+				// command: its words stand alone.
+				rr.a.report("%s%s", DoingPrefix, action.doing())
+			}
 			return
 		}
 	}
@@ -62,6 +70,15 @@ func (rr *roundRun) run(i int, action Command) {
 		return
 	}
 	rr.shell(i, action)
+}
+
+// announce reports the line that says an action is running: the words that say what it is for,
+// then the command on the line after, in the same report. An interface shows the words in the
+// conversation and keeps the command in its actions tab; one that knows nothing of the words reads
+// the "running:" line as it always did.
+func (rr *roundRun) announce(action Command, format string, args ...any) {
+	rr.told = true
+	rr.a.report("%s%s\n%s", DoingPrefix, action.doing(), fmt.Sprintf(format, args...))
 }
 
 // runningFmt is the line announced before an action runs.
@@ -94,7 +111,7 @@ func (rr *roundRun) agentAction(i int, kind string, action Command) bool {
 	}
 	// Announced BEFORE it runs: a wait lasts as long as the agents work, and the terminal must show
 	// what the run is waiting for while it waits, not after.
-	a.report(runningFmt, kind, firstLineOf(action.Command))
+	rr.announce(action, runningFmt, kind, firstLineOf(action.Command))
 	_, out, refusal := a.runAgentAction(rr.ctx, kind, action)
 	fmt.Fprintf(&rr.sb, "[%s] %s\n%s\n", kind, action.Description, out)
 	rr.reportResult(out, refusal)
@@ -125,7 +142,7 @@ func (rr *roundRun) fileAction(i int, kind string, action Command) bool {
 		return false
 	}
 	fmt.Fprintf(&rr.sb, "[%s] %s\n%s\n", kind, action.Description, out)
-	a.report(runningFmt, kind, firstLineOf(action.Command))
+	rr.announce(action, runningFmt, kind, firstLineOf(action.Command))
 	rr.reportResult(out, refusal)
 	a.log.Info(rr.prefix+"file action", "kind", kind, "path", firstLineOf(action.Command), "result", out)
 	if refusal != nil {
@@ -144,7 +161,7 @@ func (rr *roundRun) boxAction(i int, kind string, action Command) bool {
 	if !isBoxKind(kind) {
 		return false
 	}
-	a.report(runningFmt, kind, firstLineOf(action.Command))
+	rr.announce(action, runningFmt, kind, firstLineOf(action.Command))
 	_, out, refusal := a.runBoxAction(rr.ctx, kind, action)
 	fmt.Fprintf(&rr.sb, "[%s] %s\n%s\n", kind, action.Description, out)
 	rr.reportResult(out, refusal)
@@ -162,7 +179,7 @@ func (rr *roundRun) desktopAction(i int, kind string, action Command) bool {
 	if !ok {
 		return false
 	}
-	a.report(runningFmt, kind, firstLineOf(action.Command))
+	rr.announce(action, runningFmt, kind, firstLineOf(action.Command))
 	out, refusal := a.desktopStep(rr.ctx, kind, step, action)
 	fmt.Fprintf(&rr.sb, "[%s] %s\n%s\n", kind, action.Description, out)
 	rr.reportResult(out, refusal)
@@ -237,7 +254,7 @@ func (rr *roundRun) recalled(action Command) bool {
 // shell runs an action as a command line, once the policy has had its say.
 func (rr *roundRun) shell(i int, action Command) {
 	a := rr.a
-	a.report("running: %s", action.Command)
+	rr.announce(action, "running: %s", action.Command)
 	a.log.Info(rr.prefix+"running in sandbox", "n", i+1, "command", action.Command,
 		"description", truncate(action.Description, 120))
 

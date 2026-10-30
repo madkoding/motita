@@ -557,21 +557,19 @@ func (r *taskRun) nextRound() bool {
 // Lines the loop reports while it chooses the next action. They say what the agent is working on
 // rather than a round counter, which told the reader nothing about the work.
 const (
-	decidingFirst    = "deciding the first step..."
-	decidingNext     = "deciding the next step..."
-	startingWith     = "starting with: "
-	decidingNextWith = "deciding the next step after: "
+	decidingFirst = "deciding the first step..."
+	decidingNext  = "deciding the next step..."
+	startingWith  = "starting with: "
 	// focusWidth keeps the activity line to one line.
 	focusWidth = 80
 )
 
 // decidingLine is the progress line of a round that is about to ask for its action: the plan's
-// first step on the first round, what the previous round did on the later ones.
+// first step on the first round, and on the later ones only that the next step is being chosen. It
+// used to quote the previous round's command, which told the reader nothing in their own words; what
+// each action is for is reported, once the model has said it, as a DoingPrefix line.
 func (r *taskRun) decidingLine() string {
-	if n := len(r.journal); n > 0 {
-		if done := collapse(r.journal[n-1].commands); done != "" {
-			return decidingNextWith + truncate(done, focusWidth)
-		}
+	if len(r.journal) > 0 {
 		return decidingNext
 	}
 	if len(r.plan.Steps) > 0 {

@@ -260,6 +260,9 @@ var activityFixed = map[string]bool{
 // activityText shows an agent's latest phase line in the reader's language. Anything that is not
 // one of the agent's phase lines - a command, the model's words - is shown as it arrived.
 func (t *TUI) activityText(line string) string {
+	if what, _, ok := agent.SplitDoing(line); ok {
+		return t.tr(what)
+	}
 	if activityFixed[line] {
 		return t.tr(line)
 	}

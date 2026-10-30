@@ -281,6 +281,13 @@ func (s *planStream) handle(line string) {
 // planStepLabel reads a line a plan reports as a task step. isStep says it is one; keep says it
 // is shown, as a tool line with the label: a command is, its output and the reasoning are not.
 func planStepLabel(line string) (label string, isStep, keep bool) {
+	if _, rest, ok := agent.SplitDoing(line); ok {
+		// The words of an action are not shown by the terminal: its command is, or nothing.
+		if rest == "" {
+			return "", true, false
+		}
+		line = rest
+	}
 	if command, ok := strings.CutPrefix(line, "running: "); ok {
 		return "execute_command " + command, true, true
 	}

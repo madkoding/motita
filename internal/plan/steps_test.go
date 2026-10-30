@@ -30,11 +30,12 @@ func (e *roundsEngine) CompleteToolsStream(context.Context, []llm.Message, []llm
 func (e *roundsEngine) Complete(context.Context, []llm.Message) (string, error) { return "forced", nil }
 
 // stepLog records what a plan run reports through Steps.
-type stepLog struct{ commands, outputs, thoughts, lives []string }
+type stepLog struct{ commands, outputs, thoughts, lives, doings []string }
 
 func (l *stepLog) steps() Steps {
 	return Steps{
-		Command: func(c string) { l.commands = append(l.commands, c) },
+		Command: func(c, doing string) { l.commands = append(l.commands, c); l.doings = append(l.doings, doing) },
+		Doing:   func(d string) { l.doings = append(l.doings, d) },
 		Output: func(exit int, out string) {
 			l.outputs = append(l.outputs, strings.TrimSpace(out)+"|"+string(rune('0'+exit)))
 		},
@@ -116,5 +117,47 @@ func TestAPlanRunWithoutStepsKeepsItsTrace(t *testing.T) {
 	p3.dispatchTool(context.Background(), llm.ToolCall{Function: llm.FunctionCall{Name: "list_skills"}})
 	if len(traced2) != 1 {
 		t.Errorf("another tool must still be announced: %v", traced2)
+	}
+}
+
+func TestToolDoingIsTheModelsWordsOrTheToolsName(t *testing.T) {
+	long := strings.Repeat("palabra ", 30)
+	for _, c := range []struct{ name, args, want string }{
+		{"execute_command", `{"command":"ls","description":" Reading  the\nfolder "}`, "Reading the folder"},
+		{"execute_command", `{"command":"ls"}`, "Running a command"},
+		{"read_file", `not json`, "Reading a file"},
+		{"made_up", `{}`, "Running an action"},
+		{"read_file", `{"description":"` + long + `"}`, strings.Join(strings.Fields(long), " ")[:doingWidth] + "..."},
+	} {
+		if got := toolDoing(c.name, json.RawMessage(c.args)); got != c.want {
+			t.Errorf("%s %s: %q, want %q", c.name, c.args, got, c.want)
+		}
+	}
+}
+
+// TestAPlanRunSaysWhatEachToolIsFor: a command carries its words with it, any other tool announces
+// itself before it runs.
+func TestAPlanRunSaysWhatEachToolIsFor(t *testing.T) {
+	a, ex := makeAgent(t, true)
+	ex.defaultOutput = "file.txt"
+	cmd, _ := json.Marshal(map[string]string{"command": "ls", "description": "Reading the folder"})
+	list, _ := json.Marshal(map[string]string{"path": "."})
+	c1 := &llm.ToolCall{ID: "c1", Function: llm.FunctionCall{Name: "execute_command", Arguments: cmd}}
+	c2 := &llm.ToolCall{ID: "c2", Function: llm.FunctionCall{Name: "list_directory", Arguments: list}}
+	engine := &roundsEngine{rounds: [][]llm.StreamChunk{
+		{
+			{Event: llm.StreamToolCall, Call: c1},
+			{Event: llm.StreamToolCall, Call: c2},
+			{Event: llm.StreamDone, Reply: llm.Reply{Calls: []llm.ToolCall{*c1, *c2}}},
+		},
+		{{Event: llm.StreamText, Text: "done"}, {Event: llm.StreamDone, Reply: llm.Reply{Content: "done"}}},
+	}}
+	var log stepLog
+	p := New(engine, a).WithSteps(log.steps())
+	if _, err := p.Run(context.Background(), "what is here?"); err != nil {
+		t.Fatal(err)
+	}
+	if got := strings.Join(log.doings, ";"); got != "Reading the folder;Listing a folder" {
+		t.Errorf("doings = %q", got)
 	}
 }

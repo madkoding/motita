@@ -84,12 +84,29 @@ func TestPlanStreamTakesAPlansStepsWithoutAnsweringWithThem(t *testing.T) {
 func TestPlanStepsAreReportedAsTaskLines(t *testing.T) {
 	var lines []string
 	steps := planSteps(func(f string, a ...any) { lines = append(lines, fmt.Sprintf(f, a...)) })
-	steps.Command("ls")
+	steps.Command("ls", "Listing files")
 	steps.Output(2, "boom")
 	steps.Thought("hm")
 	steps.Live("hm so far")
-	want := []string{"running: ls", "output (exit 2):\nboom", "thinking: hm", "live: hm so far"}
+	steps.Doing("Reading a file")
+	want := []string{"doing: Listing files\nrunning: ls", "output (exit 2):\nboom", "thinking: hm", "live: hm so far",
+		"doing: Reading a file"}
 	if strings.Join(lines, "\n") != strings.Join(want, "\n") {
 		t.Errorf("lines = %q, want %q", lines, want)
+	}
+}
+
+func TestPlanStepLabelIgnoresTheWordsOfAnAction(t *testing.T) {
+	for line, want := range map[string]struct {
+		label       string
+		step, shown bool
+	}{
+		"doing: Listing files\nrunning: ls": {"execute_command ls", true, true},
+		"doing: Reading a file":             {"", true, false},
+	} {
+		label, step, shown := planStepLabel(line)
+		if label != want.label || step != want.step || shown != want.shown {
+			t.Errorf("%q -> %q %v %v, want %+v", line, label, step, shown, want)
+		}
 	}
 }
