@@ -554,11 +554,39 @@ func (r *taskRun) nextRound() bool {
 	return true
 }
 
+// Lines the loop reports while it chooses the next action. They say what the agent is working on
+// rather than a round counter, which told the reader nothing about the work.
+const (
+	decidingFirst    = "deciding the first step..."
+	decidingNext     = "deciding the next step..."
+	startingWith     = "starting with: "
+	decidingNextWith = "deciding the next step after: "
+	// focusWidth keeps the activity line to one line.
+	focusWidth = 80
+)
+
+// decidingLine is the progress line of a round that is about to ask for its action: the plan's
+// first step on the first round, what the previous round did on the later ones.
+func (r *taskRun) decidingLine() string {
+	if n := len(r.journal); n > 0 {
+		if done := collapse(r.journal[n-1].commands); done != "" {
+			return decidingNextWith + truncate(done, focusWidth)
+		}
+		return decidingNext
+	}
+	if len(r.plan.Steps) > 0 {
+		if first := collapse(r.plan.Steps[0].Action); first != "" {
+			return startingWith + truncate(first, focusWidth)
+		}
+	}
+	return decidingFirst
+}
+
 // decide asks the model for this round's action. usable is false when the reply could not be
 // used and the round is to be asked again; stop ends the run.
 func (r *taskRun) decide() (action Action, usable, stop bool) {
 	a := r.a
-	a.report("deciding action (round %d/%d)...", r.round, r.maxSteps*(1+(r.round-1)/r.maxSteps))
+	a.report("%s", r.decidingLine())
 	action, err := r.actionPhase()
 	if err == nil && len(action.Actions) == 0 && !action.isDone() {
 		// Nothing to run while claiming there is work left is not a round of work: it is

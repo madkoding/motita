@@ -613,15 +613,20 @@ typing is never held) and whenever the call fails. An order anywhere
 in the message is a task, also when it comes after a filler or a conjunction ("ok, now add the
 tests", "check the logs and fix it") or as a wish ("I want you to…", "let's…", "help me fix…").
 A question, an ask to understand ("show me", "explain"), an ask for a plan ("make a plan for…"),
-"don't change anything", or a report of something broken with no order in it ("the build fails
-in CI") is a plan; the go-ahead after it does the work. The rules are tuned against a corpus of
+"don't change anything" or "I don't understand why…" is a plan. A report of something broken
+("the build fails in CI") or a wish is a task, and so is any message the model cannot place: a
+plan cannot run commands or change files, and a task is kept in a checkpoint you can go back
+to. In the web, a finished plan ends with a **Run the plan now** button that carries it out
+without writing the order again; the go-ahead ("ok", "dale") does the same. The rules are tuned against a corpus of
 real messages in English and Spanish (`internal/intent/testdata/corpus.tsv`). When the model
 call fails (30 s at most) the rules' guess runs and the turn says so, as in
 `mode: task (default; the model did not decide)`; the model is then not asked again for five
 minutes. `agent.auto_mode_rules_only: true` (`MOTITA_AGENT_AUTO_MODE_RULES_ONLY`) turns the call
 off and leaves auto mode to the rules. In the web, the turn's **Plan**/**Task** tag says
 why it was picked and, when no run is working, is the switch: one tap sends the message again
-in the other mode; a guess the model did not make shows as **Task?** or **Plan?**.
+in the other mode; a guess the model did not make shows as **Task?** or **Plan?**. While a run
+works, the activity line says what it is doing ("starting with: read the failing test",
+"deciding the next step after: go test ./…") instead of a round counter.
 
 A bare go-ahead after a plan ("ok", "do it", "dale", "hazlo") carries that plan out: the plan
 travels inside the task, the agent does not plan it again and never stops to ask, and the turn

@@ -478,6 +478,8 @@ test("modes, switched messages and progress kinds are recognised", () => {
     "subtask 1/2: a": "plan",
     "analysing the task...": "analysis",
     "deciding action": "reasoning",
+    "deciding the next step after: ls": "reasoning",
+    "starting with: read the test": "reasoning",
     "round 2 done; more": "reasoning",
     "synthesizing answer...": "synthesis",
     "something else": null,
@@ -533,6 +535,15 @@ test("the agent's phase lines and upgrade stages are worded", () => {
     "analysing the task...",
   );
   assert.equal(m.progressText("free text"), "free text");
+  for (const line of [
+    "deciding the first step...",
+    "deciding the next step...",
+    "deciding the next step after: go test",
+    "starting with: read the test",
+  ]) {
+    assert.equal(m.progressText(line), line);
+    assert.ok(m.isPhaseLine(line), line);
+  }
   assert.equal(
     m.progressText("waiting for 3 background agent(s)..."),
     "waiting for 3 background agent(s)...",

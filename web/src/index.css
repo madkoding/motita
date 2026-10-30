@@ -3999,6 +3999,36 @@ fieldset.approval-panel {
 .mode-badge[data-unsure] {
   border-style: dashed;
 }
+/* The offer under a plan: it changed nothing, and one tap carries it out. */
+.run-plan {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 12px;
+  padding: 8px 12px;
+  border-radius: 12px;
+  background: var(--s1);
+  border: 1px solid rgb(var(--accent-rgb) / 0.35);
+  font-size: 0.9em;
+}
+.run-plan-text {
+  flex: 1 1 14rem;
+  opacity: 0.85;
+}
+.run-plan-btn {
+  min-height: 36px;
+  padding: 0 14px;
+  border-radius: 10px;
+  font-weight: 600;
+  color: #fff;
+  background: var(--color-accent);
+  cursor: pointer;
+  transition: filter var(--motion-fast) var(--ease-standard);
+}
+.run-plan-btn:hover,
+.run-plan-btn:focus-visible {
+  filter: brightness(1.12);
+}
 /* When the message can be sent again the badge is the switch: a button that looks like the tag. */
 button.mode-badge {
   font-family: inherit;

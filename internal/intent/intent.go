@@ -8,10 +8,11 @@
 // sentence - where there is no model (the terminal's input loop, agent.auto_mode_rules_only) or
 // the call fails. Either way the answer is explained in one line ("mode: plan (question)").
 //
-// Both are biased toward plan. Running a task when the person wanted a plan changes their
-// files; planning when they wanted a task costs one more message. So a message that both asks
-// and orders is a task only when nothing in it says to hold off ("don't change anything",
-// "solo el plan"), and an explicit /plan or /task always wins over every rule.
+// A message that asks something or says to hold off ("don't change anything", "solo el plan") is
+// a plan; an order, a wish and a report that something is broken are tasks. When it is unclear
+// the answer is a task: a plan cannot run a command or change a file, so planning when work was
+// wanted leaves nothing done, while a task is kept in a checkpoint the person can go back to.
+// An explicit /plan or /task always wins over every rule.
 //
 // What is not a plan or an order (a greeting, a thank-you) goes to task mode, which is what
 // every message did before this package existed: the task agent's own analysis already answers
@@ -250,6 +251,9 @@ var requests = []request{
 	{[]string{"ayudame", "a"}, true, false},
 	{[]string{"vamos", "a"}, true, false},
 	{[]string{"hay", "que"}, true, false},
+	{[]string{"deberia", "haber"}, true, false},
+	{[]string{"deberia", "tener"}, true, false},
+	{[]string{"there", "should", "be"}, true, false},
 	{[]string{"tenemos", "que"}, true, false},
 	{[]string{"tienes", "que"}, true, false},
 	{[]string{"help", "me"}, true, false},
@@ -332,13 +336,36 @@ func Classify(text string) Decision {
 		return Decision{KindPlan, trimmed, SourceHeuristic, plan}
 	}
 	if reportsProblem(plain) {
-		return Decision{KindPlan, trimmed, SourceHeuristic, ReasonProblem}
+		if wantsToUnderstand(plain) {
+			return Decision{KindPlan, trimmed, SourceHeuristic, ReasonUnderstand}
+		}
+		return Decision{KindTask, trimmed, SourceHeuristic, ReasonProblem}
 	}
 	return Decision{KindTask, trimmed, SourceDefault, "default"}
 }
 
+// ReasonUnderstand is the Reason of a problem report that says the person does not follow what
+// happens: they want it explained, not changed.
+const ReasonUnderstand = "wants to understand"
+
+// understandPhrases say the person does not follow what happens.
+var understandPhrases = []string{
+	"no entiendo", "no se por que", "no comprendo", "i don't understand", "i do not understand",
+	"i dont understand", "don't know why", "dont know why", "not sure why",
+} // spanish-fixture: input
+
+// wantsToUnderstand says whether a message asks to be told why rather than to have it fixed.
+func wantsToUnderstand(plain string) bool {
+	for _, phrase := range understandPhrases {
+		if strings.Contains(plain, phrase) {
+			return true
+		}
+	}
+	return false
+}
+
 // ReasonProblem is the Reason of a message that reports something broken without saying what
-// to do: it is planned (looked into) first, and a go-ahead fixes it.
+// to do: it is a task, because the person wants it fixed and a plan cannot change anything.
 const ReasonProblem = "reports a problem"
 
 // read decides what one sentence asks: KindTask, KindPlan or "" with the reason. Every clause of

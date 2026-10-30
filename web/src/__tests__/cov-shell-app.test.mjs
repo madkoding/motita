@@ -83,13 +83,14 @@ component(
 );
 component(
   "./ConversationParts",
-  ["ChangesCard", "RunArtifacts", "SubagentsStrip"],
+  ["ChangesCard", "RunArtifacts", "SubagentsStrip", "RunPlanBar"],
   `export function UserText(props) { return mark("UserText", props, props.m.text); }
   // TurnTop draws its two parts as their own stubs, so a turn reads as before: the input, then its steps.
   export function TurnTop(props) {
     return h("div", null, props.head && mark("TurnHead", props, props.head.text),
       props.steps.length > 0 && mark("Trail", props, props.steps.map((s) => s.text).join("|")));
   }
+  export function planOutcome(rest) { return rest.length > 0 ? rest[rest.length - 1] : null; }
   export function ActivityLine(props) { return mark("ActivityLine", props, props.activity); }`,
 );
 // The computers: the shown one and the list, set by the test through globals.
@@ -780,6 +781,40 @@ test("the conversation is one turn per input, with its steps, its answer and the
   assert.equal(note.className, "msg activity agents");
   assert.equal(note.getAttribute("data-who"), null);
   assert.equal(text(note), "agents: 2 running");
+  await ctl.done();
+});
+
+test("a finished plan turn offers to carry the plan out; a task turn does not", async () => {
+  const ctl = await mountApp((s) => {
+    s.rs.running = false;
+    s.rs.messages = [
+      msg(1, "user", "Fix the build", { turn: 1 }),
+      msg(2, "agent", "1. change x"),
+      msg(3, "user", "Fix the tests", { turn: 2 }),
+      msg(4, "agent", "Done"),
+      msg(5, "user", "Explain", { turn: 3 }),
+    ];
+    s.rs.stepsByTurn = {
+      1: [{ kind: "step", text: "mode: plan (asked for a plan)" }],
+      2: [{ kind: "step", text: "mode: task (auto)" }],
+      3: [{ kind: "step", text: "mode: plan (question)" }],
+    };
+  });
+  const turns = [...ctl.root.querySelectorAll(".turn")];
+  assert.ok(
+    stubEl(turns[0], "RunPlanBar"),
+    "the plan's answer closes with the offer",
+  );
+  assert.equal(
+    stubEl(turns[1], "RunPlanBar"),
+    null,
+    "a task changed things already",
+  );
+  assert.equal(
+    stubEl(turns[2], "RunPlanBar"),
+    null,
+    "a plan with no answer yet",
+  );
   await ctl.done();
 });
 
