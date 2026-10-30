@@ -183,6 +183,7 @@ func (c *Client) callOpenAIToolsStream(
 	ctx context.Context, messages []Message, tools []Tool,
 ) (<-chan StreamChunk, error) {
 	body := c.openAIBody(messages, tools)
+	c.addResponseFormat(ctx, body, tools)
 	body["stream"] = true
 	// A stream reports no usage unless asked, and only OpenAI's own API is asked. The other
 	// /chat/completions servers (Ollama, Qwen, Copilot, a local server behind the openai

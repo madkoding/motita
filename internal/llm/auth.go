@@ -276,7 +276,7 @@ func (c *Client) send(ctx context.Context, path string, body any, stream bool) (
 	data = c.clampOutputLimit(data)
 	// renew forces a renewal on the pass right after a 401, and only then: asking again within
 	// the output limit is no reason to spend a rotating refresh token.
-	relearned, renewed, renew := false, false, false
+	relearned, renewed, renew, unschemed := false, false, false, false
 	for {
 		t, err := c.target(ctx, renew)
 		renew = false
@@ -308,6 +308,10 @@ func (c *Client) send(ctx context.Context, path string, body any, stream bool) (
 		if resp.StatusCode == http.StatusBadRequest && !relearned && c.relearnOutputLimit(data, b) {
 			relearned = true
 			data = c.clampOutputLimit(data)
+			continue
+		}
+		if !unschemed && c.refusedSchema(&data, resp.StatusCode) {
+			unschemed = true
 			continue
 		}
 		return nil, t, &HTTPError{Code: resp.StatusCode, Body: strings.TrimSpace(string(b)),
