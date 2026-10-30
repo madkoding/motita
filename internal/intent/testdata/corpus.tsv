@@ -118,3 +118,7 @@ task	haz un commit y push de esto
 task	el boton de exportar no funciona
 plan	no entiendo por qué falla el login
 plan	I don't understand why the build is slow
+task	deberia haber un boton de exportar
+task	there should be an export button
+task	ejecuta el plan
+task	corrige el error y sube un PR
