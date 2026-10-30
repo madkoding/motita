@@ -746,6 +746,33 @@ test("the trail folds the steps behind a count and draws commands and progress",
   await live.m.unmount();
 });
 
+test("a command that was announced in words shows the words, not the command", async () => {
+  const steps = [
+    {
+      key: 1,
+      kind: "command",
+      text: "running: go test ./...",
+      label: "Running the tests",
+      exit: 0,
+    },
+  ];
+  const t = await inTurn(h(P.Trail, { steps, liveHere: false }));
+  await act(() => t.q(".action-trail-toggle").click());
+  const row = t.q(".trail-step");
+  assert.ok(row.className.includes("labelled"));
+  assert.equal(row.getAttribute("title"), "Running the tests");
+  assert.equal(text(row), "Running the testsok");
+  await t.m.unmount();
+  const line = await inTurn(
+    h(P.ActivityLine, { activity: "Running the tests", shown: [] }),
+    { activityKind: "doing" },
+  );
+  assert.equal(line.q(".msg.activity").className, "msg activity doing");
+  assert.ok(line.q(".spin-doing"));
+  assert.equal(text(line.q(".activity-typed")), "Running the tests");
+  await line.m.unmount();
+});
+
 test("the activity line shows what the agent is doing at once, with a command's status", async () => {
   frames.clear();
   const cmd = await inTurn(

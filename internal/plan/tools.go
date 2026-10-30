@@ -116,6 +116,7 @@ func (p *Planner) readPath(path string) (string, error) {
 // executeCommandArgs are the arguments for execute_command.
 type executeCommandArgs struct {
 	Command        string `json:"command"`
+	Description    string `json:"description,omitempty"`
 	TimeoutSeconds int    `json:"timeout_seconds,omitempty"`
 }
 
@@ -139,7 +140,7 @@ func (p *Planner) toolExecuteCommand(ctx context.Context, raw []byte) string {
 	defer cancel()
 
 	if p.steps != nil {
-		p.steps.Command(command)
+		p.steps.Command(command, toolDoing("execute_command", raw))
 	}
 	output, exit, err := p.runner.RunCommand(toolCtx, command)
 	output = limitString(output, maxToolOutputBytes)

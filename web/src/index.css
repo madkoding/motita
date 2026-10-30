@@ -652,6 +652,13 @@ body {
   display: flex;
   align-items: baseline;
 }
+/* What the agent is doing, in words: the command it runs under them is in the terminal drawer. */
+.msg.activity.doing {
+  color: var(--t1);
+  border-color: rgb(var(--accent-rgb) / 0.4);
+  border-style: solid;
+  background: rgba(45, 108, 143, 0.15);
+}
 .msg.activity.reasoning,
 .msg.activity.synthesis {
   border-style: dotted;
@@ -720,6 +727,12 @@ body {
   display: flex;
   align-items: baseline;
   gap: 8px;
+}
+.trail-step.term-cmd.labelled::before {
+  content: none;
+}
+.trail-step.term-cmd.labelled {
+  color: var(--t1);
 }
 .term-cmd-text {
   flex: 1 1 auto;
@@ -1700,7 +1713,8 @@ div[role="log"]:not(.chat-loading) > * {
 }
 
 /* command: cian spinner — classic rotating ring */
-.spin-command {
+.spin-command,
+.spin-doing {
   border: 2px solid rgb(var(--accent-rgb) / 0.15);
   border-top-color: var(--color-accent);
   border-radius: 50%;

@@ -20,7 +20,9 @@ type taskRun struct {
 	depth  int
 	prefix string
 	start  time.Time
-	res    TaskResult
+	// lastDoing is what the previous round's actions were for, in words.
+	lastDoing string
+	res       TaskResult
 
 	analysis Analysis
 	plan     Plan
@@ -566,11 +568,12 @@ const (
 )
 
 // decidingLine is the progress line of a round that is about to ask for its action: the plan's
-// first step on the first round, what the previous round did on the later ones.
+// first step on the first round, and on the later ones what the previous round did, in the words
+// its actions announced themselves with (never the command, which told the reader nothing).
 func (r *taskRun) decidingLine() string {
-	if n := len(r.journal); n > 0 {
-		if done := collapse(r.journal[n-1].commands); done != "" {
-			return decidingNextWith + truncate(done, focusWidth)
+	if len(r.journal) > 0 {
+		if r.lastDoing != "" {
+			return decidingNextWith + truncate(r.lastDoing, focusWidth)
 		}
 		return decidingNext
 	}
@@ -671,6 +674,7 @@ func (r *taskRun) progress(action Action, runOutput string, runErr error) (res T
 		round: r.round, kind: roundProgress, commands: proposedCommands(action), detail: detail,
 	})
 	r.trail = append(r.trail, fmt.Sprintf("round %d: %s", r.round, truncate(collapse(proposedCommands(action)), 200)))
+	r.lastDoing = doingOfRound(action)
 	if r.depth == 0 {
 		a.trail(r.t, r.trail)
 	}

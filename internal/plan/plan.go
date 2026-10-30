@@ -211,8 +211,9 @@ func (p *Planner) WithStream(fn func(string)) *Planner {
 // model's reasoning, so the terminal and thinking drawers - which read the task path's lines - stayed
 // empty for every question, however many commands it ran.
 type Steps struct {
-	// Command is a command about to run.
-	Command func(command string)
+	// Command is a command about to run, with what it is for in plain words (the description the
+	// model gave it, or a name taken from the tool).
+	Command func(command, doing string)
 	// Output is the result of the command reported last.
 	Output func(exit int, output string)
 	// Thought is reasoning the model finished: its reasoning tokens, or what it said before using
@@ -220,6 +221,8 @@ type Steps struct {
 	Thought func(text string)
 	// Live is the reasoning being written, whole so far: each one replaces the one before.
 	Live func(text string)
+	// Doing says in plain words what any other tool call is for, before it runs. It is optional.
+	Doing func(text string)
 }
 
 // WithSteps sets where the run's commands and reasoning are reported.
@@ -463,6 +466,9 @@ func (p *Planner) baseTools() []llm.Tool {
 					"a pipe may end in head, tail, wc or grep (no shell runs them). Redirections, $(), " +
 					"backticks and other pipes are not allowed in read-only mode."),
 				"timeout_seconds": llm.IntegerProperty("Maximum run time in seconds (defaults to 120)."),
+				"description": llm.StringProperty("A short phrase, 3 to 8 words, in the user's language, saying what " +
+					"the command is for in plain words (\"Reading the folder's files\"). The user reads it instead " +
+					"of the command. Never put the command in it."),
 			}, "command")),
 		llm.NewTool("search_in_files", "Searches for a pattern inside text files under a directory using grep/ripgrep.",
 			llm.ObjectSchema(map[string]any{
@@ -854,6 +860,9 @@ func (p *Planner) runTool(ctx context.Context, tc llm.ToolCall) string {
 
 // dispatchTool runs the tool a call names and returns its unmasked result.
 func (p *Planner) dispatchTool(ctx context.Context, tc llm.ToolCall) string {
+	if p.steps != nil && p.steps.Doing != nil && tc.Function.Name != "execute_command" {
+		p.steps.Doing(toolDoing(tc.Function.Name, tc.Function.Arguments))
+	}
 	// A command reported as a step is announced by that step, not twice.
 	if p.steps == nil || tc.Function.Name != "execute_command" {
 		emitToolCall(p.trace, tc.Function.Name, tc.Function.Arguments)

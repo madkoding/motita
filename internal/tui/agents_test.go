@@ -265,16 +265,19 @@ func TestTheAgentsPanelWordsThePhaseLinesInTheReadersLanguage(t *testing.T) {
 	}
 	tui.Lang = i18n.ES
 	for line, want := range map[string]string{
-		"deciding action (round 2/100)...":      "decidiendo la acción (ronda 2/100)...",
-		"waiting for 3 background agent(s)...":  "esperando a 3 agente(s) en segundo plano...",
-		"plan ready: 4 steps":                   "plan listo: 4 pasos",
-		"plan ready: 1 steps":                   "plan listo: 1 paso",
-		"synthesizing answer...":                "sintetizando la respuesta...",
-		"deciding the first step...":            "decidiendo el primer paso...",
-		"deciding the next step...":             "decidiendo el siguiente paso...",
-		"deciding the next step after: go test": "decidiendo el siguiente paso tras: go test",
-		"starting with: read the test":          "empezando por: read the test",
-		"running: go test ./...":                "running: go test ./...",
+		"doing: Running the tests\nrunning: go test":      "Ejecutando las pruebas",
+		"deciding the next step after: Running the tests": "decidiendo el siguiente paso tras: Ejecutando las pruebas",
+		"doing: Fixing the date format":                   "Fixing the date format",
+		"deciding action (round 2/100)...":                "decidiendo la acción (ronda 2/100)...",
+		"waiting for 3 background agent(s)...":            "esperando a 3 agente(s) en segundo plano...",
+		"plan ready: 4 steps":                             "plan listo: 4 pasos",
+		"plan ready: 1 steps":                             "plan listo: 1 paso",
+		"synthesizing answer...":                          "sintetizando la respuesta...",
+		"deciding the first step...":                      "decidiendo el primer paso...",
+		"deciding the next step...":                       "decidiendo el siguiente paso...",
+		"deciding the next step after: go test":           "decidiendo el siguiente paso tras: go test",
+		"starting with: read the test":                    "empezando por: read the test",
+		"running: go test ./...":                          "running: go test ./...",
 	} {
 		if got := tui.activityText(line); got != want {
 			t.Errorf("%q -> %q, want %q", line, got, want)

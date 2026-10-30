@@ -575,3 +575,38 @@ test("a model switch warns about the history and the turn in progress", () => {
   );
   assert.equal(watch.switchWarning(true, false, false), "");
 });
+
+test("an action's words stand in the conversation for its command, which stays in the terminal", async () => {
+  const { hook, rs, send } = await run();
+  await hook.act(() => {
+    rs().liveTurnRef.current = 1;
+  });
+  await send("progress", {
+    text: "doing: Running the tests\nrunning: go test ./...",
+  });
+  assert.equal(rs().activity, "Running the tests");
+  assert.equal(rs().activityKind, "doing");
+  let steps = rs().stepsByTurn[1];
+  assert.deepEqual(
+    steps.map((s) => [s.kind, s.text, s.label, s.exit]),
+    [["command", "running: go test ./...", "Running the tests", null]],
+  );
+  assert.deepEqual(
+    rs().shellLog.map((e) => [e.cmd, e.exit]),
+    [["go test ./...", null]],
+  );
+  // Its output still lands on that command.
+  await send("progress", { text: "output (exit 1):\nFAIL" });
+  steps = rs().stepsByTurn[1];
+  assert.deepEqual([steps[0].exit, steps[0].out], [1, "FAIL"]);
+  // Words with no command after them are a step of their own.
+  await send("progress", { text: "doing: Reading a skill" });
+  assert.equal(rs().activity, "doing: Reading a skill");
+  assert.equal(rs().activityKind, "doing");
+  const last = rs().stepsByTurn[1].at(-1);
+  assert.deepEqual(
+    [last.kind, last.text, last.label],
+    ["step", "doing: Reading a skill", undefined],
+  );
+  await hook.unmount();
+});

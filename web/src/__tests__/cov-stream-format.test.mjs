@@ -471,6 +471,7 @@ test("modes, switched messages and progress kinds are recognised", () => {
     "output (exit 0):": "output",
     "approved (all commands allowed)": "check",
     "running: ls": "command",
+    "doing: Reading a file": "doing",
     "action: x": "reasoning",
     "mode: plan (x)": "analysis",
     "validating with anchor...": "check",
@@ -726,4 +727,41 @@ test("the memory lines are classed, worded and read back", async () => {
     ]),
     { saved: [{ title: "A b", path: "x/A b.md" }], recalled: 4 },
   );
+});
+
+test("the words of an action are split from its command and shown in the reader's language", async () => {
+  assert.deepEqual(m.splitDoing("doing: Running the tests\nrunning: go test"), {
+    doing: "Running the tests",
+    rest: "running: go test",
+  });
+  assert.deepEqual(m.splitDoing("doing: Reading a skill"), {
+    doing: "Reading a skill",
+    rest: "",
+  });
+  assert.equal(m.splitDoing("running: ls"), null);
+  assert.equal(
+    m.progressText("doing: Running the tests\nrunning: go test"),
+    "Running the tests",
+  );
+  assert.equal(
+    m.progressText("doing: Fixing the date format"),
+    "Fixing the date format",
+  );
+  await i18n.setLang("es");
+  try {
+    assert.equal(
+      m.progressText("deciding the next step after: Running the tests (+1)"),
+      "decidiendo el siguiente paso tras: Running the tests (+1)",
+    );
+    assert.equal(
+      m.progressText("doing: Running the tests\nrunning: go test"),
+      "Ejecutando las pruebas",
+    );
+    assert.equal(
+      m.progressText("doing: Fixing the date format"),
+      "Fixing the date format",
+    );
+  } finally {
+    await i18n.setLang("en");
+  }
 });

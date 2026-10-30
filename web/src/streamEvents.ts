@@ -9,6 +9,7 @@ import {
   commandOf,
   isPhaseLine,
   parseSub,
+  splitDoing,
   splitOutput,
   subTag,
 } from "./appParse";
@@ -160,12 +161,20 @@ function stepKind(kind: string): string {
 // onStep: a progress line that is a step of the turn (a command, a thought, a note), or one
 // that only names the phase the pipeline is in. The second kind moves the activity line and is
 // filed nowhere: the trail is a timeline of what the agent did, not of the labels around it.
-function onStep({ rs }: StreamContext, text: string, kind: string) {
+//
+// label is what the action is for, in the words it announced itself with. The conversation shows it
+// in place of the command, which only the terminal drawer keeps.
+function onStep(
+  { rs }: StreamContext,
+  text: string,
+  kind: string,
+  label?: string,
+) {
   // A finished thought belongs to the thinking drawer, not to the chat: it is filed with
   // the turn's steps (where it is kept) and the live snapshot it grew from is done.
   if (kind !== "thought") {
-    rs.setActivity(text);
-    rs.setActivityKind(kind);
+    rs.setActivity(label ?? text);
+    rs.setActivityKind(choose(label, "doing", kind));
   }
   const liveTurn = rs.liveTurnRef.current;
   if (text && liveTurn != null && !isPhaseLine(text)) {
@@ -173,6 +182,7 @@ function onStep({ rs }: StreamContext, text: string, kind: string) {
       kind: stepKind(kind),
       text,
       ...choose(kind === "command", { exit: null }, {}),
+      ...choose(label, { label }, {}),
     });
     rs.setStepsByTurn((prev) => ({
       ...prev,
@@ -251,6 +261,11 @@ function onProgress(ctx: StreamContext, payload: StreamPayload) {
     } catch {
       /* not a list */
     }
+    return;
+  }
+  const words = splitDoing(text);
+  if (words?.rest) {
+    onStep(ctx, words.rest, classifyProgress(words.rest) ?? "", words.doing);
     return;
   }
   const kind = classifyProgress(text) ?? "";
