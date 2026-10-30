@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net/http"
 	"regexp"
 	"strings"
 )
@@ -34,6 +35,75 @@ func WithJSONSchema(ctx context.Context, schema json.RawMessage) context.Context
 func jsonSchemaFrom(ctx context.Context) json.RawMessage {
 	schema, _ := ctx.Value(schemaKey{}).(json.RawMessage)
 	return schema
+}
+
+// schemaFor is the schema an HTTP provider is asked to follow on this request, or nil: none was
+// asked for, the request offers tools (a reply must stay free to call one), or the provider has
+// already refused one.
+//
+// Reported from real use: "(read from a reply that was not the JSON object asked for)" on round
+// after round. Only claude-code enforced the schema; every provider spoken to over HTTP was sent
+// it nowhere, and a model that writes its commands as a list or as pseudo tool calls did so on
+// every round. Each one now carries it in its own field (response_format, text.format,
+// generationConfig.responseJsonSchema).
+func (c *Client) schemaFor(ctx context.Context, tools []Tool) json.RawMessage {
+	if len(tools) > 0 || c.noSchema.Load() {
+		return nil
+	}
+	return jsonSchemaFrom(ctx)
+}
+
+// schemaFields are the request fields that carry a reply schema, by path: /chat/completions,
+// /responses and Gemini's generateContent.
+var schemaFields = [][]string{
+	{"response_format"},
+	{"text", "format"},
+	{"generationConfig", "responseMimeType"},
+	{"generationConfig", "responseJsonSchema"},
+}
+
+// dropSchema returns data without the fields that carry a reply schema, and reports whether it
+// had any. A server that does not know the field (an older Ollama, a Qwen model in thinking mode,
+// a Gemini model before responseJsonSchema) refuses the whole request with a 400, and the same
+// request without it is still worth an answer: what the schema prevents, ExtractJSON and the
+// agent's salvage read anyway.
+func dropSchema(data []byte) ([]byte, bool) {
+	var body map[string]any
+	if json.Unmarshal(data, &body) != nil {
+		return data, false
+	}
+	dropped := false
+	for _, path := range schemaFields {
+		parent := body
+		for _, key := range path[:len(path)-1] {
+			parent, _ = parent[key].(map[string]any)
+		}
+		if _, ok := parent[path[len(path)-1]]; ok {
+			delete(parent, path[len(path)-1])
+			dropped = true
+		}
+	}
+	if !dropped {
+		return data, false
+	}
+	out, _ := json.Marshal(body)
+	return out, true
+}
+
+// refusedSchema reports whether a refusal of data may be the schema it carries, and if so stops
+// sending one: data is then asked once more without it.
+func (c *Client) refusedSchema(data *[]byte, status int) bool {
+	if status != http.StatusBadRequest && status != http.StatusUnprocessableEntity {
+		return false
+	}
+	stripped, ok := dropSchema(*data)
+	if !ok {
+		return false
+	}
+	*data = stripped
+	c.noSchema.Store(true)
+	c.log.Warn("the provider refused the reply schema; asking again without it")
+	return true
 }
 
 // ExtractJSON gets the JSON value out of an LLM response, tolerating the usual decorations:

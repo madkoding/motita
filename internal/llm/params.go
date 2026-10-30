@@ -69,6 +69,18 @@ func (c *Client) openAIBody(messages []Message, tools []Tool) map[string]any {
 	return body
 }
 
+// addResponseFormat asks a /chat/completions server for a reply that follows the schema of ctx,
+// when there is one (schemaFor). strict is off: OpenAI's strict mode refuses a schema whose
+// objects do not list every property as required, and final_action is optional.
+func (c *Client) addResponseFormat(ctx context.Context, body map[string]any, tools []Tool) {
+	if schema := c.schemaFor(ctx, tools); schema != nil {
+		body["response_format"] = map[string]any{
+			"type":        "json_schema",
+			"json_schema": map[string]any{"name": "reply", "schema": schema, "strict": false},
+		}
+	}
+}
+
 // maxBudgetTokens caps how far an answer cut off by the token budget is retried with a larger one.
 const maxBudgetTokens = 65536
 
@@ -102,6 +114,7 @@ func (c *Client) openAIChoice(
 	ctx context.Context, messages []Message, tools []Tool,
 ) (openAIChoice, *openAIUsage, error) {
 	body := c.openAIBody(messages, tools)
+	c.addResponseFormat(ctx, body, tools)
 	for {
 		data, err := c.post(ctx, "/chat/completions", body)
 		if err != nil {
