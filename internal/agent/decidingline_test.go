@@ -16,10 +16,12 @@ func TestDecidingLineSaysWhatTheAgentIsWorkingOn(t *testing.T) {
 		{"plan with a first step", taskRun{plan: Plan{Steps: []Step{{Action: " read  the\ntest "}}}},
 			startingWith + "read the test"},
 		{"plan whose first step is blank", taskRun{plan: Plan{Steps: []Step{{}}}}, decidingFirst},
-		{"after a round the command is not quoted", taskRun{journal: []roundRecord{{commands: "go test ./..."}}},
-			decidingNext},
+		{"after a round the words are quoted, not the command", taskRun{lastDoing: "Running the tests",
+			journal: []roundRecord{{commands: "go test ./..."}}}, decidingNextWith + "Running the tests"},
+		{"a long description is cut", taskRun{lastDoing: long, journal: []roundRecord{{}}},
+			decidingNextWith + truncate(long, focusWidth)},
+		{"after a round with no words", taskRun{journal: []roundRecord{{commands: "go test ./..."}}}, decidingNext},
 		{"after a round that ran nothing", taskRun{journal: []roundRecord{{}}}, decidingNext},
-		{"a long command is not quoted either", taskRun{journal: []roundRecord{{commands: long}}}, decidingNext},
 	}
 	for _, c := range cases {
 		if got := c.run.decidingLine(); got != c.want {

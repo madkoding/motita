@@ -88,3 +88,17 @@ func TestActionsAnnounceThemselvesInWords(t *testing.T) {
 		t.Errorf("doings = %q, want %q", doings, want)
 	}
 }
+
+func TestDoingOfRoundNamesTheFirstActionAndCountsTheRest(t *testing.T) {
+	if got := doingOfRound(Action{}); got != "" {
+		t.Errorf("no actions: %q", got)
+	}
+	one := Action{Actions: []Command{{Description: "Running the tests"}}}
+	if got := doingOfRound(one); got != "Running the tests" {
+		t.Errorf("one: %q", got)
+	}
+	many := Action{Actions: []Command{{Description: "Running the tests"}, {Kind: "write_file"}, {Kind: "edit_file"}}}
+	if got := doingOfRound(many); got != "Running the tests (+2)" {
+		t.Errorf("many: %q", got)
+	}
+}

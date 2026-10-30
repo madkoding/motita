@@ -20,7 +20,9 @@ type taskRun struct {
 	depth  int
 	prefix string
 	start  time.Time
-	res    TaskResult
+	// lastDoing is what the previous round's actions were for, in words.
+	lastDoing string
+	res       TaskResult
 
 	analysis Analysis
 	plan     Plan
@@ -557,19 +559,22 @@ func (r *taskRun) nextRound() bool {
 // Lines the loop reports while it chooses the next action. They say what the agent is working on
 // rather than a round counter, which told the reader nothing about the work.
 const (
-	decidingFirst = "deciding the first step..."
-	decidingNext  = "deciding the next step..."
-	startingWith  = "starting with: "
+	decidingFirst    = "deciding the first step..."
+	decidingNext     = "deciding the next step..."
+	startingWith     = "starting with: "
+	decidingNextWith = "deciding the next step after: "
 	// focusWidth keeps the activity line to one line.
 	focusWidth = 80
 )
 
 // decidingLine is the progress line of a round that is about to ask for its action: the plan's
-// first step on the first round, and on the later ones only that the next step is being chosen. It
-// used to quote the previous round's command, which told the reader nothing in their own words; what
-// each action is for is reported, once the model has said it, as a DoingPrefix line.
+// first step on the first round, and on the later ones what the previous round did, in the words
+// its actions announced themselves with (never the command, which told the reader nothing).
 func (r *taskRun) decidingLine() string {
 	if len(r.journal) > 0 {
+		if r.lastDoing != "" {
+			return decidingNextWith + truncate(r.lastDoing, focusWidth)
+		}
 		return decidingNext
 	}
 	if len(r.plan.Steps) > 0 {
@@ -669,6 +674,7 @@ func (r *taskRun) progress(action Action, runOutput string, runErr error) (res T
 		round: r.round, kind: roundProgress, commands: proposedCommands(action), detail: detail,
 	})
 	r.trail = append(r.trail, fmt.Sprintf("round %d: %s", r.round, truncate(collapse(proposedCommands(action)), 200)))
+	r.lastDoing = doingOfRound(action)
 	if r.depth == 0 {
 		a.trail(r.t, r.trail)
 	}

@@ -1,6 +1,7 @@
 package agent
 
 import (
+	"fmt"
 	"path"
 	"strings"
 )
@@ -131,4 +132,17 @@ func SplitDoing(line string) (doing, rest string, ok bool) {
 	}
 	doing, rest, _ = strings.Cut(body, "\n")
 	return doing, rest, true
+}
+
+// doingOfRound is what a round's actions were for, in words: the first one's, and how many more
+// there were.
+func doingOfRound(action Action) string {
+	if len(action.Actions) == 0 {
+		return ""
+	}
+	d := action.Actions[0].doing()
+	if n := len(action.Actions) - 1; n > 0 {
+		d += fmt.Sprintf(" (+%d)", n)
+	}
+	return d
 }
