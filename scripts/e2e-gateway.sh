@@ -85,7 +85,7 @@ esac
 [ "$elf_class" = "$want_class" ] || { echo "ERROR: $BINARY is not the expected ELF class ($elf_class)"; exit 1; }
 echo "    ELF class confirmed ($elf_class)"
 
-rm -rf .e2e && mkdir -p .e2e/work
+rm -rf .e2e && mkdir -p .e2e/work .e2e/home
 # The default session belongs to no project, so it works in a folder of its own under the
 # workspace root, never in the root itself.
 DEFAULT_WORK=.e2e/work/sessions/default
@@ -101,7 +101,7 @@ echo "==> Starting $IMAGE ($PLATFORM) on the host network"
   -w /e2e \
   "$IMAGE" sh -c "
     /dist/.e2e/$(basename "$MOCK") -port $PORT_LLM -delay-ms ${MOCK_DELAY_MS:-40} >/e2e/mock.log 2>&1 &
-    NO_COLOR=1 MOTITA_LLM_API_KEY=test \
+    HOME=/e2e/home NO_COLOR=1 MOTITA_LLM_API_KEY=test \
       /dist/.e2e/$(basename "$BINARY") -config /e2e/config.yaml -serve \
         -gateway 127.0.0.1:$PORT_GW >/e2e/gateway.log 2>&1 &
     wait
@@ -506,6 +506,40 @@ esac
 case "$transcript" in
   *'"Agent":""'*) bad "the turn carries the request but no outcome" ;;
   *) ok "the turn carries what was done about it" ;;
+esac
+
+echo
+echo "==> the plan and the conversation after the gateway restarts"
+
+# A restart is the moment a conversation used to lose everything held in memory: the summary of
+# what was compacted and the plan being followed. The plan is set through the API, the container
+# is restarted (the same disk, a new process) and both are read back from the new one.
+PLAN_TEXT='1. pack the bags\n2. book the hotel\n3. take the train'
+put_plan="$(curl -s -X PUT -H "$AUTH" -H 'Content-Type: application/json' \
+  -d "{\"plan\":\"$PLAN_TEXT\"}" "$BASE/v1/sessions/default/plan")"
+case "$put_plan" in
+  *'book the hotel'*) ok "the plan was pinned through the API" ;;
+  *) bad "pinning the plan answered: $put_plan" ;;
+esac
+
+"$CTR" restart -t 2 "$CONTAINER" >/dev/null
+deadline=$((SECONDS + 60))
+while [ "$SECONDS" -lt "$deadline" ]; do
+  curl -fsS -o /dev/null "$BASE/v1/health" 2>/dev/null && break
+  sleep 0.2
+done
+TOKEN="$(cat .e2e/gateway.token)"
+AUTH="Authorization: Bearer $TOKEN"
+
+after_plan="$(curl -s -H "$AUTH" "$BASE/v1/sessions/default/plan")"
+case "$after_plan" in
+  *'1. pack the bags'*'3. take the train'*) ok "the pinned plan survived the restart" ;;
+  *) bad "after the restart the plan reads: $after_plan" ;;
+esac
+after_transcript="$(curl -s -H "$AUTH" "$BASE/v1/sessions/default/messages")"
+case "$after_transcript" in
+  *'leave the report'*) ok "the conversation survived the restart" ;;
+  *) bad "after the restart the conversation reads: $after_transcript" ;;
 esac
 
 echo
