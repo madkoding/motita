@@ -415,6 +415,43 @@ export function TurnHead({
   );
 }
 
+// planOutcome is the answer a plan turn ended with, when it is one the person can have carried
+// out: text the agent wrote, not a card of questions or a report.
+export function planOutcome(rest: Message[]): Message | null {
+  const last = rest[rest.length - 1];
+  const answer =
+    last && last.role === "agent" && !last.kind && !last.draft && !last.report;
+  return choose(
+    answer && !last.questions && last.text.trim() !== "",
+    last,
+    null,
+  );
+}
+
+// RunPlanBar closes a plan the agent wrote: a plan cannot run commands or change files, so the
+// person is offered to have it carried out right there instead of writing the order again. It is
+// offered only on the newest input, while nothing runs.
+export function RunPlanBar({ head }: { head: Message }) {
+  const { running, lastUserId, submit } = useTurn();
+  if (running || head.id < lastUserId) {
+    return null;
+  }
+  return (
+    <div class="run-plan">
+      <span class="run-plan-text">
+        {t("This was a plan: nothing has been changed yet.")}
+      </span>
+      <button
+        type="button"
+        class="run-plan-btn"
+        onClick={() => submit(t("run the plan"))}
+      >
+        {t("Run the plan now")}
+      </button>
+    </div>
+  );
+}
+
 // ModeBadge says which mode auto mode picked for a turn, and why when the turn says. When the
 // message can be sent again (no run is working) the badge is the switch itself: one tap runs it
 // in the other mode, the same as the input's menu. A bare default (no rule and no model placed the

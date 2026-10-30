@@ -78,16 +78,17 @@ func (g *Gate) Wrap(complete Completer) Completer {
 // one word, and every token of it is spent before every turn auto mode routes.
 const ModelSystem = "You route a user's message to a coding agent. " +
 	`Answer with JSON only: {"kind":"plan"} or {"kind":"task"}.` + "\n" +
-	`"plan": the user wants an answer, an explanation, a review or a design, ` +
-	"or reports a problem without saying what to do, " +
-	"and nothing in the project should change yet.\n" +
+	`"plan": the user asks a question, wants an explanation, a review or a design, ` +
+	"or says not to change anything yet.\n" +
 	`"task": the user wants something done or changed in the project; ` +
 	"also greetings, thanks and small talk.\n" +
-	`A wish is an order ("I need it to...", "quiero que..."), ` + // spanish-fixture: what the model reads
+	`A wish is an order ("I need it to...", "quiero que...", "it should have..."), ` + // spanish-fixture: what the model reads
+	`a report that something is broken or missing is an order to fix it, ` +
 	`and so is a go-ahead ("ok", "dale"): "task". ` +
 	`Being told not to change anything, or asked to make a plan or a proposal, is "plan".` + "\n" +
-	`When unsure, answer "plan": planning when work was wanted costs one message, ` +
-	"working when a plan was wanted changes files."
+	`When unsure, answer "task": a plan cannot run commands or change files, so planning ` +
+	"when work was wanted leaves the person with nothing done, while the work is kept " +
+	"in a checkpoint they can go back to."
 
 // Completer asks a model for one completion of a system and a user message.
 type Completer func(ctx context.Context, system, user string) (string, error)

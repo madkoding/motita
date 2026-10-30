@@ -5,6 +5,7 @@ const automode: Record<string, string> = {
   "Auto mode picked it: {why}": "El modo automático lo eligió: {why}",
   question: "pregunta",
   "reports a problem": "reporta un problema",
+  "wants to understand": "quiere entender qué pasa",
   "asks for a plan": "pide un plan",
   "asked not to change anything": "pidió no cambiar nada",
   "carrying out the plan": "ejecuta el plan",

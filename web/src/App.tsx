@@ -49,6 +49,8 @@ import {
   RunArtifacts,
   SubagentsStrip,
   TurnTop,
+  RunPlanBar,
+  planOutcome,
 } from "./ConversationParts";
 import { EditProjectModal } from "./EditProjectModal";
 import { RepoGitPanel } from "./RepoGitPanel";
@@ -468,6 +470,9 @@ function TurnBody({ g, steps, liveHere, activity }: TurnProps) {
       {rest.map((m) => (
         <MessageItem key={m.id} m={m} auto={mode !== null} />
       ))}
+      {head && mode === "plan" && !liveHere && planOutcome(rest) && (
+        <RunPlanBar head={head} />
+      )}
       {liveHere && activity && (
         <ActivityLine activity={activity} shown={shown} />
       )}

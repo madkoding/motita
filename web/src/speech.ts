@@ -1002,8 +1002,10 @@ export async function narrate(
   return (out.text || "").trim();
 }
 
-// ROUND_COUNTER is the agent's own progress line for each round of its loop.
-const ROUND_COUNTER = /^deciding action \(round \d+\/\d+\)/;
+// ROUND_COUNTER is the agent's own progress line for each round of its loop (the older counter and
+// the lines that name what the round is about).
+const ROUND_COUNTER =
+  /^(deciding action \(round \d+\/\d+\)|deciding the (first|next) step(\.\.\.| after: )|starting with: )/;
 
 // notesOf turns the steps of a run into the notes the model is told about: what each step did,
 // leaving out the line that names the mode auto mode picked and the round counter ("deciding action

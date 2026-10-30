@@ -798,3 +798,33 @@ test("the files a run saved open over the artifact list", async () => {
   await t.m.unmount();
   await tick();
 });
+
+test("a plan's closing answer is the one that can be carried out", () => {
+  const answer = { id: 2, role: "agent", text: "1. change x" };
+  assert.equal(P.planOutcome([answer]), answer);
+  assert.equal(P.planOutcome([]), null, "no answer, nothing to carry out");
+  for (const odd of [
+    { kind: "kind" },
+    { draft: true },
+    { report: { summary: "s" } },
+    { questions: [{ question: "which?" }] },
+    { text: "  " },
+    { role: "user" },
+  ]) {
+    assert.equal(P.planOutcome([{ ...answer, ...odd }]), null);
+  }
+});
+
+test("under a plan, one button carries it out, and only while it is the newest input", async () => {
+  const head = { id: 3, role: "user", text: "arregla el login" };
+  const offer = await inTurn(h(P.RunPlanBar, { head }), { lastUserId: 3 });
+  assert.match(text(offer.root), /nothing has been changed yet/);
+  offer.q("button.run-plan-btn").click();
+  assert.deepEqual(offer.calls, [["submit", "run the plan"]]);
+  await offer.m.unmount();
+  for (const over of [{ running: true, lastUserId: 3 }, { lastUserId: 9 }]) {
+    const none = await inTurn(h(P.RunPlanBar, { head }), over);
+    assert.equal(none.q(".run-plan"), null);
+    await none.m.unmount();
+  }
+});

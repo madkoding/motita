@@ -254,6 +254,8 @@ func TestTheAgentsPanelWordsThePhaseLinesInTheReadersLanguage(t *testing.T) {
 		"plan ready: 1 steps":                   "plan ready: 1 step",
 		"plan ready: 4 steps":                   "plan ready: 4 steps",
 		"planning...":                           "planning...",
+		"deciding the first step...":            "deciding the first step...",
+		"deciding the next step after: go test": "deciding the next step after: go test",
 		"running: go test ./...":                "running: go test ./...",
 		"the model's own words, left untouched": "the model's own words, left untouched",
 	} {
@@ -263,12 +265,16 @@ func TestTheAgentsPanelWordsThePhaseLinesInTheReadersLanguage(t *testing.T) {
 	}
 	tui.Lang = i18n.ES
 	for line, want := range map[string]string{
-		"deciding action (round 2/100)...":     "decidiendo la acción (ronda 2/100)...",
-		"waiting for 3 background agent(s)...": "esperando a 3 agente(s) en segundo plano...",
-		"plan ready: 4 steps":                  "plan listo: 4 pasos",
-		"plan ready: 1 steps":                  "plan listo: 1 paso",
-		"synthesizing answer...":               "sintetizando la respuesta...",
-		"running: go test ./...":               "running: go test ./...",
+		"deciding action (round 2/100)...":      "decidiendo la acción (ronda 2/100)...",
+		"waiting for 3 background agent(s)...":  "esperando a 3 agente(s) en segundo plano...",
+		"plan ready: 4 steps":                   "plan listo: 4 pasos",
+		"plan ready: 1 steps":                   "plan listo: 1 paso",
+		"synthesizing answer...":                "sintetizando la respuesta...",
+		"deciding the first step...":            "decidiendo el primer paso...",
+		"deciding the next step...":             "decidiendo el siguiente paso...",
+		"deciding the next step after: go test": "decidiendo el siguiente paso tras: go test",
+		"starting with: read the test":          "empezando por: read the test",
+		"running: go test ./...":                "running: go test ./...",
 	} {
 		if got := tui.activityText(line); got != want {
 			t.Errorf("%q -> %q, want %q", line, got, want)

@@ -1,20 +1,20 @@
 # Messages as people write them, and the mode each one should run in.
 # kind<TAB>message. Lines starting with # are comments.
-# Plans: problem reports, questions, asks to understand, asks for a plan.
-plan	tengo problemas con esto, could not reach the reasoning engine: context deadline exceeded
-plan	tambien tiene problemas para resolver si lo que le pido es un plan o una tarea
-plan	el build falla en CI
-plan	me sale este error: panic: nil pointer
-plan	no funciona el login desde ayer
+# Plans: questions, asks to understand, asks for a plan.
+task	tengo problemas con esto, could not reach the reasoning engine: context deadline exceeded
+task	tambien tiene problemas para resolver si lo que le pido es un plan o una tarea
+task	el build falla en CI
+task	me sale este error: panic: nil pointer
+task	no funciona el login desde ayer
 plan	necesito un plan para migrar a postgres
 plan	quiero entender cómo funciona el scheduler
 plan	dime qué hace este archivo
 plan	me gustaría saber por qué tarda tanto
 plan	Can you explain how auth works?
 plan	Could you tell me what this does?
-plan	I'm getting a 500 when I log in
-plan	tests are failing after the merge
-plan	the app crashes on startup
+task	I'm getting a 500 when I log in
+task	tests are failing after the merge
+task	the app crashes on startup
 plan	Is it possible to add dark mode?
 plan	Puedes revisar el PR 12?
 plan	Podrías explicarme el flujo de login?
@@ -110,3 +110,11 @@ task	quiero agregar una página de ajustes
 task	ok
 task	dale
 task	hazlo
+# A report that something is broken or missing is an order to fix it: a plan cannot change anything.
+task	necesito que motita corra los tests y suba el PR
+task	quiero que arregles el bug del sidebar
+task	puedes revisar por que falla el CI y arreglarlo
+task	haz un commit y push de esto
+task	el boton de exportar no funciona
+plan	no entiendo por qué falla el login
+plan	I don't understand why the build is slow

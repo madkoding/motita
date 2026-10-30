@@ -31,6 +31,11 @@ const first: Record<string, string> = {
   Suggestions: "Sugerencias",
   Plan: "Plan",
   "Run as task": "Ejecutar como tarea",
+  "Run the plan now": "Ejecutar el plan ahora",
+  "run the plan": "ejecuta el plan",
+  "This was a plan: nothing has been changed yet.":
+    "Esto fue solo un plan: todavía no se cambió nada.",
+  "starting with: {x}": "empezando por: {x}",
   needed: "necesaria",
   "Run as plan": "Ejecutar como plan",
   "Applying suggestions": "Aplicando sugerencias",
@@ -422,6 +427,9 @@ const first: Record<string, string> = {
     "no se pudo actualizar la configuración",
   "deciding action (round {a}/{b})...":
     "decidiendo la acción (ronda {a}/{b})...",
+  "deciding the first step...": "decidiendo el primer paso...",
+  "deciding the next step...": "decidiendo el siguiente paso...",
+  "deciding the next step after: {x}": "decidiendo el siguiente paso tras: {x}",
   "due now": "toca ahora",
   edited: "editado",
   error: "error",

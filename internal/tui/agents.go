@@ -240,6 +240,8 @@ var activityForms = []struct {
 	format string
 }{
 	{regexp.MustCompile(`^deciding action \(round (\d+)/(\d+)\)\.\.\.$`), "deciding action (round %s/%s)..."},
+	{regexp.MustCompile(`^deciding the next step after: (.*)$`), "deciding the next step after: %s"},
+	{regexp.MustCompile(`^starting with: (.*)$`), "starting with: %s"},
 	{regexp.MustCompile(`^waiting for (\d+) background agent\(s\)\.\.\.$`), "waiting for %s background agent(s)..."},
 	{regexp.MustCompile(`^plan ready: (1) steps?$`), "plan ready: %s step"},
 	{regexp.MustCompile(`^plan ready: (\d+) steps?$`), "plan ready: %s steps"},
@@ -247,10 +249,12 @@ var activityForms = []struct {
 
 // activityFixed are the phase lines that carry nothing.
 var activityFixed = map[string]bool{
-	"analysing the task...":     true,
-	"planning...":               true,
-	"validating with anchor...": true,
-	"synthesizing answer...":    true,
+	"analysing the task...":      true,
+	"deciding the first step...": true,
+	"deciding the next step...":  true,
+	"planning...":                true,
+	"validating with anchor...":  true,
+	"synthesizing answer...":     true,
 }
 
 // activityText shows an agent's latest phase line in the reader's language. Anything that is not

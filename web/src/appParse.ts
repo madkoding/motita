@@ -147,7 +147,7 @@ const PROGRESS_PATTERNS: [RegExp, string][] = [
   [/^(validating|validation)/, "check"],
   [/^(planning|plan ready|subtask)/, "plan"],
   [/^(analysing|understood)/, "analysis"],
-  [/^(deciding|round \d+ done)/, "reasoning"],
+  [/^(deciding|starting with: |round \d+ done)/, "reasoning"],
   [/^(task complete|synthesizing)/, "synthesis"],
 ];
 
@@ -156,7 +156,7 @@ const PROGRESS_PATTERNS: [RegExp, string][] = [
 // The gateway drops the same lines from the steps it keeps (agent.IsPhaseLine), so a conversation
 // opened again shows the trail the live view did.
 const PHASE_LINE =
-  /^(analysing the task\.\.\.|planning\.\.\.|plan ready: \d+ steps?|deciding action \(round \d+\/\d+\)\.\.\.|round \d+ done; |validating with anchor\.\.\.|validation passed; |synthesizing answer\.\.\.|task complete: )/;
+  /^(analysing the task\.\.\.|planning\.\.\.|plan ready: \d+ steps?|deciding action \(round \d+\/\d+\)\.\.\.|deciding the (?:first|next) step(?:\.\.\.| after: )|starting with: |round \d+ done; |validating with anchor\.\.\.|validation passed; |synthesizing answer\.\.\.|task complete: )/;
 
 export function isPhaseLine(text: string): boolean {
   return PHASE_LINE.test(text);
@@ -300,6 +300,14 @@ const PROGRESS_FORMS: [RegExp, string, string[]][] = [
     "deciding action (round {a}/{b})...",
     ["a", "b"],
   ],
+  [/^deciding the first step\.\.\.$/, "deciding the first step...", []],
+  [/^deciding the next step\.\.\.$/, "deciding the next step...", []],
+  [
+    /^deciding the next step after: ([\s\S]*)$/,
+    "deciding the next step after: {x}",
+    ["x"],
+  ],
+  [/^starting with: ([\s\S]*)$/, "starting with: {x}", ["x"]],
   [
     /^round (\d+) done; the model reports more to do$/,
     "round {n} done; the model reports more to do",
