@@ -296,6 +296,7 @@ export function oneLine(text: string, max = 160): string {
 // PROGRESS_FORMS are the agent's own phase lines (agent.report in Go), in English on the wire, and
 // the format each one is shown with. Anything that is not one of these - a command, the model's
 // reasoning, a gateway message - is shown exactly as it arrived.
+const DECIDING_AFTER = "deciding the next step after: {x}";
 const PROGRESS_FORMS: [RegExp, string, string[]][] = [
   [/^analysing the task\.\.\.$/, "analysing the task...", []],
   [/^understood: ([\s\S]*)$/, "understood: {x}", ["x"]],
@@ -308,11 +309,7 @@ const PROGRESS_FORMS: [RegExp, string, string[]][] = [
   ],
   [/^deciding the first step\.\.\.$/, "deciding the first step...", []],
   [/^deciding the next step\.\.\.$/, "deciding the next step...", []],
-  [
-    /^deciding the next step after: ([\s\S]*)$/,
-    "deciding the next step after: {x}",
-    ["x"],
-  ],
+  [/^deciding the next step after: ([\s\S]*)$/, DECIDING_AFTER, ["x"]],
   [/^starting with: ([\s\S]*)$/, "starting with: {x}", ["x"]],
   [
     /^round (\d+) done; the model reports more to do$/,
@@ -386,6 +383,10 @@ export function progressText(text: string): string {
     names.forEach((n, i) => {
       args[n] = m[i + 1];
     });
+    if (format === DECIDING_AFTER) {
+      // What the last action was for, in the words it announced itself with.
+      args.x = t(args.x);
+    }
     return tf(format, args);
   }
   return text;

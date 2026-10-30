@@ -712,6 +712,10 @@ test("the words of an action are split from its command and shown in the reader'
   await i18n.setLang("es");
   try {
     assert.equal(
+      m.progressText("deciding the next step after: Running the tests (+1)"),
+      "decidiendo el siguiente paso tras: Running the tests (+1)",
+    );
+    assert.equal(
       m.progressText("doing: Running the tests\nrunning: go test"),
       "Ejecutando las pruebas",
     );
