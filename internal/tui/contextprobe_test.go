@@ -23,7 +23,8 @@ func TestTheChatSeesTheWorkDoneBetweenItsTurns(t *testing.T) {
 	r := planRunner(t, srv.URL, "conv-probe")
 	r.Cfg.Anchor = config.Anchor{Kind: "command", Command: "true"}
 	plain := r.newAgent
-	r.newAgent = func(cfg config.Config, log *logx.Logger, e *llm.Client, b *sandbox.Sandbox, s taskpkg.Source, ro bool) AgentRunner {
+	r.newAgent = func(cfg config.Config, log *logx.Logger, e *llm.Client, b *sandbox.Sandbox,
+		s taskpkg.Source, ro bool) AgentRunner {
 		if cfg.Agent.ReadOnly {
 			return plain(cfg, log, e, b, s, ro)
 		}
