@@ -155,7 +155,13 @@ func (c *Client) callResponsesStream(
 	if err != nil {
 		return nil, err
 	}
-	resp, _, err := c.send(ctx, "/responses", c.responsesBody(messages, tools, t.chatgpt), true)
+	body := c.responsesBody(messages, tools, t.chatgpt)
+	if schema := c.schemaFor(ctx, tools); schema != nil {
+		body["text"] = map[string]any{"format": map[string]any{
+			"type": "json_schema", "name": "reply", "schema": schema, "strict": false,
+		}}
+	}
+	resp, _, err := c.send(ctx, "/responses", body, true)
 	if err != nil {
 		return nil, err
 	}

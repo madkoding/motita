@@ -57,12 +57,17 @@ func geminiTextContents(messages []Message) (string, []map[string]any) {
 
 func (c *Client) callGemini(ctx context.Context, messages []Message) (string, error) {
 	system, contents := geminiTextContents(messages)
+	generation := map[string]any{
+		"maxOutputTokens": c.cfg.MaxTokens,
+		"temperature":     c.cfg.TemperatureOr(defaultTemperature),
+	}
+	if schema := c.schemaFor(ctx, nil); schema != nil {
+		generation["responseMimeType"] = "application/json"
+		generation["responseJsonSchema"] = schema
+	}
 	body := map[string]any{
-		"contents": contents,
-		"generationConfig": map[string]any{
-			"maxOutputTokens": c.cfg.MaxTokens,
-			"temperature":     c.cfg.TemperatureOr(defaultTemperature),
-		},
+		"contents":         contents,
+		"generationConfig": generation,
 	}
 	if system != "" {
 		body["systemInstruction"] = map[string]any{
