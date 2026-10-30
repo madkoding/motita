@@ -140,6 +140,7 @@ const PROGRESS_PREFIXES: [string, string][] = [
   ["output (exit", "output"],
   ["approved (all commands", "check"],
   ["running:", "command"],
+  ["doing:", "doing"],
   ["action:", "reasoning"],
   ["mode:", "analysis"],
 ];
@@ -349,8 +350,33 @@ const PROGRESS_FORMS: [RegExp, string, string[]][] = [
   ],
 ];
 
+// The prefix of the words an action is announced with.
+const DOING_PREFIX = "doing: ";
+
+// splitDoing reads a progress line that carries the words of an action: "doing: <words>", with the
+// action's own line ("running: <command>") after a line break when it has one. The words say what
+// the action is for; the conversation shows them and the actions tab keeps the command. A line
+// that is not one is null.
+export function splitDoing(
+  text: string,
+): { doing: string; rest: string } | null {
+  if (!text.startsWith(DOING_PREFIX)) {
+    return null;
+  }
+  const body = text.slice(DOING_PREFIX.length);
+  const cut = body.indexOf("\n");
+  if (cut < 0) {
+    return { doing: body, rest: "" };
+  }
+  return { doing: body.slice(0, cut), rest: body.slice(cut + 1) };
+}
+
 // progressText shows one of the agent's phase lines in the reader's language.
 export function progressText(text: string): string {
+  const words = splitDoing(text);
+  if (words) {
+    return t(words.doing);
+  }
   for (const [re, format, names] of PROGRESS_FORMS) {
     const m = re.exec(text);
     if (!m) {
