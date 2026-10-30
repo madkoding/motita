@@ -3,6 +3,7 @@
 import { useState } from "preact/hooks";
 import { t } from "./i18n";
 import { useApp } from "./appStore";
+import { usePinnedPlan } from "./usePinnedPlan";
 
 const BTN =
   "px-3 min-h-[34px] rounded-lg border border-white/10 text-xs text-[#c8c8d2] hover:bg-white/5 active:scale-95 transition-transform";
@@ -17,8 +18,25 @@ export function firstStep(plan: string): string {
   );
 }
 
+// PinnedPlanBar is the bar for the conversation on screen.
 export function PinnedPlanBar() {
-  const { pinnedPlan } = useApp();
+  const { api, rs, status } = useApp();
+  const pinnedPlan = usePinnedPlan(
+    api,
+    rs.sessionId,
+    rs.running,
+    status.setState,
+  );
+  return <PinnedPlanView pinnedPlan={pinnedPlan} />;
+}
+
+// PinnedPlanView draws a plan and its editor.
+export function PinnedPlanView({
+  pinnedPlan,
+}: {
+  pinnedPlan: ReturnType<typeof usePinnedPlan>;
+}) {
+  const label = t("Active plan");
   const [open, setOpen] = useState(false);
   const [draft, setDraft] = useState("");
   if (pinnedPlan.plan === "") {
@@ -37,7 +55,7 @@ export function PinnedPlanBar() {
     <section
       class="mx-3 mb-2 rounded-xl border border-accent/30 bg-accent/5 px-3 py-2 text-sm"
       data-testid="pinned-plan"
-      aria-label={t("Active plan")}
+      aria-label={label}
     >
       {!open && (
         <button
@@ -49,7 +67,7 @@ export function PinnedPlanBar() {
           data-testid="pinned-plan-open"
           onClick={edit}
         >
-          <span class="flex-none text-accent">📌 {t("Active plan")}</span>
+          <span class="flex-none text-accent">📌 {label}</span>
           <span class="truncate text-[#9a9aaa]">
             {firstStep(pinnedPlan.plan)}
           </span>
@@ -60,7 +78,7 @@ export function PinnedPlanBar() {
           <textarea
             class="w-full min-h-[140px] rounded-lg bg-black/30 border border-white/10 p-2 text-sm text-[#e8e8ea] font-mono"
             value={draft}
-            aria-label={t("Active plan")}
+            aria-label={label}
             data-testid="pinned-plan-text"
             onInput={(e) => setDraft((e.target as HTMLTextAreaElement).value)}
           />

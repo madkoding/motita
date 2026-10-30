@@ -200,9 +200,9 @@ func TestBriefQuotesWhatTheMemoryKnowsAndStopsAtTheBudget(t *testing.T) {
 
 func TestSavedLineReadsOnlyAWriteThatWorked(t *testing.T) {
 	for reply, want := range map[string]string{
-		"Created [[Japan]] (trips/Japan.md). Link it from related entries with [[Japan]].": "saved to memory: Japan (trips/Japan.md)",
-		"Added to [[Peru]] (Peru.md).":           "saved to memory: Peru (Peru.md)",
-		"Error: the entry \"x\" already exists.": "",
+		"Created [[Japan]] (trips/Japan.md). Link it with [[Japan]].": "saved to memory: Japan (trips/Japan.md)",
+		"Added to [[Peru]] (Peru.md).":                                "saved to memory: Peru (Peru.md)",
+		"Error: the entry \"x\" already exists.":                      "",
 	} {
 		got, ok := SavedLine(reply)
 		if got != want || ok != (want != "") {

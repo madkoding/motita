@@ -6,7 +6,8 @@ import { setupDom, load, text } from "./cov-render-helpers.mjs";
 
 setupDom();
 const { usePinnedPlan, planPath } = await load("usePinnedPlan.ts");
-const { PinnedPlanBar, firstStep } = await load("PinnedPlan.tsx");
+const { PinnedPlanBar, PinnedPlanView, firstStep } =
+  await load("PinnedPlan.tsx");
 const { AppCtx } = await load("appStore.ts");
 const es = (await import("../i18n.es.ts")).default;
 const { h, render } = await import("preact");
@@ -53,7 +54,7 @@ async function mount(g, props) {
       statuses.push([m, !!bad]),
     );
     hook.current = pinnedPlan;
-    return h(AppCtx.Provider, { value: { pinnedPlan } }, h(PinnedPlanBar, {}));
+    return h(PinnedPlanView, { pinnedPlan });
   }
   const root = document.createElement("div");
   document.body.appendChild(root);
@@ -128,7 +129,11 @@ test("the plan is read again when a turn ends and when the conversation changes"
   await m.rerender({ sessionId: "s2", running: false });
   assert.equal(m.hook.current.plan, "");
   assert.equal(await m.hook.current.save("1. x"), true);
-  assert.equal(m.hook.current.plan, "", "an answer without a plan reads as none");
+  assert.equal(
+    m.hook.current.plan,
+    "",
+    "an answer without a plan reads as none",
+  );
   await m.done();
 });
 
@@ -158,4 +163,23 @@ test("the plan's words have their Spanish", () => {
   ]) {
     assert.ok(es[k], "missing Spanish for: " + k);
   }
+});
+
+test("the bar reads the plan of the conversation on screen", async () => {
+  const g = gateway("1. a\n2. b\n3. c");
+  const root = document.createElement("div");
+  document.body.appendChild(root);
+  const value = {
+    api: g.api,
+    rs: { sessionId: "s9", running: false },
+    status: { setState: () => {} },
+  };
+  await act(() =>
+    render(h(AppCtx.Provider, { value }, h(PinnedPlanBar, {})), root),
+  );
+  await settle();
+  assert.deepEqual(g.calls[0], ["GET", "/v1/sessions/s9/plan"]);
+  assert.ok(root.querySelector('[data-testid="pinned-plan"]'));
+  await act(() => render(null, root));
+  root.remove();
 });
