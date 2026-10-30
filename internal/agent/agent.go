@@ -99,6 +99,9 @@ type Agent struct {
 	// earlier turns the prompt still carries verbatim. Nil when the interface installed
 	// none, which is the case for a task piped in from a script.
 	recall func(ctx context.Context, query string, live int) (string, int)
+	// pinned is the plan the conversation keeps word for word (see session.Pin), or nil when the
+	// interface keeps none. It opens the brief every prompt of a task is given.
+	pinned func() string
 
 	// threads hands work to the project's threads. It is set only on the main session of a project
 	// (a thread cannot open threads), and Task mode reaches it through the thread action.
@@ -215,6 +218,10 @@ func (a *Agent) SetMemory(m *memory.Store) { a.memory = m }
 func (a *Agent) SetRecall(fn func(ctx context.Context, query string, live int) (string, int)) {
 	a.recall = fn
 }
+
+// SetPinnedPlan installs where the conversation's pinned plan is read from, so a task carries
+// the plan the person approved in chat even when the request is only "go on".
+func (a *Agent) SetPinnedPlan(fn func() string) { a.pinned = fn }
 
 // SetReward installs the long-term value ledger.
 func (a *Agent) SetReward(l *reward.Ledger) { a.reward = l }
@@ -393,6 +400,10 @@ type Analysis struct {
 	// a stated assumption lets the user confirm in one word instead of writing a new request, and
 	// it gives the agent a defensible reading if nobody answers.
 	Assumption string `json:"assumption"`
+
+	// brief is the context the task was given beyond its request (see contextBrief). It travels
+	// with the analysis so every round of the work is given the same brief the analysis read.
+	brief string
 
 	// Questions are the questions to ask, in order, when more than one thing is unclear.
 	//

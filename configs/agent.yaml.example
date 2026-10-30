@@ -113,7 +113,7 @@ llm:
 # ---------------------------------------------------------------------------
 # Prompt templates. Available variables:
 #   {{task}} {{workspace}} {{origin}} {{attempt}} {{max_attempts}} {{rules}}
-#   {{analysis}} {{plan}} {{history}} {{model}} {{provider}} {{context_*}}
+#   {{analysis}} {{plan}} {{history}} {{recall}} {{dialogue}} {{model}} {{provider}} {{context_*}}
 # ---------------------------------------------------------------------------
 prompts:
   analyze:

@@ -14,48 +14,7 @@ import (
 	"github.com/madkoding/motita/internal/template"
 )
 
-// memoryBriefChars bounds the memory passages one task starts with.
-const memoryBriefChars = 3000
-
 // --- Phases -----------------------------------------------------------------
-
-// recalledContext is what the analysis is handed beyond the request: earlier turns of this
-// conversation, retrieved from the archive rather than carried in the prompt, and what the
-// person's memory already says about the task. Empty when there is neither.
-func (a *Agent) recalledContext(ctx context.Context, t task.Task, depth int) string {
-	// The block is data, and it says so; a task piped in from a script has no conversation,
-	// and then there is nothing to add.
-	var out string
-	if a.recall != nil {
-		// The prompt already carries the last DialogueTurns turns, and a recall must not
-		// repeat them. The count is the real one, so a short conversation does not hide
-		// archived turns the prompt never showed. On a top-level task the turn in progress
-		// is one of those (it was recorded when the task started); a subtask has none.
-		live := len(a.Transcript())
-		if live > DialogueTurns {
-			live = DialogueTurns
-		}
-		if depth == 0 && live > 0 {
-			live--
-		}
-		if block, n := a.recall(ctx, t.Description, live); n > 0 {
-			out = block
-			a.report("[recalled %d passages from earlier]", n)
-		}
-	}
-
-	// And what the person's memory already says about the task, looked up for the agent.
-	if a.memory != nil {
-		if block, n := a.memory.Brief(t.Description, memoryBriefChars); n > 0 {
-			if out != "" {
-				out += "\n\n"
-			}
-			out += block
-			a.report("[recalled %d passages from memory]", n)
-		}
-	}
-	return out
-}
 
 func (a *Agent) analysisPhase(ctx context.Context, t task.Task, rules string, depth int) Analysis {
 	vars := a.baseVariables(t)
@@ -63,8 +22,16 @@ func (a *Agent) analysisPhase(ctx context.Context, t task.Task, rules string, de
 	vars["attempt"] = "1"
 	vars["max_attempts"] = fmt.Sprint(a.cfg.Agent.MaxRetries + 1)
 	// Always set, even empty, so the template does not warn about a name it cannot find.
-	vars["recall"] = a.recalledContext(ctx, t, depth)
+	brief := a.contextBrief(ctx, t, depth)
+	vars["recall"] = brief
 
+	analysis := a.analyse(ctx, t, vars)
+	analysis.brief = brief
+	return analysis
+}
+
+// analyse asks the analysis prompt and reads its answer.
+func (a *Agent) analyse(ctx context.Context, t task.Task, vars map[string]string) Analysis {
 	text, err := a.ask(ctx, a.cfg.Prompts.Analyze, vars, "analyze")
 	if err != nil {
 		a.log.Error("analysis phase failed", "error", err)
@@ -124,6 +91,10 @@ func (r *taskRun) actionPhase() (Action, error) {
 	vars["analysis"] = describeAnalysis(r.analysis)
 	vars["plan"] = describePlan(r.plan)
 	vars["history"] = renderRounds(r.journal) + r.mem.render()
+	// The rounds are given what the analysis was: the brief, and the last turns of the
+	// conversation, which {{history}} no longer carries here.
+	vars["recall"] = r.analysis.brief
+	vars["dialogue"] = a.recentDialogue(r.t)
 	vars["attempt"] = fmt.Sprint(r.round)
 	vars["max_attempts"] = fmt.Sprint(a.cfg.Agent.MaxRetries + 1)
 

@@ -136,17 +136,17 @@ func (r *AppRunner) recallPlan(ctx context.Context, query string, live int) (str
 	return r.recall(ctx, query, r.planSpan(live))
 }
 
-// planSpan turns "the session shows live Plan turns" into how many archived turns that covers.
-// The session holds only Plan turns, but the archive numbers every turn of the conversation, so
-// Task turns between the live ones would otherwise leave the cut too late and recall a turn the
-// prompt already shows.
+// planSpan turns "the session shows live user messages" into how many archived turns that covers.
+// The session holds every Plan turn and the finished Task turns shared with it (see
+// shareLastTurn), but not a Task turn that failed or was cut off, while the archive numbers every
+// turn: counting those would leave the cut too late and recall a turn the prompt already shows.
 func (r *AppRunner) planSpan(live int) int {
 	if live <= 0 {
 		return 0
 	}
 	turns := r.history()
 	for i := len(turns) - 1; i >= 0; i-- {
-		if turns[i].Kind == "plan" {
+		if inSession(turns[i]) {
 			if live--; live == 0 {
 				return len(turns) - i
 			}
@@ -247,4 +247,10 @@ func (r *AppRunner) ResetTranscript() {
 	r.transcriptMu.Lock()
 	defer r.transcriptMu.Unlock()
 	r.transcript = nil
+}
+
+// inSession says whether a turn is one the Plan session holds: every Plan turn (a failed one keeps
+// its question), and a Task turn that finished with an answer.
+func inSession(t agent.DialogueTurn) bool {
+	return t.Kind == "plan" || (!t.Pending && t.User != "" && t.Agent != "")
 }

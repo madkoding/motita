@@ -18,6 +18,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/madkoding/motita/internal/brief"
 	"github.com/madkoding/motita/internal/llm"
 	"github.com/madkoding/motita/internal/memory"
 	"github.com/madkoding/motita/internal/redact"
@@ -703,36 +704,43 @@ func (p *Planner) tracef(format string, args ...any) {
 // closest the planner can get without owning the conversation: every turn opens with one, and
 // the message just appended is the current turn, which is not in the archive yet.
 func (p *Planner) recallFor(ctx context.Context, sess *session.Session, input string) {
-	p.turnRecall = ""
-	var blocks []string
-	// The memory is consulted for the agent: a model that is not told what is in it does not ask.
-	if p.memory != nil {
-		if block, n := p.memory.Brief(input, memoryBriefChars); n > 0 {
-			blocks = append(blocks, block)
-			p.tracef("[recalled %d passages from memory]", n)
-		}
-	}
-	if p.recall != nil {
-		live := 0
-		for _, m := range sess.Messages() {
-			if m.Role == "user" {
-				live++
-			}
-		}
-		live--
-		if live < 0 {
-			live = 0
-		}
-		if block, n := p.recall(ctx, input, live); n > 0 {
-			blocks = append(blocks, block)
-			p.tracef("[recalled %d passages from earlier]", n)
-		}
-	}
-	p.turnRecall = strings.Join(blocks, "\n\n")
+	// The pinned plan is not part of it: the session sends that itself (see session.Pin).
+	p.turnRecall = brief.Compose(brief.Budget,
+		brief.Part{Title: "Earlier in this conversation", Body: p.archived(ctx, sess, input)},
+		brief.Part{Title: "The person's memory", Body: p.remembered(input)},
+	)
 }
 
-// memoryBriefChars bounds the memory passages one turn starts with.
-const memoryBriefChars = 3000
+// archived is what earlier turns of this conversation said, from the archive.
+func (p *Planner) archived(ctx context.Context, sess *session.Session, input string) string {
+	if p.recall == nil {
+		return ""
+	}
+	live := -1
+	for _, m := range sess.Messages() {
+		if m.Role == "user" {
+			live++
+		}
+	}
+	block, n := p.recall(ctx, input, max(live, 0))
+	if n > 0 {
+		p.tracef("[recalled %d passages from earlier]", n)
+	}
+	return block
+}
+
+// remembered is what the person's memory says about the request: a model that is not told what
+// is in it does not ask.
+func (p *Planner) remembered(input string) string {
+	if p.memory == nil {
+		return ""
+	}
+	block, n := p.memory.Brief(input, brief.Budget)
+	if n > 0 {
+		p.tracef("[recalled %d passages from memory]", n)
+	}
+	return block
+}
 
 // withRecall puts the recalled block among the leading system messages, before the
 // conversation. It is never written to the session: it belongs to this turn, and carrying it
