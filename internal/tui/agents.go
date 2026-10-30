@@ -245,7 +245,8 @@ var activityForms = []struct {
 	{regexp.MustCompile(`^deciding the next step after: (.*)$`),
 		"deciding the next step after: %s", true},
 	{regexp.MustCompile(`^starting with: (.*)$`), "starting with: %s", false},
-	{regexp.MustCompile(`^waiting for (\d+) background agent\(s\)\.\.\.$`), "waiting for %s background agent(s)...", false},
+	{regexp.MustCompile(`^waiting for (\d+) background agent\(s\)\.\.\.$`),
+		"waiting for %s background agent(s)...", false},
 	{regexp.MustCompile(`^plan ready: (1) steps?$`), "plan ready: %s step", false},
 	{regexp.MustCompile(`^plan ready: (\d+) steps?$`), "plan ready: %s steps", false},
 }
