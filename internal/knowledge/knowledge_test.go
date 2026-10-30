@@ -137,13 +137,16 @@ func TestRecallOpensOneEntry(t *testing.T) {
 
 func TestRememberKeepsItInThePlaceNamed(t *testing.T) {
 	b, lib := base(t)
-	if got := b.Remember("", "Deploys", "Rollbacks need a ticket. token=sk-abcdefghijklmnopqrstuvwxyz123456"); !strings.HasPrefix(got, "Added to [[Deploys]]") {
+	got := b.Remember("", "Deploys", "Rollbacks need a ticket. token=sk-abcdefghijklmnopqrstuvwxyz123456")
+	if !strings.HasPrefix(got, "Added to [[Deploys]]") {
 		t.Fatalf("remember in memory = %q", got)
 	}
-	if read := b.Memory.ReadText("Deploys"); !strings.Contains(read, "Rollbacks need a ticket") || strings.Contains(read, "sk-abcdefghij") {
+	read := b.Memory.ReadText("Deploys")
+	if !strings.Contains(read, "Rollbacks need a ticket") || strings.Contains(read, "sk-abcdefghij") {
 		t.Errorf("the memory holds %q", read)
 	}
-	if got := b.Remember("procedures", " flash-usb ", "# Flash"); got != "Saved flash-usb" || lib.saved != "flash-usb|# Flash" {
+	got = b.Remember("procedures", " flash-usb ", "# Flash")
+	if got != "Saved flash-usb" || lib.saved != "flash-usb|# Flash" {
 		t.Errorf("remember a procedure = %q (%q)", got, lib.saved)
 	}
 	if got := b.Remember("project", "", "pnpm, not npm\ntests need docker"); !strings.Contains(got, LessonsFile) {
@@ -162,7 +165,8 @@ func TestRememberKeepsItInThePlaceNamed(t *testing.T) {
 		}
 	}
 	empty := Base{}
-	for in, want := range map[string]string{"project": "no project", "procedures": "no procedure library", "memory": "no memory"} {
+	nothing := map[string]string{"project": "no project", "procedures": "no procedure library", "memory": "no memory"}
+	for in, want := range nothing {
 		if got := empty.Remember(in, "e", "x"); !strings.Contains(got, want) {
 			t.Errorf("remember in %s with nothing = %q", in, got)
 		}

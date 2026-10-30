@@ -82,13 +82,14 @@ func TestRecallAndRememberActions(t *testing.T) {
 	if out := run("remember", "Trips/Japan :: Ramen in Tokyo"); !strings.Contains(out, "Added to [[Japan]]") {
 		t.Errorf("remember = %q", out)
 	}
-	if out := run("remember", "IN:procedures ramen-hunt :: # Ramen hunt\n1. ask"); !strings.Contains(out, "Saved \"ramen-hunt\"") {
+	out := run("remember", "IN:procedures ramen-hunt :: # Ramen hunt\n1. ask")
+	if !strings.Contains(out, "Saved \"ramen-hunt\"") {
 		t.Errorf("remember a procedure = %q", out)
 	}
 	if out := run("remember", "in:project the menu is in Japanese"); !strings.Contains(out, "this project's lessons") {
 		t.Errorf("remember a lesson = %q", out)
 	}
-	out := run("recall", "ramen japanese")
+	out = run("recall", "ramen japanese")
 	for _, want := range []string{"[[Japan]]", "ramen-hunt", "the menu is in Japanese", "the person picked ramen"} {
 		if !strings.Contains(out, want) {
 			t.Errorf("recall lacks %q:\n%s", want, out)

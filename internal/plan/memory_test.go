@@ -19,7 +19,8 @@ func TestMemoryToolsAreNotOfferedButStillAnswered(t *testing.T) {
 		}
 	}
 	fn := llm.FunctionCall{Name: "search_memory", Arguments: raw(`{"query":"x"}`)}
-	if got := (&Planner{}).dispatchTool(context.Background(), llm.ToolCall{Function: fn}); !strings.Contains(got, "no memory") {
+	got := (&Planner{}).dispatchTool(context.Background(), llm.ToolCall{Function: fn})
+	if !strings.Contains(got, "no memory") {
 		t.Errorf("search_memory without a memory = %q", got)
 	}
 }

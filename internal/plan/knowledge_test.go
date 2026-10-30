@@ -30,16 +30,19 @@ func TestRecallAndRememberReachEveryPlace(t *testing.T) {
 		return p.dispatchTool(context.Background(), llm.ToolCall{Function: fn})
 	}
 
-	if got := call("remember", `{"entry":"Theme","content":"The person wants the blue theme."}`); !strings.HasPrefix(got, "Added to [[Theme]]") {
+	got := call("remember", `{"entry":"Theme","content":"The person wants the blue theme."}`)
+	if !strings.HasPrefix(got, "Added to [[Theme]]") {
 		t.Fatalf("remember = %q", got)
 	}
 	if !strings.Contains(strings.Join(trace, "\n"), memory.SavedPrefix+"Theme") {
 		t.Errorf("the save was not reported: %v", trace)
 	}
-	if got := call("remember", `{"in":"procedures","entry":"theme-switch","content":"# Theme switch\nUse when...\n## Procedure\n1. a"}`); !strings.Contains(got, "Saved the skill") {
+	got = call("remember", `{"in":"procedures","entry":"theme-switch",`+
+		`"content":"# Theme switch\nUse when...\n## Procedure\n1. a"}`)
+	if !strings.Contains(got, "Saved the skill") {
 		t.Fatalf("remember a procedure = %q", got)
 	}
-	got := call("recall", `{"query":"blue theme switch"}`)
+	got = call("recall", `{"query":"blue theme switch"}`)
 	for _, want := range []string{"we chose the blue theme", "[[Theme]]", "theme-switch"} {
 		if !strings.Contains(got, want) {
 			t.Errorf("recall lacks %q:\n%s", want, got)

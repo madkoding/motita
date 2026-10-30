@@ -280,7 +280,8 @@ func TestTheKnowledgeToolsAreAdvertised(t *testing.T) {
 	if got := names(&Planner{}); got != "list_directory read_file execute_command search_in_files recall remember" {
 		t.Errorf("a planner offers %q", got)
 	}
-	if got := names(&Planner{IsReviewFork: true}); !strings.HasSuffix(got, "list_skills search_skills read_skill save_skill") {
+	got := names(&Planner{IsReviewFork: true})
+	if !strings.HasSuffix(got, "list_skills search_skills read_skill save_skill") {
 		t.Errorf("the review fork offers %q", got)
 	}
 }
