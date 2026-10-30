@@ -92,6 +92,11 @@ func (b Base) Recall(in, query, open string) string {
 	if where != "" {
 		return oldNames.Replace(b.search(where, query, false))
 	}
+	return oldNames.Replace(b.everywhere(query))
+}
+
+// everywhere searches every place, most specific first, and says where each answer comes from.
+func (b Base) everywhere(query string) string {
 	var out strings.Builder
 	for _, p := range []string{Conversation, Project, Memory, Procedures} {
 		if found := b.search(p, query, true); found != "" {
@@ -102,7 +107,7 @@ func (b Base) Recall(in, query, open string) string {
 		return fmt.Sprintf("Nothing is known about %q yet: not in this conversation, this project's lessons, "+
 			"the person's memory or the procedures. Work it out, and remember what is worth keeping.", query)
 	}
-	return oldNames.Replace(strings.TrimSpace(out.String()))
+	return strings.TrimSpace(out.String())
 }
 
 // heading names each place in a recall over all of them.
@@ -115,58 +120,84 @@ var heading = map[string]string{
 
 // search asks one place. quiet turns "nothing here" into "", for a recall over every place.
 func (b Base) search(where, query string, quiet bool) string {
-	var found string
-	switch where {
-	case Conversation:
-		if b.Conversation != nil {
-			found = b.Conversation(query)
-		}
-	case Project:
-		found = matchingLessons(b.Workspace, query)
-	case Memory:
-		if b.Memory != nil {
-			found = b.Memory.SearchText(query)
-			if strings.HasPrefix(found, "Nothing in the memory matches") && quiet {
-				found = ""
-			}
-		}
-	default: // Procedures
-		if b.Library != nil {
-			found = b.Library.Search(query)
-			if strings.HasPrefix(found, "No skill matches") && quiet {
-				found = ""
-			}
-		}
+	found := b.searchers()[where](query)
+	if quiet && isMiss(found) {
+		return ""
 	}
-	if found == "" && !quiet {
+	if found == "" {
 		return fmt.Sprintf("Nothing in %s matches %q.", where, query)
 	}
 	return found
+}
+
+// misses are how the memory and the library say they found nothing.
+var misses = []string{"Nothing in the memory matches", "No skill matches"}
+
+// isMiss says whether a place's answer is that it found nothing.
+func isMiss(found string) bool {
+	for _, m := range misses {
+		if strings.HasPrefix(found, m) {
+			return true
+		}
+	}
+	return found == ""
+}
+
+// searchers is how each place is searched; a place this session does not have finds nothing.
+func (b Base) searchers() map[string]func(string) string {
+	none := func(string) string { return "" }
+	out := map[string]func(string) string{
+		Conversation: none, Memory: none, Procedures: none,
+		Project: func(q string) string { return matchingLessons(b.Workspace, q) },
+	}
+	if b.Conversation != nil {
+		out[Conversation] = b.Conversation
+	}
+	if b.Memory != nil {
+		out[Memory] = b.Memory.SearchText
+	}
+	if b.Library != nil {
+		out[Procedures] = b.Library.Search
+	}
+	return out
 }
 
 // open reads one entry. With no place, a memory entry is tried first, then a procedure.
 func (b Base) open(where, name string) string {
 	switch where {
 	case Project:
-		if all := LessonsContext(b.Workspace); all != "" {
-			return strings.TrimSpace(all)
-		}
-		return "This project has no lessons yet."
+		return b.lessons()
 	case Conversation:
 		return b.search(Conversation, name, false)
 	case Procedures:
 		return b.readProcedure(name)
 	default:
-		if b.Memory != nil {
-			read := b.Memory.ReadText(name)
-			if where == Memory || !strings.HasPrefix(read, "Error: there is no entry") {
-				return read
-			}
-		} else if where == Memory {
-			return "Error: there is no memory in this session."
-		}
+		return b.openMemory(where, name)
+	}
+}
+
+// lessons is every lesson of the project.
+func (b Base) lessons() string {
+	if all := LessonsContext(b.Workspace); all != "" {
+		return strings.TrimSpace(all)
+	}
+	return "This project has no lessons yet."
+}
+
+// openMemory reads a memory entry; with no place named, a name the memory does not have is tried
+// as a procedure.
+func (b Base) openMemory(where, name string) string {
+	if b.Memory == nil && where == Memory {
+		return "Error: there is no memory in this session."
+	}
+	if b.Memory == nil {
 		return b.readProcedure(name)
 	}
+	read := b.Memory.ReadText(name)
+	if where == "" && strings.HasPrefix(read, "Error: there is no entry") {
+		return b.readProcedure(name)
+	}
+	return read
 }
 
 // readProcedure reads a procedure by name.

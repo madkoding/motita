@@ -51,7 +51,7 @@ func RecordLessons(workspace string, lessons []string) error {
 	if len(known) > maxLessons {
 		known = known[len(known)-maxLessons:]
 	}
-	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+	if err := os.MkdirAll(filepath.Dir(path), 0o750); err != nil {
 		return err
 	}
 	var b strings.Builder
@@ -59,7 +59,7 @@ func RecordLessons(workspace string, lessons []string) error {
 	for _, l := range known {
 		b.WriteString("- " + l + "\n")
 	}
-	return os.WriteFile(path, []byte(b.String()), 0o644)
+	return os.WriteFile(path, []byte(b.String()), 0o600)
 }
 
 // Lessons is what the file holds, one lesson per entry, without the bullets.
@@ -67,7 +67,7 @@ func Lessons(workspace string) []string {
 	if workspace == "" {
 		return nil
 	}
-	raw, err := os.ReadFile(filepath.Join(workspace, LessonsFile))
+	raw, err := os.ReadFile(filepath.Join(workspace, LessonsFile)) // #nosec G304 -- the project's own lessons file.
 	if err != nil {
 		return nil
 	}
