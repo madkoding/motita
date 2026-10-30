@@ -197,3 +197,16 @@ func TestBriefQuotesWhatTheMemoryKnowsAndStopsAtTheBudget(t *testing.T) {
 		t.Errorf("nil store = %d %q", n, got)
 	}
 }
+
+func TestSavedLineReadsOnlyAWriteThatWorked(t *testing.T) {
+	for reply, want := range map[string]string{
+		"Created [[Japan]] (trips/Japan.md). Link it from related entries with [[Japan]].": "saved to memory: Japan (trips/Japan.md)",
+		"Added to [[Peru]] (Peru.md).":           "saved to memory: Peru (Peru.md)",
+		"Error: the entry \"x\" already exists.": "",
+	} {
+		got, ok := SavedLine(reply)
+		if got != want || ok != (want != "") {
+			t.Errorf("SavedLine(%q) = %q %v", reply, got, ok)
+		}
+	}
+}

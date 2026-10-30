@@ -2,6 +2,7 @@ package agent
 
 import (
 	"context"
+	"fmt"
 	"strings"
 	"testing"
 
@@ -13,6 +14,8 @@ import (
 func TestMemoryActionsReachTheMemory(t *testing.T) {
 	a := &Agent{cfg: config.Default(), log: logx.Global()}
 	a.SetMemory(memory.Open(t.TempDir()))
+	var trace []string
+	a.SetProgress(func(format string, args ...any) { trace = append(trace, fmt.Sprintf(format, args...)) })
 	rr := &roundRun{a: a, ctx: context.Background()}
 	if rr.memoryAction("command", Command{}) {
 		t.Fatal("only memory_* kinds are this action")
@@ -36,6 +39,9 @@ func TestMemoryActionsReachTheMemory(t *testing.T) {
 	}
 	if out := run("memory_read", "Japan"); !strings.Contains(out, "Go in May") {
 		t.Errorf("read = %q", out)
+	}
+	if strings.Join(trace, "|") != "saved to memory: Japan (trips/Japan.md)|saved to memory: Japan (trips/Japan.md)" {
+		t.Errorf("the saves were not reported: %q", trace)
 	}
 	for _, kind := range []string{"memory_write", "memory_append"} {
 		if out := run(kind, "no separator"); !strings.Contains(out, "expects \"entry :: the Markdown\"") {

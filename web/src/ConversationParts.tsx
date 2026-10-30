@@ -12,6 +12,7 @@ import { BodyPortal } from "./BodyPortal";
 import { FloatingMenu } from "./FloatingMenu";
 import {
   classifyProgress,
+  memoryUse,
   oneLine,
   progressText,
   switchedText,
@@ -307,6 +308,48 @@ function FileThumb({ f }: { f: AttachedFile }) {
   );
 }
 
+// MemoryChips say what a turn did with the memory: how much it was handed from it, and each entry
+// it saved, which opens in the memory window. Nothing when the turn did not touch it.
+export function MemoryChips({ steps }: { steps: StepView[] }) {
+  const app = useApp();
+  const use = memoryUse(steps);
+  if (use.saved.length === 0 && use.recalled === 0) {
+    return null;
+  }
+  const open = (path?: string) => {
+    app.memory.openMemory();
+    if (path) {
+      void app.memory.openEntry(path);
+    }
+  };
+  return (
+    <div class="memory-chips" data-testid="memory-chips">
+      {use.recalled > 0 && (
+        <button
+          type="button"
+          class="memory-chip"
+          data-testid="memory-chip-recalled"
+          onClick={() => open()}
+        >
+          {tf("Used the memory ({n})", { n: use.recalled })}
+        </button>
+      )}
+      {use.saved.map((s) => (
+        <button
+          key={s.path}
+          type="button"
+          class="memory-chip saved"
+          title={s.path}
+          data-testid="memory-chip-saved"
+          onClick={() => open(s.path)}
+        >
+          {tf("Saved to memory: {name}", { name: s.title })}
+        </button>
+      ))}
+    </div>
+  );
+}
+
 // TurnTop is the top of a turn: the input that opened it with the count of its actions in its
 // bar, and their detail under it once opened. A turn opened by no input (the agent's first lines)
 // has only the counter, on a line of its own.
@@ -330,7 +373,10 @@ export function TurnTop({
   if (!head) {
     return choose(
       steps.length > 0,
-      <Trail steps={steps} liveHere={liveHere} />,
+      <>
+        <Trail steps={steps} liveHere={liveHere} />
+        <MemoryChips steps={steps} />
+      </>,
       null,
     );
   }
@@ -349,6 +395,7 @@ export function TurnTop({
         why={why}
         actions={actions}
       />
+      <MemoryChips steps={steps} />
       {open && actions && (
         <div class="activity-trail turn-steps" aria-label={t("steps")}>
           <TrailSteps steps={steps} liveHere={liveHere} />

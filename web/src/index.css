@@ -5504,3 +5504,31 @@ html .project-bar button.project-new-session {
     display: none;
   }
 }
+
+/* What a turn did with the memory: small chips under the question, each one opening the memory
+   window (at the entry it saved). */
+.memory-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin: 4px 0 2px;
+}
+.memory-chip {
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  min-height: 28px;
+  padding: 2px 10px;
+  border-radius: 999px;
+  border: 1px solid rgb(var(--accent-rgb) / 0.3);
+  background: rgb(var(--accent-rgb) / 0.08);
+  color: var(--color-accent);
+  font-size: 0.75em;
+}
+.memory-chip:hover {
+  background: rgb(var(--accent-rgb) / 0.16);
+}
+.memory-chip.saved::before {
+  content: "✓ ";
+}

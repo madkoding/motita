@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"regexp"
 	"strings"
 	"time"
 )
@@ -226,4 +227,21 @@ func (s *Store) Brief(query string, maxChars int) (string, int) {
 		n++
 	}
 	return strings.TrimSpace(b.String()), n
+}
+
+// SavedPrefix opens the progress line that says the agent wrote to the memory. The interface reads
+// it to show the entry under the turn, and opens the entry from the path at its end.
+const SavedPrefix = "saved to memory: "
+
+// savedReply is what WriteText and AppendText answer when they wrote.
+var savedReply = regexp.MustCompile(`^(?:Created|Added to) \[\[(.+?)\]\] \((.+?)\)\.`)
+
+// SavedLine is the progress line for a write or an append that worked: "saved to memory: Title
+// (path)". ok is false for a reply that is a refusal.
+func SavedLine(reply string) (string, bool) {
+	m := savedReply.FindStringSubmatch(reply)
+	if m == nil {
+		return "", false
+	}
+	return SavedPrefix + m[1] + " (" + m[2] + ")", true
 }

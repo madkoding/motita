@@ -836,6 +836,13 @@ const more: Record<string, string> = {
   "No other entry mentions this one yet.":
     "Ninguna otra entrada menciona esta todavía.",
   "Recently saved": "Guardado hace poco",
+  "Used the memory ({n})": "Consultó la memoria ({n})",
+  "Saved to memory: {name}": "Guardado en memoria: {name}",
+  "saved to memory: {x}": "guardado en memoria: {x}",
+  "[recalled {n} passages from memory]":
+    "[{n} fragmentos traídos de la memoria]",
+  "[recalled {n} passages from earlier]":
+    "[{n} fragmentos traídos de antes en la conversación]",
   "Nothing in the memory yet. Write the first entry above.":
     "Todavía no hay nada en la memoria. Escribe la primera entrada arriba.",
   "Open the entry": "Abrir la entrada",

@@ -828,3 +828,61 @@ test("under a plan, one button carries it out, and only while it is the newest i
     await none.m.unmount();
   }
 });
+
+test("a turn shows what it did with the memory, and each chip opens it", async () => {
+  const head = { id: 1, role: "user", text: "go" };
+  const steps = [
+    { key: 1, kind: "progress", text: "[recalled 2 passages from memory]" },
+    {
+      key: 2,
+      kind: "progress",
+      text: "saved to memory: Deploys (ops/Deploys.md)",
+    },
+    {
+      key: 3,
+      kind: "progress",
+      text: "saved to memory: Deploys (ops/Deploys.md)",
+    },
+    { key: 4, kind: "progress", text: "[recalled 1 passages from memory]" },
+  ];
+  const calls = [];
+  const memory = {
+    openMemory: () => calls.push("open"),
+    openEntry: async (p) => calls.push("entry " + p),
+  };
+  const m = await mount(
+    h(
+      AppCtx.Provider,
+      { value: { memory } },
+      h(TurnCtx.Provider, { value: turnView().view }, [
+        h(P.TurnTop, { head, turn: 0, liveHere: false, mode: null, steps }),
+        h(P.TurnTop, { head: null, liveHere: false, mode: null, steps }),
+      ]),
+    ),
+  );
+  const recalled = m.root.querySelectorAll(
+    '[data-testid="memory-chip-recalled"]',
+  );
+  const saved = m.root.querySelectorAll('[data-testid="memory-chip-saved"]');
+  assert.equal(recalled.length, 2);
+  assert.equal(saved.length, 2, "one chip per entry and turn");
+  assert.equal(text(recalled[0]), "Used the memory (3)");
+  assert.equal(text(saved[0]), "Saved to memory: Deploys");
+  assert.equal(saved[0].getAttribute("title"), "ops/Deploys.md");
+  await act(() => recalled[0].click());
+  await act(() => saved[0].click());
+  assert.deepEqual(calls, ["open", "open", "entry ops/Deploys.md"]);
+  await m.unmount();
+  // a turn that did not touch the memory has no chips
+  const plain = await inTurn(
+    h(P.TurnTop, {
+      head,
+      turn: 0,
+      liveHere: false,
+      mode: null,
+      steps: [{ key: 1, kind: "command", text: "running: ls", exit: 0 }],
+    }),
+  );
+  assert.equal(plain.q('[data-testid="memory-chips"]'), null);
+  await plain.m.unmount();
+});
