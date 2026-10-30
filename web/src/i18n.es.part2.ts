@@ -835,6 +835,19 @@ const more: Record<string, string> = {
   "New entry name": "Nombre de la entrada nueva",
   "No other entry mentions this one yet.":
     "Ninguna otra entrada menciona esta todavía.",
+  "Recently saved": "Guardado hace poco",
+  "Active plan": "Plan activo",
+  "The plan the agent keeps word for word. Open it to change or drop it.":
+    "El plan que el agente guarda palabra por palabra. Ábrelo para cambiarlo o descartarlo.",
+  "Drop the plan": "Descartar el plan",
+  "could not change the plan": "no se pudo cambiar el plan",
+  "Used the memory ({n})": "Consultó la memoria ({n})",
+  "Saved to memory: {name}": "Guardado en memoria: {name}",
+  "saved to memory: {x}": "guardado en memoria: {x}",
+  "[recalled {n} passages from memory]":
+    "[{n} fragmentos traídos de la memoria]",
+  "[recalled {n} passages from earlier]":
+    "[{n} fragmentos traídos de antes en la conversación]",
   "Nothing in the memory yet. Write the first entry above.":
     "Todavía no hay nada en la memoria. Escribe la primera entrada arriba.",
   "Open the entry": "Abrir la entrada",

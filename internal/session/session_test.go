@@ -537,6 +537,8 @@ func TestTheSummariserIsInstructedNotToInvent(t *testing.T) {
 		"tried and failed",        // so it is not repeated
 		"remains to be done",      // the thread to continue
 		"Do not invent anything",  // the hallucination guard
+		"THE ACTIVE PLAN",         // the plan survives a compaction
+		"every step and its state",
 	} {
 		if !strings.Contains(compactPrompt, want) {
 			t.Errorf("the compaction prompt must require %q", want)

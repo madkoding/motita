@@ -143,6 +143,7 @@ const PROGRESS_PREFIXES: [string, string][] = [
   ["doing:", "doing"],
   ["action:", "reasoning"],
   ["mode:", "analysis"],
+  ["saved to memory:", "memory"],
 ];
 const PROGRESS_PATTERNS: [RegExp, string][] = [
   [/^(validating|validation)/, "check"],
@@ -150,6 +151,7 @@ const PROGRESS_PATTERNS: [RegExp, string][] = [
   [/^(analysing|understood)/, "analysis"],
   [/^(deciding|starting with: |round \d+ done)/, "reasoning"],
   [/^(task complete|synthesizing)/, "synthesis"],
+  [/^\[recalled \d+ passages from memory\]$/, "memory"],
 ];
 
 // isPhaseLine says whether a progress line only names the phase the pipeline is in. It is the
@@ -323,6 +325,17 @@ const PROGRESS_FORMS: [RegExp, string, string[]][] = [
     [],
   ],
   [/^task complete: ([\s\S]*)$/, "task complete: {x}", ["x"]],
+  [/^saved to memory: ([\s\S]*)$/, "saved to memory: {x}", ["x"]],
+  [
+    /^\[recalled (\d+) passages from memory\]$/,
+    "[recalled {n} passages from memory]",
+    ["n"],
+  ],
+  [
+    /^\[recalled (\d+) passages from earlier\]$/,
+    "[recalled {n} passages from earlier]",
+    ["n"],
+  ],
   [/^synthesizing answer\.\.\.$/, "synthesizing answer...", []],
   [
     /^subtask (\d+)\/(\d+): ([\s\S]*)$/,
@@ -469,4 +482,35 @@ export function parseFrame(raw: string): {
     }
   }
   return { id, event, data };
+}
+
+// MemorySave is an entry the agent wrote to during a turn.
+export interface MemorySave {
+  title: string;
+  path: string;
+}
+
+// SAVED_LINE is the step a write to the memory leaves: "saved to memory: Title (path.md)".
+const SAVED_LINE = /^saved to memory: (.+) \(([^()]+)\)$/;
+const RECALLED_LINE = /^\[recalled (\d+) passages from memory\]$/;
+
+// memoryUse is what a turn did with the memory, read from its steps: the entries it saved (each
+// once, in order) and how many passages it was handed from it.
+export function memoryUse(steps: { text: string }[]): {
+  saved: MemorySave[];
+  recalled: number;
+} {
+  const saved: MemorySave[] = [];
+  let recalled = 0;
+  for (const { text } of steps) {
+    const s = SAVED_LINE.exec(text);
+    if (s && !saved.some((x) => x.path === s[2])) {
+      saved.push({ title: s[1], path: s[2] });
+    }
+    const r = RECALLED_LINE.exec(text);
+    if (r) {
+      recalled += Number(r[1]);
+    }
+  }
+  return { saved, recalled };
 }

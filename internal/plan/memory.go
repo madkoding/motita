@@ -85,8 +85,16 @@ func (p *Planner) toolMemory(name string, raw []byte) string {
 	case "read_memory":
 		return limitString(p.memory.ReadText(args.Entry), maxToolOutputBytes)
 	case "write_memory":
-		return p.memory.WriteText(args.Entry, redact.String(args.Content))
+		return p.saved(p.memory.WriteText(args.Entry, redact.String(args.Content)))
 	default: // append_memory
-		return p.memory.AppendText(args.Entry, redact.String(args.Content))
+		return p.saved(p.memory.AppendText(args.Entry, redact.String(args.Content)))
 	}
+}
+
+// saved tells the interface what a write or an append put in the memory, and hands the reply on.
+func (p *Planner) saved(reply string) string {
+	if line, ok := memory.SavedLine(reply); ok {
+		p.tracef("%s", line)
+	}
+	return reply
 }

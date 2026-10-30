@@ -14,18 +14,18 @@ import (
 	"github.com/madkoding/motita/internal/template"
 )
 
+// memoryBriefChars bounds the memory passages one task starts with.
+const memoryBriefChars = 3000
+
 // --- Phases -----------------------------------------------------------------
 
-func (a *Agent) analysisPhase(ctx context.Context, t task.Task, rules string, depth int) Analysis {
-	vars := a.baseVariables(t)
-	vars["rules"] = rules
-	vars["attempt"] = "1"
-	vars["max_attempts"] = fmt.Sprint(a.cfg.Agent.MaxRetries + 1)
-	// Earlier turns of this conversation, retrieved from the archive rather than carried in
-	// the prompt. The block is data, and it says so; a task piped in from a script has no
-	// conversation, and then there is nothing to add. The variable is always set, even empty,
-	// so the template does not warn about a name it cannot find.
-	vars["recall"] = ""
+// recalledContext is what the analysis is handed beyond the request: earlier turns of this
+// conversation, retrieved from the archive rather than carried in the prompt, and what the
+// person's memory already says about the task. Empty when there is neither.
+func (a *Agent) recalledContext(ctx context.Context, t task.Task, depth int) string {
+	// The block is data, and it says so; a task piped in from a script has no conversation,
+	// and then there is nothing to add.
+	var out string
 	if a.recall != nil {
 		// The prompt already carries the last DialogueTurns turns, and a recall must not
 		// repeat them. The count is the real one, so a short conversation does not hide
@@ -39,10 +39,31 @@ func (a *Agent) analysisPhase(ctx context.Context, t task.Task, rules string, de
 			live--
 		}
 		if block, n := a.recall(ctx, t.Description, live); n > 0 {
-			vars["recall"] = block
+			out = block
 			a.report("[recalled %d passages from earlier]", n)
 		}
 	}
+
+	// And what the person's memory already says about the task, looked up for the agent.
+	if a.memory != nil {
+		if block, n := a.memory.Brief(t.Description, memoryBriefChars); n > 0 {
+			if out != "" {
+				out += "\n\n"
+			}
+			out += block
+			a.report("[recalled %d passages from memory]", n)
+		}
+	}
+	return out
+}
+
+func (a *Agent) analysisPhase(ctx context.Context, t task.Task, rules string, depth int) Analysis {
+	vars := a.baseVariables(t)
+	vars["rules"] = rules
+	vars["attempt"] = "1"
+	vars["max_attempts"] = fmt.Sprint(a.cfg.Agent.MaxRetries + 1)
+	// Always set, even empty, so the template does not warn about a name it cannot find.
+	vars["recall"] = a.recalledContext(ctx, t, depth)
 
 	text, err := a.ask(ctx, a.cfg.Prompts.Analyze, vars, "analyze")
 	if err != nil {

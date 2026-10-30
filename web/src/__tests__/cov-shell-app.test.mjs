@@ -50,6 +50,7 @@ const component = (spec, names, extra = "") =>
 stub("./appStore", APP_STORE_STUB);
 component("./Sidebar", ["Sidebar"]);
 component("./Composer", ["Composer"]);
+component("./PinnedPlan", ["PinnedPlanBar"]);
 component("./Settings", ["SettingsModal"]);
 component("./GitConnect", ["GitConnectModal"]);
 component("./FolderBrowser", ["FolderBrowser"]);

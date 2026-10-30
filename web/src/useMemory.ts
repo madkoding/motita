@@ -242,13 +242,59 @@ function useEntryEdits(
   return { createEntry, renameEntry, deleteEntry, deleteFolder, confirmDelete };
 }
 
-export function useMemory(api: Api, setState: SetStatus) {
-  const [showMemory, setShowMemory] = useState(false);
+// useMemoryList is the list of entries and collections, read when asked (loadList, which reports a
+// failure) and again in the background (refresh, which does not).
+function useMemoryList(api: Api, setState: SetStatus) {
   const [entries, setEntries] = useState<MemoryEntry[]>([]);
   const [namespaces, setNamespaces] = useState<Namespace[]>([]);
   const [root, setRoot] = useState("");
   // Whether the last look at the list failed, so an unreadable memory is not shown as an empty one.
   const [loadFailed, setLoadFailed] = useState(false);
+
+  const loadList = useCallback(async () => {
+    try {
+      const res = await api(MEMORY_PATH);
+      if (!res.ok) {
+        setLoadFailed(true);
+        setState(t("could not load the memory"), true);
+        return;
+      }
+      await takeList(res);
+    } catch {
+      setLoadFailed(true);
+      setState(t("could not load the memory"), true);
+    }
+  }, [api, setState]);
+
+  // refresh reads the list again in the background: a failure keeps what is on screen and says
+  // nothing, because the person did not ask for it and the next refresh may work.
+  const refresh = useCallback(async () => {
+    try {
+      const res = await api(MEMORY_PATH);
+      if (res.ok) {
+        await takeList(res);
+      }
+    } catch {
+      // kept as it was
+    }
+  }, [api]);
+
+  // takeList puts a list the gateway answered on screen.
+  async function takeList(res: Response) {
+    const d = await res.json();
+    setEntries(d.entries);
+    setNamespaces(d.namespaces ?? []);
+    setRoot(d.root);
+    setLoadFailed(false);
+  }
+
+  return { entries, namespaces, root, loadFailed, loadList, refresh };
+}
+
+export function useMemory(api: Api, setState: SetStatus) {
+  const [showMemory, setShowMemory] = useState(false);
+  const { entries, namespaces, root, loadFailed, loadList, refresh } =
+    useMemoryList(api, setState);
   // What the person asked to delete and has not yet confirmed.
   const [pending, setPending] = useState<Deletion | null>(null);
   const [current, setCurrent] = useState<EntryView | null>(null);
@@ -261,25 +307,6 @@ export function useMemory(api: Api, setState: SetStatus) {
   // The draft and the entry it belongs to, for the save that happens when the person moves on.
   const live = useRef({ current, draft });
   live.current = { current, draft };
-
-  const loadList = useCallback(async () => {
-    try {
-      const res = await api(MEMORY_PATH);
-      if (!res.ok) {
-        setLoadFailed(true);
-        setState(t("could not load the memory"), true);
-        return;
-      }
-      const d = await res.json();
-      setEntries(d.entries);
-      setNamespaces(d.namespaces ?? []);
-      setRoot(d.root);
-      setLoadFailed(false);
-    } catch {
-      setLoadFailed(true);
-      setState(t("could not load the memory"), true);
-    }
-  }, [api, setState]);
 
   // fetchEntry reads an entry and puts it on screen.
   const fetchEntry = useCallback(
@@ -439,6 +466,7 @@ export function useMemory(api: Api, setState: SetStatus) {
     root,
     loadFailed,
     reload: loadList,
+    refresh,
     current,
     draft,
     setDraft,

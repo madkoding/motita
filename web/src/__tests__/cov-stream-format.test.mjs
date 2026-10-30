@@ -691,6 +691,44 @@ test("workerError puts the few messages a worker can send in the reader's langua
   );
 });
 
+test("the memory lines are classed, worded and read back", async () => {
+  assert.equal(m.classifyProgress("saved to memory: A (a.md)"), "memory");
+  assert.equal(
+    m.classifyProgress("[recalled 2 passages from memory]"),
+    "memory",
+  );
+  assert.equal(
+    m.progressText("saved to memory: A (a.md)"),
+    "saved to memory: A (a.md)",
+  );
+  assert.equal(
+    m.progressText("[recalled 2 passages from memory]"),
+    "[recalled 2 passages from memory]",
+  );
+  assert.equal(
+    m.progressText("[recalled 3 passages from earlier]"),
+    "[recalled 3 passages from earlier]",
+  );
+  const es = (await import("../i18n.es.ts")).default;
+  for (const k of [
+    "saved to memory: {x}",
+    "[recalled {n} passages from memory]",
+    "[recalled {n} passages from earlier]",
+    "Used the memory ({n})",
+    "Saved to memory: {name}",
+  ]) {
+    assert.ok(es[k], "missing Spanish for: " + k);
+  }
+  assert.deepEqual(
+    m.memoryUse([
+      { text: "saved to memory: A b (x/A b.md)" },
+      { text: "running: ls" },
+      { text: "[recalled 4 passages from memory]" },
+    ]),
+    { saved: [{ title: "A b", path: "x/A b.md" }], recalled: 4 },
+  );
+});
+
 test("the words of an action are split from its command and shown in the reader's language", async () => {
   assert.deepEqual(m.splitDoing("doing: Running the tests\nrunning: go test"), {
     doing: "Running the tests",

@@ -167,7 +167,7 @@ function vault(initial = {}) {
     path: p,
     title: p.split("/").pop().replace(/\.md$/, ""),
     size: files[p].length,
-    modified: "",
+    modified: state.modified?.[p] ?? "",
   });
   const view = (p) => ({
     ...item(p),
@@ -1476,4 +1476,108 @@ test("plainWiki shows the words of a line: links by their alias or name, marks g
     "See Japan and the trip now",
   );
   assert.equal(api.plainWiki("an open [[link"), "an open [[link");
+});
+
+// ---- what was saved lately ----------------------------------------------------------------------
+
+test("recentEntries puts the newest first and leaves out what has no date", () => {
+  const e = (path, modified) => ({ path, title: path, size: 1, modified });
+  const got = api.recentEntries(
+    [
+      e("a", "2026-10-01T00:00:00Z"),
+      e("b", ""),
+      e("c", "2026-10-03T00:00:00Z"),
+      e("d", "2026-10-02T00:00:00Z"),
+    ],
+    2,
+  );
+  assert.deepEqual(
+    got.map((x) => x.path),
+    ["c", "d"],
+  );
+  assert.equal(api.recentEntries([e("a", "2026-10-01T00:00:00Z")]).length, 1);
+});
+
+test("ageKey names the largest unit that fits, and just now under a minute or ahead", () => {
+  const now = Date.parse("2026-10-30T12:00:00Z");
+  const ago = (s) => api.ageKey(new Date(now - s * 1000).toISOString(), now);
+  assert.deepEqual(ago(30), { key: "just now", n: 0 });
+  assert.deepEqual(ago(-90), { key: "just now", n: 0 });
+  assert.deepEqual(ago(125), { key: "{n}m ago", n: 2 });
+  assert.deepEqual(ago(3 * 3600), { key: "{n}h ago", n: 3 });
+  assert.deepEqual(ago(2 * 86400), { key: "{n}d ago", n: 2 });
+  assert.deepEqual(ago(40 * 86400), { key: "{n}mo ago", n: 1 });
+  assert.deepEqual(ago(800 * 86400), { key: "{n}y ago", n: 2 });
+});
+
+test("the library shows what was saved lately, newest first, with its age", async () => {
+  const v = vault({ "old.md": "o", "agent/Deploys.md": "d", "nodate.md": "n" });
+  v.state.modified = {
+    "old.md": new Date(Date.now() - 3 * 86400 * 1000).toISOString(),
+    "agent/Deploys.md": new Date().toISOString(),
+  };
+  const m = await mount(v);
+  await m.run((n) => n.openMemory());
+  const recent = q(m.root, "memory-recent");
+  assert.match(text(recent), /Recently saved/);
+  const rows = [...recent.querySelectorAll('[data-testid="entry-row"]')].map(
+    text,
+  );
+  assert.deepEqual(rows, ["Deploys", "old"]);
+  const ages = [...recent.querySelectorAll('[data-testid="recent-age"]')].map(
+    text,
+  );
+  assert.deepEqual(ages, ["just now", "3d ago"]);
+  await click(recent.querySelector('[data-testid="entry-row"]'));
+  assert.match(text(q(m.root, "entry-preview")), /d/);
+  await m.done();
+  assert.equal(es["Recently saved"], "Guardado hace poco");
+});
+
+test("the open window reads the list again on its own, quietly when it fails", async () => {
+  const realSet = globalThis.setInterval;
+  const realClear = globalThis.clearInterval;
+  const ticks = [];
+  const cleared = [];
+  globalThis.setInterval = (fn, ms) => {
+    ticks.push({ fn, ms });
+    return ticks.length;
+  };
+  globalThis.clearInterval = (id) => cleared.push(id);
+  try {
+    const v = vault({ "a.md": "a" });
+    const m = await mount(v);
+    await m.run((n) => n.openMemory());
+    const tick = ticks.find((x) => x.ms === 15000);
+    assert.ok(tick, "no refresh was scheduled");
+    assert.equal(q(m.root, "memory-recent"), null);
+    v.files["b.md"] = "b";
+    v.state.modified = { "b.md": new Date().toISOString() };
+    await act(() => tick.fn());
+    await settle();
+    assert.match(text(q(m.root, "memory-recent")), /b/);
+    const before = m.statuses.length;
+    v.fail.add({ path: "/v1/memory", method: "GET", status: 500 });
+    await act(() => tick.fn());
+    await settle();
+    v.fail.clear();
+    v.fail.add({ path: "/v1/memory", method: "GET" });
+    await act(() => tick.fn());
+    await settle();
+    assert.equal(
+      m.statuses.length,
+      before,
+      "a background refresh must not report",
+    );
+    assert.match(text(q(m.root, "memory-recent")), /b/);
+    v.fail.clear();
+    await m.done();
+    assert.ok(
+      cleared.length > 0,
+      "the refresh was not stopped with the window",
+    );
+  } finally {
+    globalThis.setInterval = realSet;
+    globalThis.clearInterval = realClear;
+  }
 });

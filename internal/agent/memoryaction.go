@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/madkoding/motita/internal/memory"
 	"github.com/madkoding/motita/internal/redact"
 )
 
@@ -15,7 +16,11 @@ func (rr *roundRun) memoryAction(kind string, action Command) bool {
 	default:
 		return false
 	}
-	fmt.Fprintf(&rr.sb, "[%s] %s\n%s\n", kind, action.Description, rr.a.memoryReply(kind, action.Command))
+	reply := rr.a.memoryReply(kind, action.Command)
+	if line, ok := memory.SavedLine(reply); ok {
+		rr.a.report("%s", line)
+	}
+	fmt.Fprintf(&rr.sb, "[%s] %s\n%s\n", kind, action.Description, reply)
 	rr.a.log.Info(rr.prefix+"memory action", "kind", kind, "command", truncate(firstLineOf(action.Command), 120))
 	return true
 }

@@ -1,7 +1,7 @@
 // The memory window: the search and the library of entries on the left, the page being read on the
 // right. Entries are plain Markdown files kept in collections, where [[links]] open the entry they
 // name.
-import { useCallback } from "preact/hooks";
+import { useCallback, useEffect } from "preact/hooks";
 import { t } from "./i18n";
 import { choose } from "./choose";
 import { useApp } from "./appStore";
@@ -11,9 +11,14 @@ import { MemoryList, SMALL_BTN } from "./MemoryLibrary";
 import { OpenEntry } from "./MemoryReader";
 import { IconClose } from "./icons";
 
+// REFRESH_MS is how often the open window reads the list again, so what the agent saves while it is
+// open shows up without closing it.
+export const REFRESH_MS = 15000;
+
 export function MemoryModal() {
   const app = useApp();
   const {
+    refresh,
     closeMemory,
     graph,
     openGraph,
@@ -29,6 +34,10 @@ export function MemoryModal() {
       void openGraph();
     }
   };
+  useEffect(() => {
+    const id = setInterval(() => void refresh(), REFRESH_MS);
+    return () => clearInterval(id);
+  }, [refresh]);
   const close = useCallback(() => void closeMemory(), [closeMemory]);
   const confirmPending = useCallback(
     () => pending && void confirmDelete(pending),

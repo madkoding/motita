@@ -534,3 +534,47 @@ export function countEntries(folder: EntryFolder): number {
     folder.entries.length,
   );
 }
+
+// RECENT_ENTRIES is how many of the newest entries the library shows on top.
+export const RECENT_ENTRIES = 5;
+
+// recentEntries is the newest entries first, the ones whose date cannot be read left out: what was
+// just saved, by the person or by the agent, without hunting for it in the folders.
+export function recentEntries(
+  entries: MemoryEntry[],
+  n = RECENT_ENTRIES,
+): MemoryEntry[] {
+  return entries
+    .filter((e) => !Number.isNaN(Date.parse(e.modified)))
+    .sort((a, b) => Date.parse(b.modified) - Date.parse(a.modified))
+    .slice(0, n);
+}
+
+// The units of an age, in seconds.
+const MINUTE_SECS = 60;
+const HOUR_SECS = 3600;
+const DAY_SECS = 86400;
+const MONTH_SECS = 2592000;
+const YEAR_SECS = 31536000;
+const MS_PER_SEC = 1000;
+
+// The steps of an age, largest first: the unit's length in seconds and its key.
+const AGE_STEPS: [number, string][] = [
+  [YEAR_SECS, "{n}y ago"],
+  [MONTH_SECS, "{n}mo ago"],
+  [DAY_SECS, "{n}d ago"],
+  [HOUR_SECS, "{n}h ago"],
+  [MINUTE_SECS, "{n}m ago"],
+];
+
+// ageKey is how long ago iso was, as the key to translate and its number. Under a minute, or in
+// the future (a clock ahead of the gateway's), it is "just now".
+export function ageKey(iso: string, now: number): { key: string; n: number } {
+  const secs = (now - Date.parse(iso)) / MS_PER_SEC;
+  for (const [size, key] of AGE_STEPS) {
+    if (secs >= size) {
+      return { key, n: Math.floor(secs / size) };
+    }
+  }
+  return { key: "just now", n: 0 };
+}

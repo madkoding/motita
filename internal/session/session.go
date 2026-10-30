@@ -62,6 +62,8 @@ type Session struct {
 	// summary is the accumulated account of what compaction removed. It is carried as
 	// the first message of every request, so nothing that was summarised is lost.
 	summary string
+	// pinned is the active plan, carried verbatim and never compacted (see pin.go).
+	pinned string
 	// compactions counts them, for the report and for tests.
 	compactions int
 	// lastErr is why the last compaction could not be done, if it could not.
@@ -108,12 +110,15 @@ func (s *Session) Messages() []llm.Message {
 
 // messagesLocked builds the history. The caller holds the lock.
 func (s *Session) messagesLocked() []llm.Message {
-	out := make([]llm.Message, 0, len(s.messages)+2)
+	out := make([]llm.Message, 0, len(s.messages)+3)
 	if s.System != "" {
 		out = append(out, llm.Message{Role: "system", Content: s.System})
 	}
 	if s.summary != "" {
 		out = append(out, llm.Message{Role: "system", Content: s.summaryNote()})
+	}
+	if s.pinned != "" && !s.pinShownLocked() {
+		out = append(out, s.pinnedNote())
 	}
 	return append(out, s.messages...)
 }
@@ -346,7 +351,12 @@ Preserve, in this order of importance:
 4. What was tried and failed, so it is not tried again.
 5. What remains to be done.
 
-Omit: pleasantries, restatements of the plan, and tool output that carried no conclusion.
+THE ACTIVE PLAN: if the conversation holds a plan the user is following or approved, copy it
+into a "Plan" section with every step and its state (done, in progress, pending) and any
+change the user asked for. Never shorten it to "a plan was made". When the account carried from
+earlier already has a Plan section, update it and keep it, do not drop it.
+
+Omit: pleasantries, and tool output that carried no conclusion.
 Write in the third person, as notes to be read before continuing. Be specific: names,
 paths and numbers, never "some files" or "the version". Do not invent anything that is
 not in the conversation.`

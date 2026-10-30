@@ -2,6 +2,7 @@ package plan
 
 import (
 	"context"
+	"fmt"
 	"strings"
 	"testing"
 
@@ -30,7 +31,10 @@ func TestMemoryToolsAreOfferedOnlyWithAMemory(t *testing.T) {
 
 func TestMemoryToolsReadAndWriteTheMemory(t *testing.T) {
 	v := memory.Open(t.TempDir())
-	p := (&Planner{}).WithMemory(v)
+	var trace []string
+	p := (&Planner{}).WithMemory(v).WithTrace(func(format string, args ...any) {
+		trace = append(trace, fmt.Sprintf(format, args...))
+	})
 	call := func(name, args string) string {
 		fn := llm.FunctionCall{Name: name, Arguments: raw(args)}
 		return p.dispatchTool(context.Background(), llm.ToolCall{Function: fn})
@@ -42,6 +46,16 @@ func TestMemoryToolsReadAndWriteTheMemory(t *testing.T) {
 	out = call("append_memory", `{"entry":"Japan","content":"Go in May"}`)
 	if !strings.Contains(out, "Added to [[Japan]]") {
 		t.Errorf("append = %q", out)
+	}
+	call("write_memory", `{"entry":"trips/Japan","content":"again"}`)
+	var saves []string
+	for _, line := range trace {
+		if strings.HasPrefix(line, memory.SavedPrefix) {
+			saves = append(saves, line)
+		}
+	}
+	if strings.Join(saves, "|") != "saved to memory: Japan (trips/Japan.md)|saved to memory: Japan (trips/Japan.md)" {
+		t.Errorf("the saves were not reported, or a refusal was: %q", trace)
 	}
 	out = call("search_memory", `{"query":"ramen"}`)
 	if !strings.Contains(out, "[[Japan]] (trips/Japan.md)") {
