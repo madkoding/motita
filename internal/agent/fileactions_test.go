@@ -392,6 +392,7 @@ func TestAnActionThatIsNotAShellCommandStillClosesItsLine(t *testing.T) {
 	}
 	var running, closed []string
 	for _, l := range lines {
+		_, l, _ = SplitDoing(l)
 		switch {
 		case strings.HasPrefix(l, "running: write_file"):
 			running = append(running, l)

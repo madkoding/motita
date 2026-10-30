@@ -140,6 +140,7 @@ const PROGRESS_PREFIXES: [string, string][] = [
   ["output (exit", "output"],
   ["approved (all commands", "check"],
   ["running:", "command"],
+  ["doing:", "doing"],
   ["action:", "reasoning"],
   ["mode:", "analysis"],
 ];
@@ -295,6 +296,7 @@ export function oneLine(text: string, max = 160): string {
 // PROGRESS_FORMS are the agent's own phase lines (agent.report in Go), in English on the wire, and
 // the format each one is shown with. Anything that is not one of these - a command, the model's
 // reasoning, a gateway message - is shown exactly as it arrived.
+const DECIDING_AFTER = "deciding the next step after: {x}";
 const PROGRESS_FORMS: [RegExp, string, string[]][] = [
   [/^analysing the task\.\.\.$/, "analysing the task...", []],
   [/^understood: ([\s\S]*)$/, "understood: {x}", ["x"]],
@@ -307,11 +309,7 @@ const PROGRESS_FORMS: [RegExp, string, string[]][] = [
   ],
   [/^deciding the first step\.\.\.$/, "deciding the first step...", []],
   [/^deciding the next step\.\.\.$/, "deciding the next step...", []],
-  [
-    /^deciding the next step after: ([\s\S]*)$/,
-    "deciding the next step after: {x}",
-    ["x"],
-  ],
+  [/^deciding the next step after: ([\s\S]*)$/, DECIDING_AFTER, ["x"]],
   [/^starting with: ([\s\S]*)$/, "starting with: {x}", ["x"]],
   [
     /^round (\d+) done; the model reports more to do$/,
@@ -349,8 +347,33 @@ const PROGRESS_FORMS: [RegExp, string, string[]][] = [
   ],
 ];
 
+// The prefix of the words an action is announced with.
+const DOING_PREFIX = "doing: ";
+
+// splitDoing reads a progress line that carries the words of an action: "doing: <words>", with the
+// action's own line ("running: <command>") after a line break when it has one. The words say what
+// the action is for; the conversation shows them and the actions tab keeps the command. A line
+// that is not one is null.
+export function splitDoing(
+  text: string,
+): { doing: string; rest: string } | null {
+  if (!text.startsWith(DOING_PREFIX)) {
+    return null;
+  }
+  const body = text.slice(DOING_PREFIX.length);
+  const cut = body.indexOf("\n");
+  if (cut < 0) {
+    return { doing: body, rest: "" };
+  }
+  return { doing: body.slice(0, cut), rest: body.slice(cut + 1) };
+}
+
 // progressText shows one of the agent's phase lines in the reader's language.
 export function progressText(text: string): string {
+  const words = splitDoing(text);
+  if (words) {
+    return t(words.doing);
+  }
   for (const [re, format, names] of PROGRESS_FORMS) {
     const m = re.exec(text);
     if (!m) {
@@ -360,6 +383,10 @@ export function progressText(text: string): string {
     names.forEach((n, i) => {
       args[n] = m[i + 1];
     });
+    if (format === DECIDING_AFTER) {
+      // What the last action was for, in the words it announced itself with.
+      args.x = t(args.x);
+    }
     return tf(format, args);
   }
   return text;

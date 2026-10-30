@@ -96,3 +96,17 @@ func TestFinishingAnAgentClearsItsActivity(t *testing.T) {
 		}
 	}
 }
+
+func TestRelayedCommandsLoseTheWordsOfTheirAction(t *testing.T) {
+	var got []string
+	a := &Agent{Progress: func(f string, args ...any) { got = append(got, fmt.Sprintf(f, args...)) }}
+	relay := a.relayProgress("a1", "", func(string, ...any) {})
+	relay("%s", "doing: Listing files\nrunning: ls")
+	relay("%s", "output (exit 0):\nREADME")
+	if len(got) != 1 {
+		t.Fatalf("lines = %q", got)
+	}
+	if s, ok := ParseSubLine(got[0]); !ok || s.Text != "ls" {
+		t.Errorf("the relayed command = %+v %v", s, ok)
+	}
+}

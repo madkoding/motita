@@ -269,6 +269,9 @@ export interface StepView {
   // exit is a command's result once it has finished: null while it runs.
   exit?: number | null;
   out?: string;
+  // label is what a command was for, in plain words: the conversation shows it in place of the
+  // command, which stays in the terminal drawer.
+  label?: string;
   // key tells the steps of a trail apart when they are drawn. It is given once, when the step
   // is received, so it never changes while the trail is on screen.
   key?: number;

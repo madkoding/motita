@@ -773,10 +773,11 @@ func livePlanText(progress func(string, ...any)) func(string) {
 // same way whichever mode answered.
 func planSteps(progress func(string, ...any)) plan.Steps {
 	return plan.Steps{
-		Command: func(command string) { progress("running: %s", command) },
+		Command: func(command, doing string) { progress("%s%s\nrunning: %s", agent.DoingPrefix, doing, command) },
 		Output:  func(exit int, output string) { progress("output (exit %d):\n%s", exit, output) },
 		Thought: func(text string) { progress("%s%s", agent.ThinkingPrefix, text) },
 		Live:    func(text string) { progress("%s%s", agent.LivePrefix, text) },
+		Doing:   func(text string) { progress("%s%s", agent.DoingPrefix, text) },
 	}
 }
 

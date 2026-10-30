@@ -506,9 +506,13 @@ export function ModeBadge({
 function TrailStep({ step, settled }: { step: StepView; settled: boolean }) {
   if (step.kind === "command") {
     const cmd = step.text.replace(/^running:\s*/, "");
+    const label = choose(step.label, t(step.label ?? ""), "");
     return (
-      <div class="trail-step command term-cmd" title={cmd}>
-        <span class="term-cmd-text">{oneLine(cmd)}</span>
+      <div
+        class={`trail-step command term-cmd${choose(label, " labelled", "")}`}
+        title={choose(label, label, cmd)}
+      >
+        <span class="term-cmd-text">{oneLine(choose(label, label, cmd))}</span>
         <ShellStatus exit={step.exit} settled={settled} />
       </div>
     );

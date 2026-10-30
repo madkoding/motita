@@ -53,6 +53,9 @@ type stepRecord struct {
 	Exit *int `json:"exit,omitempty"`
 	// Out is what the command printed.
 	Out string `json:"out,omitempty"`
+	// Label is what the command was for, in plain words: what a client shows in the conversation
+	// while the command itself stays in its actions tab. Empty when nobody said.
+	Label string `json:"label,omitempty"`
 }
 
 // checkpoint is one user input and everything needed to go back to before it.
@@ -230,6 +233,10 @@ func (c *conversation) recordStep(turn int, text string) {
 		}
 		return
 	}
+	doing, rest, hasDoing := agent.SplitDoing(text)
+	if hasDoing && rest != "" {
+		text = rest
+	}
 	step := stepRecord{Kind: stepPlain, Text: clipMiddle(text, maxStepText)}
 	switch {
 	case strings.HasPrefix(text, "running:"):
@@ -238,6 +245,9 @@ func (c *conversation) recordStep(turn int, text string) {
 		step.Kind = stepThought
 	default:
 		// Any other line stays a plain step.
+	}
+	if hasDoing && rest != "" {
+		step.Label = clipMiddle(doing, maxStepText)
 	}
 	cp.Steps = appendStep(cp.Steps, step)
 }

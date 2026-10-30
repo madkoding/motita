@@ -475,3 +475,25 @@ func TestBackgroundAgentStepsAreKeptWithTheTurn(t *testing.T) {
 		t.Errorf("thought step = %+v", s)
 	}
 }
+
+// TestAStepKeepsTheWordsOfItsAction: the words an action announced itself with are kept beside the
+// command, so a reloaded conversation shows what the live one did; words with no command after them
+// are a step of their own.
+func TestAStepKeepsTheWordsOfItsAction(t *testing.T) {
+	c := &conversation{}
+	c.openCheckpoint(0, "a", "task", false)
+	c.recordStep(0, "doing: Running the tests\nrunning: go test ./...")
+	c.recordStep(0, "output (exit 1):\nFAIL")
+	c.recordStep(0, "doing: Reading a skill")
+	s := c.checkpointViews()[0].Steps
+	if len(s) != 2 {
+		t.Fatalf("steps = %+v", s)
+	}
+	isCommand := s[0].Kind == stepCommand && s[0].Text == "running: go test ./..."
+	if !isCommand || s[0].Label != "Running the tests" || s[0].Exit == nil || *s[0].Exit != 1 {
+		t.Errorf("the command = %+v", s[0])
+	}
+	if s[1].Kind != stepPlain || s[1].Text != "doing: Reading a skill" || s[1].Label != "" {
+		t.Errorf("the words alone = %+v", s[1])
+	}
+}

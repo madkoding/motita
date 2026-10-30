@@ -625,8 +625,12 @@ minutes. `agent.auto_mode_rules_only: true` (`MOTITA_AGENT_AUTO_MODE_RULES_ONLY`
 off and leaves auto mode to the rules. In the web, the turn's **Plan**/**Task** tag says
 why it was picked and, when no run is working, is the switch: one tap sends the message again
 in the other mode; a guess the model did not make shows as **Task?** or **Plan?**. While a run
-works, the activity line says what it is doing ("starting with: read the failing test",
-"deciding the next step after: go test ./…") instead of a round counter.
+works, the activity line says what it is doing instead of a round counter: "starting with: read
+the failing test" before the first action and, from then on, the words the model gave each action
+(`"description": "Running the tests"`, "Reading the folder's files"). The conversation shows those
+words, not the command: the command runs underneath and stays in the terminal (Actions) tab. An
+action the model did not describe is named from its kind or program. The words reach clients as a
+`doing: <words>` line, followed by the action's `running: <command>` line in the same report.
 
 A bare go-ahead after a plan ("ok", "do it", "dale", "hazlo") carries that plan out: the plan
 travels inside the task, the agent does not plan it again and never stops to ask, and the turn

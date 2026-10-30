@@ -238,13 +238,17 @@ func firstLine(s string) string {
 var activityForms = []struct {
 	re     *regexp.Regexp
 	format string
+	// translateArgs says the carried text is itself a phrase of the catalog (what an action was for).
+	translateArgs bool
 }{
-	{regexp.MustCompile(`^deciding action \(round (\d+)/(\d+)\)\.\.\.$`), "deciding action (round %s/%s)..."},
-	{regexp.MustCompile(`^deciding the next step after: (.*)$`), "deciding the next step after: %s"},
-	{regexp.MustCompile(`^starting with: (.*)$`), "starting with: %s"},
-	{regexp.MustCompile(`^waiting for (\d+) background agent\(s\)\.\.\.$`), "waiting for %s background agent(s)..."},
-	{regexp.MustCompile(`^plan ready: (1) steps?$`), "plan ready: %s step"},
-	{regexp.MustCompile(`^plan ready: (\d+) steps?$`), "plan ready: %s steps"},
+	{regexp.MustCompile(`^deciding action \(round (\d+)/(\d+)\)\.\.\.$`), "deciding action (round %s/%s)...", false},
+	{regexp.MustCompile(`^deciding the next step after: (.*)$`),
+		"deciding the next step after: %s", true},
+	{regexp.MustCompile(`^starting with: (.*)$`), "starting with: %s", false},
+	{regexp.MustCompile(`^waiting for (\d+) background agent\(s\)\.\.\.$`),
+		"waiting for %s background agent(s)...", false},
+	{regexp.MustCompile(`^plan ready: (1) steps?$`), "plan ready: %s step", false},
+	{regexp.MustCompile(`^plan ready: (\d+) steps?$`), "plan ready: %s steps", false},
 }
 
 // activityFixed are the phase lines that carry nothing.
@@ -260,6 +264,9 @@ var activityFixed = map[string]bool{
 // activityText shows an agent's latest phase line in the reader's language. Anything that is not
 // one of the agent's phase lines - a command, the model's words - is shown as it arrived.
 func (t *TUI) activityText(line string) string {
+	if what, _, ok := agent.SplitDoing(line); ok {
+		return t.tr(what)
+	}
 	if activityFixed[line] {
 		return t.tr(line)
 	}
@@ -268,6 +275,11 @@ func (t *TUI) activityText(line string) string {
 			args := make([]any, len(m)-1)
 			for i, v := range m[1:] {
 				args[i] = v
+			}
+			if f.translateArgs {
+				for i, a := range args {
+					args[i] = t.tr(a.(string))
+				}
 			}
 			return t.trf(f.format, args...)
 		}
