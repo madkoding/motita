@@ -62,6 +62,8 @@ type Session struct {
 	// summary is the accumulated account of what compaction removed. It is carried as
 	// the first message of every request, so nothing that was summarised is lost.
 	summary string
+	// pinned is the active plan, carried verbatim and never compacted (see pin.go).
+	pinned string
 	// compactions counts them, for the report and for tests.
 	compactions int
 	// lastErr is why the last compaction could not be done, if it could not.
@@ -108,12 +110,15 @@ func (s *Session) Messages() []llm.Message {
 
 // messagesLocked builds the history. The caller holds the lock.
 func (s *Session) messagesLocked() []llm.Message {
-	out := make([]llm.Message, 0, len(s.messages)+2)
+	out := make([]llm.Message, 0, len(s.messages)+3)
 	if s.System != "" {
 		out = append(out, llm.Message{Role: "system", Content: s.System})
 	}
 	if s.summary != "" {
 		out = append(out, llm.Message{Role: "system", Content: s.summaryNote()})
+	}
+	if s.pinned != "" && !s.pinShownLocked() {
+		out = append(out, s.pinnedNote())
 	}
 	return append(out, s.messages...)
 }
