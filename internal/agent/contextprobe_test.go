@@ -73,3 +73,18 @@ func TestThePinnedPlanIsNotRepeated(t *testing.T) {
 		t.Errorf("pinnedPlan = %q", got)
 	}
 }
+
+// A task that carries out the plan never gets the pin again, even when the pin was edited since,
+// and a long pin is held to its share of the brief so the archive and the memory still fit.
+func TestThePinnedPlanKeepsToItsShare(t *testing.T) {
+	a := &Agent{}
+	a.SetPinnedPlan(func() string { return "1. older wording\n2. b\n3. c" })
+	if got := a.pinnedPlan(textTask(FollowPlanTask("ok", "1. a\n2. b\n3. c"))); got != "" {
+		t.Errorf("a plan-following task got the pin too: %q", got)
+	}
+	long := strings.Repeat("x", 2*pinnedShare)
+	a.SetPinnedPlan(func() string { return long })
+	if got := a.pinnedPlan(textTask("go on")); len(got) > pinnedShare || !strings.Contains(got, "cut to fit") {
+		t.Errorf("the pin took %d of the %d it may", len(got), pinnedShare)
+	}
+}

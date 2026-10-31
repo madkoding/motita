@@ -33,7 +33,7 @@ func (r *AppRunner) equipAgent(ag AgentRunner) {
 	}
 	// And the plan the chat pinned, so "go on" in Task mode still knows which plan it means.
 	if setter, ok := ag.(interface{ SetPinnedPlan(func() string) }); ok {
-		setter.SetPinnedPlan(r.PinnedPlan)
+		setter.SetPinnedPlan(r.briefPlan)
 	}
 	r.equipThreads(ag)
 	if led := r.rewardOrNil(); led != nil {

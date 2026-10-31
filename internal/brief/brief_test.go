@@ -47,3 +47,12 @@ func TestCutNeverSplitsARune(t *testing.T) {
 		t.Errorf("cut = %q", got)
 	}
 }
+
+func TestCutHoldsAPartToItsShare(t *testing.T) {
+	if got := Cut("short", 100); got != "short" {
+		t.Errorf("Cut kept %q", got)
+	}
+	if got := Cut(strings.Repeat("ñ", 400), 300); len(got) > 300 || !utf8.ValidString(got) {
+		t.Errorf("Cut gave %d bytes, valid %v", len(got), utf8.ValidString(got))
+	}
+}

@@ -8,6 +8,7 @@ import (
 
 	"github.com/madkoding/motita/internal/agent"
 	"github.com/madkoding/motita/internal/config"
+	"github.com/madkoding/motita/internal/session"
 )
 
 // TestAPlanConversationSurvivesARestart: the summary, the pinned plan and the last turns come back
@@ -17,7 +18,7 @@ func TestAPlanConversationSurvivesARestart(t *testing.T) {
 	r := newContextRunner(t, cfg)
 	r.SetContextID("conv-1")
 	s := r.conversation(cfg, nil)
-	s.Restore("the account", "1. a\n2. b\n3. c")
+	s.Restore("the account", "1. a\n2. b\n3. c", true)
 	r.saveCarry()
 
 	// the same HOME, a new runner: what a restarted gateway builds
@@ -33,6 +34,9 @@ func TestAPlanConversationSurvivesARestart(t *testing.T) {
 	if sum != "the account" || pin != "1. a\n2. b\n3. c" {
 		t.Errorf("carried = %q %q", sum, pin)
 	}
+	if got.PinState() != session.PinProposed || again.PinnedPlanState() != session.PinProposed {
+		t.Errorf("a proposed plan came back %q", got.PinState())
+	}
 	var users []string
 	for _, m := range got.Messages() {
 		if m.Role == "user" {
@@ -44,7 +48,7 @@ func TestAPlanConversationSurvivesARestart(t *testing.T) {
 	}
 
 	// nothing to carry removes the file, so a dropped plan does not come back
-	got.Restore("", "")
+	got.Restore("", "", false)
 	again.saveCarry()
 	if _, err := os.Stat(again.carryPath()); !os.IsNotExist(err) {
 		t.Errorf("the empty carry was kept: %v", err)
@@ -138,5 +142,57 @@ func TestThePersonCanChangeAndDropThePlan(t *testing.T) {
 	off.ContextMemory.Enabled = false
 	if newContextRunner(t, off).PinnedPlan() != "" {
 		t.Error("a plan without an archive")
+	}
+}
+
+// TestAnApprovedPlanIsPinnedAndLetGoWhenDone: a go-ahead pins the plan it carries out as active,
+// a task that passed lets it go, and a failed one or any other task keeps it.
+func TestAnApprovedPlanIsPinnedAndLetGoWhenDone(t *testing.T) {
+	cfg := config.Default()
+	r := newContextRunner(t, cfg)
+	r.SetContextID("conv-4")
+	plan := "1. a\n2. b\n3. c"
+	task := agent.FollowPlanTask("ok", plan)
+	if r.releaseFollowedPlan(task, true) {
+		t.Error("let go with no session")
+	}
+	r.pinFollowedPlan("just a task")
+	if r.PinnedPlan() != "" {
+		t.Error("a task that follows no plan pinned one")
+	}
+	r.conversation(cfg, nil).Propose(plan)
+	if !strings.HasPrefix(r.briefPlan(), "(Proposed") {
+		t.Errorf("a proposal reaches the task unframed: %q", r.briefPlan())
+	}
+	r.pinFollowedPlan(task)
+	if r.PinnedPlanState() != session.PinActive || r.briefPlan() != plan {
+		t.Errorf("the approved plan is %q %q", r.PinnedPlanState(), r.briefPlan())
+	}
+	if r.releaseFollowedPlan(task, false) || r.releaseFollowedPlan("other", true) || r.PinnedPlan() == "" {
+		t.Error("a failed or unrelated task let the plan go")
+	}
+	if !r.releaseFollowedPlan(task, true) || r.PinnedPlan() != "" || r.PinnedPlanState() != "" {
+		t.Errorf("the done plan was kept: %q", r.PinnedPlan())
+	}
+}
+
+// TestThePlanStateIsReadFromDisk: before a session is built, the state comes from the file.
+func TestThePlanStateIsReadFromDisk(t *testing.T) {
+	cfg := config.Default()
+	r := newContextRunner(t, cfg)
+	r.SetContextID("conv-5")
+	if r.PinnedPlanState() != "" {
+		t.Error("a state with nothing on disk")
+	}
+	for raw, want := range map[string]string{
+		`{"pinned":"1. a","proposed":true}`: session.PinProposed,
+		`{"pinned":"1. a"}`:                 session.PinActive,
+	} {
+		if err := os.WriteFile(r.carryPath(), []byte(raw), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		if got := r.PinnedPlanState(); got != want {
+			t.Errorf("%s read as %q, want %q", raw, got, want)
+		}
 	}
 }

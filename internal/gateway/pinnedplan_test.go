@@ -14,13 +14,19 @@ type planService struct {
 
 func (p *planService) PinnedPlan() string     { return p.plan }
 func (p *planService) SetPinnedPlan(t string) { p.plan = strings.TrimSpace(t) }
+func (p *planService) PinnedPlanState() string {
+	if p.plan == "" {
+		return ""
+	}
+	return "active"
+}
 
 func TestThePinnedPlanIsReadChangedAndDropped(t *testing.T) {
 	svc := &planService{plan: "1. a\n2. b\n3. c"}
 	srv := newTestServer(t, svc)
 	path := sessionPath(srv, DefaultSession, "/plan")
 
-	if got := body(t, get(t, srv, path, srv.Token())); got != `{"plan":"1. a\n2. b\n3. c"}`+"\n" {
+	if got := body(t, get(t, srv, path, srv.Token())); got != `{"plan":"1. a\n2. b\n3. c","state":"active"}`+"\n" {
 		t.Errorf("read = %q", got)
 	}
 	w := send(t, srv, http.MethodPut, path, srv.Token(), `{"plan":" 1. x\n2. y\n3. z "}`)

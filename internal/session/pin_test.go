@@ -66,7 +66,7 @@ func TestAPinIsBounded(t *testing.T) {
 // TestWhatASessionCarriesCanBeRestored: the summary and the plan survive a rebuilt session.
 func TestWhatASessionCarriesCanBeRestored(t *testing.T) {
 	s := New("gpt-4o", "system", 0)
-	s.Restore(" the account ", "1. a\n2. b\n3. c")
+	s.Restore(" the account ", "1. a\n2. b\n3. c", false)
 	sum, pin := s.Carried()
 	if sum != "the account" || pin != "1. a\n2. b\n3. c" {
 		t.Errorf("carried = %q %q", sum, pin)
@@ -74,5 +74,43 @@ func TestWhatASessionCarriesCanBeRestored(t *testing.T) {
 	msgs := s.Messages()
 	if len(msgs) != 3 || !strings.Contains(msgs[1].Content, "the account") || !strings.Contains(msgs[2].Content, "1. a") {
 		t.Errorf("restored session = %+v", msgs)
+	}
+}
+
+// TestAProposedPlanWaitsForThePerson: a proposal is framed as not approved, a newer proposal
+// replaces it, it never replaces an approved plan, and a done plan is let go only while it is the
+// one pinned.
+func TestAProposedPlanWaitsForThePerson(t *testing.T) {
+	s := New("gpt-4o", "", 0)
+	if s.PinState() != "" {
+		t.Errorf("state with nothing pinned = %q", s.PinState())
+	}
+	s.Propose("1. a\n2. b\n3. c")
+	s.Propose("  ")
+	if s.PinState() != PinProposed || !strings.Contains(s.Messages()[0].Content, "NOT approved") {
+		t.Errorf("proposal = %q %+v", s.PinState(), s.Messages())
+	}
+	s.Propose("1. x\n2. y\n3. z")
+	if s.Pinned() != "1. x\n2. y\n3. z" {
+		t.Errorf("a newer proposal did not replace the older one: %q", s.Pinned())
+	}
+	s.Pin("1. x\n2. y\n3. z")
+	s.Propose("1. other\n2. b\n3. c")
+	if s.PinState() != PinActive || pinNotes(s) != 1 {
+		t.Errorf("approved plan = %q %q", s.Pinned(), s.PinState())
+	}
+	if s.Release("1. not it") || s.Release("") || s.Pinned() == "" {
+		t.Error("a plan that is not the pinned one was let go")
+	}
+	if !s.Release(" 1. x\n2. y\n3. z ") || s.Pinned() != "" || s.PinState() != "" {
+		t.Errorf("the done plan was kept: %q", s.Pinned())
+	}
+	s.Restore("", "1. a", true)
+	if s.PinState() != PinProposed {
+		t.Errorf("restored proposal = %q", s.PinState())
+	}
+	s.Restore("", "", true)
+	if s.PinState() != "" {
+		t.Errorf("an empty restore is %q", s.PinState())
 	}
 }

@@ -1,5 +1,7 @@
-// The pinned plan above the composer: the plan the agent is working from, kept word for word
-// through compactions and restarts. Folded to one line; opened, it can be changed or dropped.
+// The pinned plan above the composer, kept word for word through compactions and restarts. A plan
+// the agent proposed reads "Proposed plan" until the person approves it; an approved one reads
+// "Active plan" until its work is done. Folded to one line; opened, it can be changed, approved or
+// dropped.
 import { useState } from "preact/hooks";
 import { t } from "./i18n";
 import { useApp } from "./appStore";
@@ -36,7 +38,8 @@ export function PinnedPlanView({
 }: {
   pinnedPlan: ReturnType<typeof usePinnedPlan>;
 }) {
-  const label = t("Active plan");
+  const proposed = pinnedPlan.state === "proposed";
+  const label = proposed ? t("Proposed plan") : t("Active plan");
   const [open, setOpen] = useState(false);
   const [draft, setDraft] = useState("");
   if (pinnedPlan.plan === "") {
@@ -53,21 +56,37 @@ export function PinnedPlanView({
   };
   return (
     <section
-      class="mx-3 mb-2 rounded-xl border border-accent/30 bg-accent/5 px-3 py-2 text-sm"
+      class={
+        "mx-3 mb-2 rounded-xl border px-3 py-2 text-sm " +
+        (proposed
+          ? "border-dashed border-white/20 bg-white/[0.03]"
+          : "border-accent/30 bg-accent/5")
+      }
       data-testid="pinned-plan"
+      data-state={pinnedPlan.state}
       aria-label={label}
     >
       {!open && (
         <button
           type="button"
           class="w-full flex items-center gap-2 text-left min-h-[34px]"
-          title={t(
-            "The plan the agent keeps word for word. Open it to change or drop it.",
-          )}
+          title={
+            proposed
+              ? t(
+                  "A plan the agent proposed. It becomes active when you approve it: say go ahead, or open it and approve it.",
+                )
+              : t(
+                  "The plan the agent follows until its work is done. Open it to change or drop it.",
+                )
+          }
           data-testid="pinned-plan-open"
           onClick={edit}
         >
-          <span class="flex-none text-accent">📌 {label}</span>
+          <span
+            class={"flex-none " + (proposed ? "text-[#c8c8d2]" : "text-accent")}
+          >
+            {proposed ? "📝" : "📌"} {label}
+          </span>
           <span class="truncate text-[#9a9aaa]">
             {firstStep(pinnedPlan.plan)}
           </span>
@@ -105,7 +124,7 @@ export function PinnedPlanView({
               data-testid="pinned-plan-save"
               onClick={() => void keep(draft)}
             >
-              {t("Save")}
+              {proposed ? t("Approve") : t("Save")}
             </button>
           </div>
         </div>

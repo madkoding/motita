@@ -26,17 +26,24 @@ func (a *Agent) contextBrief(ctx context.Context, t task.Task, depth int) string
 	)
 }
 
+// pinnedShare is the most of the brief the pinned plan may take: the rest is for the archive and
+// the memory, which a long plan used to crowd out.
+const pinnedShare = brief.Budget / 2
+
 // pinnedPlan is the conversation's pinned plan, unless the request already carries it (a task that
-// carries out the plan has it word for word).
+// carries out the plan has it word for word), cut to its share of the brief.
 func (a *Agent) pinnedPlan(t task.Task) string {
 	if a.pinned == nil {
+		return ""
+	}
+	if _, following := FollowedPlan(t.Description); following {
 		return ""
 	}
 	plan := strings.TrimSpace(a.pinned())
 	if plan == "" || strings.Contains(t.Description, plan) {
 		return ""
 	}
-	return plan
+	return brief.Cut(plan, pinnedShare)
 }
 
 // archived is what earlier turns of this conversation said about the task, retrieved from the
