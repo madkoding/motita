@@ -512,9 +512,6 @@ const first: Record<string, string> = {
   "planning...": "planificando...",
   preview: "vista previa",
   project: "proyecto",
-  "rate the last answer as bad; the note says what to fix":
-    "califica la última respuesta como mala; la nota dice qué corregir",
-  "rate the last answer as good": "califica la última respuesta como buena",
   ready: "listo",
   reconnecting: "reconectando",
   removed: "eliminado",
@@ -561,8 +558,6 @@ const first: Record<string, string> = {
   "validation passed; running final action...":
     "validación aprobada; ejecutando la acción final...",
   warning: "aviso",
-  "what motita has learned from your ratings":
-    "lo que motita aprendió de tus calificaciones",
   working: "trabajando",
   "{n} actions": "{n} acciones",
   "{n} agents": "{n} agentes",

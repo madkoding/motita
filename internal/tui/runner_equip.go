@@ -5,7 +5,6 @@ import (
 
 	"github.com/madkoding/motita/internal/config"
 	"github.com/madkoding/motita/internal/memory"
-	"github.com/madkoding/motita/internal/reward"
 	"github.com/madkoding/motita/internal/skills"
 	"github.com/madkoding/motita/internal/usage"
 )
@@ -13,8 +12,7 @@ import (
 // equipAgent hands the agent the same library and the same ledger Plan mode uses.
 //
 // Both modes reach one shelf of procedures: a procedure written down while working is
-// available whichever mode does the work next, and a verdict lands on the same skills
-// either way. Two libraries would be two bodies of knowledge that drift apart.
+// available whichever mode does the work next. Two libraries would be two bodies of knowledge that drift apart.
 func (r *AppRunner) equipAgent(ag AgentRunner) {
 	if lib := r.library(); lib != nil {
 		if setter, ok := ag.(interface{ SetLibrary(*skills.Library) }); ok {
@@ -36,11 +34,6 @@ func (r *AppRunner) equipAgent(ag AgentRunner) {
 		setter.SetPinnedPlan(r.briefPlan)
 	}
 	r.equipThreads(ag)
-	if led := r.rewardOrNil(); led != nil {
-		if setter, ok := ag.(interface{ SetReward(*reward.Ledger) }); ok {
-			setter.SetReward(led)
-		}
-	}
 	// The same sidecar the library screen reads, so what this run consults is counted.
 	if u := r.procedures().Usage; u != nil {
 		if setter, ok := ag.(interface{ SetUsage(*usage.Ledger) }); ok {

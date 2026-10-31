@@ -59,14 +59,6 @@ type Runner interface {
 	SetReasoning(level string)
 	// SetLLM changes the in-memory provider and/or model.
 	SetLLM(provider, model string)
-	// RecordVerdict applies the user's verdict on the last turn to the skills it read.
-	//
-	// It is the ONLY reward signal: nothing is scored unless the user marks it. The note is
-	// the user's own words about what was wrong, kept verbatim because it is what a repair can
-	// be written from.
-	RecordVerdict(good bool, note string) string
-	// RewardReport renders what the library has learned, worst first.
-	RewardReport() string
 }
 
 // AgentRunner is the subset of *agent.Agent that the TUI needs.
@@ -215,15 +207,6 @@ type AppRunner struct {
 	toolsHome string
 	rootDir   string
 
-	// rewardMu guards the last attribution.
-	//
-	// The attribution is kept between turns because a verdict arrives AFTER the turn that
-	// earned it: the user types /good or /bad as the next thing they do, and by then the run
-	// that read the skills has finished. Holding it here is what connects the two.
-	rewardMu sync.Mutex
-	lastUsed map[string]int
-	lastTask string
-
 	// approver is how a consequential command reaches the user, installed by the interface.
 	// Guarded like the transcript: a run reads it while the interface may set it.
 	approverMu sync.Mutex
@@ -286,7 +269,7 @@ func (r *AppRunner) soul() string {
 // channel.
 //
 // It is an OPTIONAL interface rather than a method on AgentRunner, following the same pattern the
-// library and the reward ledger already use here. The reason is concrete: the many small agents
+// library and the usage ledger already use here. The reason is concrete: the many small agents
 // the tests build never run a real turn and therefore never ask anything, and forcing every one
 // of them to grow a method that does nothing would be noise in exchange for a guarantee they do
 // not need. The real agent implements it, and the type assertion below fails closed — no
@@ -817,10 +800,6 @@ func (r *AppRunner) RunPlan(ctx context.Context, prompt string, progress func(st
 		).
 		WithSession(r.conversation(cfg, r.summaryEngine(engine))).
 		WithLibrary(r.library()).
-		// The ledger is installed so the search can break ties by what has worked, and so the
-		// planner can report which skills this turn read. Both are needed: a verdict has to
-		// land on specific skills, and only the planner knows which ones.
-		WithReward(r.rewardOrNil()).
 		// The telemetry sidecar, so the skill tools count what this turn read and wrote.
 		WithUsage(r.procedures().Usage).
 		// And the fork itself, which is the only way the conversation this turn ran gets
@@ -839,10 +818,6 @@ func (r *AppRunner) RunPlan(ctx context.Context, prompt string, progress func(st
 	// outcome: it is what decides whether the fork that just looked at this turn fires
 	// again on the next one.
 	r.countReviewIters(planner.ItersSinceSkill())
-	// The skills this turn consulted are recorded whatever the outcome: a turn that failed
-	// still tells the user which procedure was in play, and that is exactly the turn they are
-	// most likely to mark.
-	r.rememberUsage(planner.Consulted(), prompt)
 	// And the turn itself goes into the conversation a front end draws. This is the SAME blank
 	// screen the Task path already fixed, and it has to be done here because the two paths
 	// record separately: the session is what the model is given, the transcript is what the user
@@ -1120,11 +1095,6 @@ func (r *AppRunner) RunTask(ctx context.Context, task string, progress func(stri
 	r.remember(ag.Transcript())
 	r.shareLastTurn()
 	r.syncContext()
-	// What this turn read from the library, ready for the verdict that follows it. Recorded on
-	// the failure path too: a turn that failed is exactly the one a user marks.
-	if consult, ok := ag.(interface{ Consulted() map[string]int }); ok {
-		r.rememberUsage(consult.Consulted(), task)
-	}
 	// A STOPPED turn is reported as stopped. The agent ends its loop quietly when its context is
 	// cancelled - that is right for a daemon being shut down - so without this a turn the user
 	// stopped came back as a finished one: the gateway recorded it as done, and went on to ask the

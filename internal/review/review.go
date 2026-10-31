@@ -199,7 +199,7 @@ const ProposedDir = skills.ProposedDir
 func proposalStore(procs *procedures.Store) *procedures.Store {
 	if procs.Library == nil {
 		// No library, nothing the fork could save to: hand it the store as it is.
-		return &procedures.Store{Ledger: procs.Ledger}
+		return &procedures.Store{}
 	}
 	lib := *procs.Library
 	if front := procs.Library.Overlay; front != nil {
@@ -211,7 +211,7 @@ func proposalStore(procs *procedures.Store) *procedures.Store {
 	} else {
 		lib.Overlay = &skills.Overlay{Primary: filepath.Join(lib.Root(), ProposedDir), Secondary: lib.Root()}
 	}
-	return &procedures.Store{Library: &lib, Ledger: procs.Ledger}
+	return &procedures.Store{Library: &lib}
 }
 
 func buildReviewInput(transcript []llm.Message) string {

@@ -36,7 +36,6 @@ import (
 	"github.com/madkoding/motita/internal/memory"
 	"github.com/madkoding/motita/internal/policy"
 	"github.com/madkoding/motita/internal/redact"
-	"github.com/madkoding/motita/internal/reward"
 	"github.com/madkoding/motita/internal/sandbox"
 	"github.com/madkoding/motita/internal/skills"
 	"github.com/madkoding/motita/internal/task"
@@ -107,13 +106,8 @@ type Agent struct {
 	// (a thread cannot open threads), and Task mode reaches it through the thread action.
 	threads func(command string) string
 
-	// reward is the long-term value per skill, and consulted counts what this run read.
-	//
-	// Same pair as the planner's, and for the same reason: a verdict has to land on specific
-	// skills, and the moment that is knowable is the read.
-	reward    *reward.Ledger
-	usage     *usage.Ledger
-	consulted map[string]int
+	// usage is the per-skill telemetry the library's curation reads.
+	usage *usage.Ledger
 
 	// transcript is what has been said in this conversation, oldest first, and it is what makes
 	// the agent conversational rather than stateless.
@@ -223,9 +217,6 @@ func (a *Agent) SetRecall(fn func(ctx context.Context, query string, live int) (
 // the plan the person approved in chat even when the request is only "go on".
 func (a *Agent) SetPinnedPlan(fn func() string) { a.pinned = fn }
 
-// SetReward installs the long-term value ledger.
-func (a *Agent) SetReward(l *reward.Ledger) { a.reward = l }
-
 // SetUsage installs the per-skill telemetry sidecar, so the library's "used N×" counts what
 // this run searched and read.
 func (a *Agent) SetUsage(u *usage.Ledger) { a.usage = u }
@@ -236,29 +227,6 @@ func (a *Agent) saveUsage() {
 	if a.usage != nil {
 		_ = a.usage.Save()
 	}
-}
-
-// Consulted returns the skills this run read, and how many times each.
-//
-// It is what the caller needs to turn the user's verdict into value: the skills are known here
-// and nowhere else.
-func (a *Agent) Consulted() map[string]int {
-	if len(a.consulted) == 0 {
-		return nil
-	}
-	out := make(map[string]int, len(a.consulted))
-	for k, v := range a.consulted {
-		out[k] = v
-	}
-	return out
-}
-
-// consult records that a skill was read.
-func (a *Agent) consult(name string) {
-	if a.consulted == nil {
-		a.consulted = map[string]int{}
-	}
-	a.consulted[name]++
 }
 
 // SetProjectNote sets what the agent is told about the project it works in (see projectNote).

@@ -406,29 +406,6 @@ func (c *Client) RunModels(ctx context.Context) (string, error) {
 	return out.Text, nil
 }
 
-// RecordVerdict applies a verdict and returns the gateway's report.
-func (c *Client) RecordVerdict(good bool, note string) string {
-	var out struct {
-		Text string `json:"text"`
-	}
-	verdict := map[string]any{"good": good, "note": note}
-	if err := c.do(context.Background(), http.MethodPost, c.scoped("/verdict"), verdict, &out); err != nil {
-		return errGatewayUnreachable + err.Error()
-	}
-	return out.Text
-}
-
-// RewardReport is a one-shot read.
-func (c *Client) RewardReport() string {
-	var out struct {
-		Text string `json:"text"`
-	}
-	if err := c.getJSON(context.Background(), c.scoped("/reward"), &out); err != nil {
-		return errGatewayUnreachable + err.Error()
-	}
-	return out.Text
-}
-
 // TakePendingQuestions returns the questions of the last turn and clears them on the gateway.
 func (c *Client) TakePendingQuestions() ([]agent.AskItem, string) {
 	var out struct {

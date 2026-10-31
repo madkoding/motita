@@ -249,7 +249,7 @@ func TestAnUnknownSessionIsNotFound(t *testing.T) {
 // without the token, whatever it addresses.
 func TestEveryScopedEndpointIsBehindTheToken(t *testing.T) {
 	srv := newTestServer(t, &fakeService{})
-	for _, path := range []string{"", "/report", "/config", "/models", "/reward", "/questions"} {
+	for _, path := range []string{"", "/report", "/config", "/models", "/questions"} {
 		w := get(t, srv, sessionPath(srv, DefaultSession, path), "")
 		if w.Code != http.StatusUnauthorized {
 			t.Errorf("GET %s without a token answered %d, it must be 401", path, w.Code)

@@ -316,74 +316,6 @@ func TestAnEmptyModelIsRefused(t *testing.T) {
 	}
 }
 
-func TestAVerdictCarriesTheNote(t *testing.T) {
-	var gotGood bool
-	var gotNote string
-	svc := &fakeService{verdict: func(good bool, note string) string {
-		gotGood, gotNote = good, note
-		return "recorded: bad"
-	}}
-	srv := newTestServer(t, svc)
-
-	w := post(
-		t,
-		srv,
-		sessionPath(srv, DefaultSession, "/verdict"),
-		`{"good":false,"note":"the second step was wrong"}`,
-		testToken,
-	)
-	if w.Code != http.StatusOK {
-		t.Fatalf("status = %d (body %q)", w.Code, w.Body.String())
-	}
-	if gotGood {
-		t.Error("good arrived as true")
-	}
-	if gotNote != "the second step was wrong" {
-		t.Errorf("note = %q: the note is what makes a verdict actionable", gotNote)
-	}
-	var out struct {
-		Text string `json:"text"`
-	}
-	if err := json.Unmarshal(w.Body.Bytes(), &out); err != nil {
-		t.Fatalf("body = %q: %v", w.Body.String(), err)
-	}
-	if out.Text != "recorded: bad" {
-		t.Errorf("text = %q", out.Text)
-	}
-}
-
-// The common verdict is the good one, so a body that omits the flag must mean good rather than
-// being refused.
-func TestAVerdictWithoutTheFlagMeansGood(t *testing.T) {
-	var gotGood bool
-	svc := &fakeService{verdict: func(good bool, _ string) string {
-		gotGood = good
-		return "ok"
-	}}
-	srv := newTestServer(t, svc)
-	if w := post(t, srv, sessionPath(srv, DefaultSession, "/verdict"), `{}`, testToken); w.Code != http.StatusOK {
-		t.Fatalf("status = %d", w.Code)
-	}
-	if gotGood {
-		t.Error("good arrived as true, which is not what was sent")
-	}
-}
-
-func TestRewardIsTextual(t *testing.T) {
-	svc := &fakeService{reward: "no verdicts recorded yet.\n"}
-	srv := newTestServer(t, svc)
-	w := get(t, srv, sessionPath(srv, DefaultSession, "/reward"), testToken)
-	var out struct {
-		Text string `json:"text"`
-	}
-	if err := json.Unmarshal(w.Body.Bytes(), &out); err != nil {
-		t.Fatalf("body = %q: %v", w.Body.String(), err)
-	}
-	if !strings.Contains(out.Text, "no verdicts recorded yet") {
-		t.Errorf("text = %q", out.Text)
-	}
-}
-
 func TestTheQuestionsAreReadAndCleared(t *testing.T) {
 	svc := &fakeService{
 		questions: []agent.AskItem{{Text: "which directory?", Assumption: "/tmp", Options: []string{"/tmp", "."}}},
@@ -436,8 +368,7 @@ func TestNoQuestionsIsAnEmptyList(t *testing.T) {
 func TestABadBodyIsRejectedOnEveryEndpoointThatTakesOne(t *testing.T) {
 	srv := newTestServer(t, &fakeService{})
 	// POST endpoints with a body:
-	for _, path := range []string{sessionPath(srv, DefaultSession, "/reasoning"), sessionPath(srv, DefaultSession,
-		"/verdict")} {
+	for _, path := range []string{sessionPath(srv, DefaultSession, "/reasoning")} {
 		t.Run("POST "+path, func(t *testing.T) {
 			w := post(t, srv, path, "not json", testToken)
 			if w.Code != http.StatusBadRequest {
@@ -461,8 +392,8 @@ func TestABadBodyIsRejectedOnEveryEndpoointThatTakesOne(t *testing.T) {
 // in decodeBody.
 func TestAnOversizedBodyIsRejected(t *testing.T) {
 	srv := newTestServer(t, &fakeService{}, func(o *Options) { o.MaxBodyKB = 1 })
-	big := `{"note":"` + strings.Repeat("x", 4096) + `"}`
-	w := post(t, srv, sessionPath(srv, DefaultSession, "/verdict"), big, testToken)
+	big := `{"level":"` + strings.Repeat("x", 4096) + `"}`
+	w := post(t, srv, sessionPath(srv, DefaultSession, "/reasoning"), big, testToken)
 	if w.Code != http.StatusBadRequest {
 		t.Errorf("status = %d, want 400 for a body over the cap", w.Code)
 	}

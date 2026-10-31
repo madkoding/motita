@@ -40,8 +40,6 @@ type fakeService struct {
 	reset     int
 	cfg       config.Config
 	reasoning string
-	verdict   func(good bool, note string) string
-	reward    string
 	questions []agent.AskItem
 	// asked is what TakeQuestions hands back: the questions the last task asked, as structure.
 	asked []agent.AskItem
@@ -110,15 +108,6 @@ func (f *fakeService) SetLLM(provider, model string) {
 		f.cfg.LLM.Model = model
 	}
 }
-
-func (f *fakeService) RecordVerdict(good bool, note string) string {
-	if f.verdict == nil {
-		return "recorded"
-	}
-	return f.verdict(good, note)
-}
-
-func (f *fakeService) RewardReport() string { return f.reward }
 
 func (f *fakeService) TakePendingQuestions() ([]agent.AskItem, string) {
 	items, origin := f.questions, f.origin
@@ -255,7 +244,7 @@ func TestEveryOtherEndpointNeedsTheToken(t *testing.T) {
 	paths := []string{
 		sessionPath(srv, DefaultSession, "/config"), sessionPath(srv, DefaultSession, ""),
 		sessionPath(srv, DefaultSession, "/report"), sessionPath(srv, DefaultSession, "/models"),
-		sessionPath(srv, DefaultSession, "/reward"), sessionPath(srv, DefaultSession, "/questions"),
+		sessionPath(srv, DefaultSession, "/questions"),
 	}
 	for _, path := range paths {
 		t.Run(path, func(t *testing.T) {
@@ -269,7 +258,7 @@ func TestEveryOtherEndpointNeedsTheToken(t *testing.T) {
 	}
 	for _, path := range []string{
 		sessionPath(srv, DefaultSession, "/reset"), sessionPath(srv, DefaultSession, "/reasoning"),
-		sessionPath(srv, DefaultSession, "/verdict"), sessionPath(srv, DefaultSession, "/task"),
+		sessionPath(srv, DefaultSession, "/task"),
 		sessionPath(srv, DefaultSession, "/plan"), sessionPath(srv, DefaultSession, "/runs/approval"),
 	} {
 		t.Run("POST "+path, func(t *testing.T) {

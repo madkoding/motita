@@ -24,7 +24,6 @@ import (
 	"github.com/madkoding/motita/internal/memory"
 	"github.com/madkoding/motita/internal/redact"
 	"github.com/madkoding/motita/internal/review"
-	"github.com/madkoding/motita/internal/reward"
 	"github.com/madkoding/motita/internal/session"
 	"github.com/madkoding/motita/internal/skills"
 	"github.com/madkoding/motita/internal/usage"
@@ -86,17 +85,6 @@ type Planner struct {
 	// answer that no library is configured, which is what a planner used as a plain one-shot
 	// runner should say rather than failing.
 	library *skills.Library
-
-	// reward is the long-term value per skill, and consulted holds what this run read.
-	//
-	// The two together are what makes a verdict possible. A user's "this turn was good" has
-	// to land on specific skills, and the only moment that is knowable is here, where the
-	// tool call happens: afterwards the turn is a result and the skills it used are gone.
-	//
-	// consulted counts READS per skill, not distinct skills: a turn that read the same
-	// procedure three times leaned on it three times, and the credit follows that.
-	reward    *reward.Ledger
-	consulted map[string]int
 
 	// usage is the per-skill telemetry sidecar. Nil means telemetry is off: the
 	// curator and the background review fork are disabled, and the skill tools

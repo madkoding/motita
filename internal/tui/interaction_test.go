@@ -274,19 +274,13 @@ func TestHelpListsTheCommands(t *testing.T) {
 	// It used to be asked of the screen, which worked only while the help fit in the panel.
 	// The help is longer than the frame, so the panel is a window on it and its opening lines
 	// are simply not among the visible rows — the screen answer is a false negative about the
-	// content. (Adding the reward commands made the help long enough to expose that.)
+	// content.
 	//
 	// The screen is still checked below: that SOMETHING of the help is on it.
 	for _, want := range []string{"switch between Task and Plan", "→ complete", "task", "plan", "models", "config",
 		"reasoning", "quit"} {
 		if !strings.Contains(helpText, want) {
 			t.Errorf("the help must mention %q:\n%s", want, helpText)
-		}
-	}
-	// And the reward commands, which a user cannot guess from the others.
-	for _, want := range []string{"/good", "/bad", "/value"} {
-		if !strings.Contains(helpText, want) {
-			t.Errorf("the help must document %q:\n%s", want, helpText)
 		}
 	}
 	// The help did reach the interface: a line well inside the window is on the screen.

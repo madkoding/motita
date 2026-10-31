@@ -2,17 +2,13 @@ package tui
 
 import (
 	"errors"
-	"fmt"
-	"sort"
-	"strings"
 
 	"github.com/madkoding/motita/internal/procedures"
-	"github.com/madkoding/motita/internal/reward"
 	"github.com/madkoding/motita/internal/skills"
 	"github.com/madkoding/motita/internal/usage"
 )
 
-// The runner's library of skills and the ledger of verdicts the user gives on them.
+// The runner's library of skills and its usage telemetry.
 
 // library is the procedure library the skill tools read and write.
 //
@@ -57,13 +53,6 @@ func (r *AppRunner) UseStore(st *procedures.Store) {
 		r.store = procedures.Scoped(st, r.projectScope)
 	}
 }
-
-// rewardOrNil returns the ledger, or nil when it could not be opened.
-//
-// A nil ledger is a working arrangement, not a broken one: the library still answers, the
-// search still ranks, and only the value-based tie-break is off. The caller is expected to say
-// so rather than to treat it as a failure.
-func (r *AppRunner) rewardOrNil() *reward.Ledger { return r.procedures().Ledger }
 
 // Skills is the index the INTERFACE draws, so it includes the documents turned off: they belong
 // in the list with a badge, which is what makes turning one back on a click rather than a hunt
@@ -194,123 +183,4 @@ func (r *AppRunner) AcceptProposedSkill(name string) error {
 // RejectProposedSkill deletes a proposal.
 func (r *AppRunner) RejectProposedSkill(name string) error {
 	return r.library().RejectProposal(name)
-}
-
-// truncateLine bounds a string for a one-line report, on a rune boundary.
-func truncateLine(s string, n int) string {
-	s = strings.Join(strings.Fields(s), " ")
-	r := []rune(s)
-	if len(r) <= n {
-		return s
-	}
-	return string(r[:n]) + "…"
-}
-
-// rememberUsage stores which skills the turn consulted, ready for the verdict that follows.
-func (r *AppRunner) rememberUsage(used map[string]int, task string) {
-	r.rewardMu.Lock()
-	defer r.rewardMu.Unlock()
-	r.lastUsed = used
-	r.lastTask = task
-}
-
-// recordVerdict applies a verdict to the skills of the last turn and saves it.
-//
-// Everything the user needs to know is said in the chat, including the case where there is
-// nothing to apply it to: a verdict that quietly did nothing would make the feature look like
-// it works when it has nothing to learn from.
-func (r *AppRunner) RecordVerdict(good bool, note string) string {
-	led := r.rewardOrNil()
-	if led == nil {
-		return "the reward ledger is unavailable, so the verdict was not recorded."
-	}
-	r.rewardMu.Lock()
-	used := make(map[string]int, len(r.lastUsed))
-	for k, v := range r.lastUsed {
-		used[k] = v
-	}
-	task := r.lastTask
-	r.rewardMu.Unlock()
-
-	names := make([]string, 0, len(used))
-	for n := range used {
-		names = append(names, n)
-	}
-	sort.Strings(names) // deterministic order for the ledger file
-
-	err := led.Attribute(names, used, good, note)
-	if errors.Is(err, reward.ErrNoSkill) {
-		return noSkillMessage(task)
-	}
-	// No other error case: Attribute returns ErrNoSkill or nil and nothing else, so a branch
-	// for "some other failure" would be unreachable.
-	if err := led.Save(); err != nil {
-		return fmt.Sprintf("the verdict was applied but could not be saved: %v", err)
-	}
-
-	verdict := "good"
-	if !good {
-		verdict = "bad"
-	}
-	var b strings.Builder
-	fmt.Fprintf(&b, "recorded: %s", verdict)
-	if strings.TrimSpace(note) != "" {
-		fmt.Fprintf(&b, " — %q", truncateLine(note, 120))
-	}
-	fmt.Fprintf(&b, "\napplied to %d skill(s), by how much the turn leaned on each:", len(names))
-	for _, n := range names {
-		s, _ := led.Get(n)
-		fmt.Fprintf(&b, "\n  %s: value %+.2f (%d good, %d bad)", n, s.Value, s.Good, s.Bad)
-	}
-	if !good && strings.TrimSpace(note) == "" {
-		b.WriteString("\n\nA note would make this fixable: /bad <what was wrong> tells the agent which step " +
-			"to repair, instead of only that it did not work.")
-	}
-	return b.String()
-}
-
-// noSkillMessage answers a verdict on a turn that consulted no skill. It is honest and specific:
-// the turn did not consult the library, so there is no skill for the verdict to land on. Saying
-// which turn it was helps the user see why.
-func noSkillMessage(task string) string {
-	msg := "no skill took part in the last turn, so there was nothing to learn from it."
-	if strings.TrimSpace(task) != "" {
-		msg += "\n(last turn: " + truncateLine(task, 90) + ")"
-	}
-	return msg + "\nThe value moves when a turn reads a skill — the library is what this learns about."
-}
-
-// RewardReport renders what the library has learned, worst first.
-func (r *AppRunner) RewardReport() string {
-	led := r.rewardOrNil()
-	if led == nil {
-		return "the reward ledger is unavailable: no verdicts have been recorded."
-	}
-	entries := led.Sorted()
-	if len(entries) == 0 {
-		return "no verdicts recorded yet.\n\nMark a turn with /good or /bad [what was wrong] right after it " +
-			"runs: the value lands on the skills that turn read, and it is the only thing that changes how " +
-			"the library is searched. An unmarked turn changes nothing."
-	}
-	var b strings.Builder
-	fmt.Fprintf(&b, "%d skill(s) with a verdict. Value is a running average in [-1, 1]; "+
-		"recent verdicts weigh more.\n", len(entries))
-	for _, e := range entries {
-		fmt.Fprintf(&b, "\n  %-28s value %+.2f   %d good / %d bad", e.Name, e.Score.Value, e.Score.Good, e.Score.Bad)
-		if !e.Score.Updated.IsZero() {
-			fmt.Fprintf(&b, "   last %s", e.Score.Updated.Format("2006-01-02 15:04"))
-		}
-		for _, n := range e.Score.Recent(3) {
-			mark := "bad "
-			if n.Good {
-				mark = "good"
-			}
-			fixed := ""
-			if n.Addressed {
-				fixed = " [fixed]"
-			}
-			fmt.Fprintf(&b, "\n      %s  %q%s", mark, truncateLine(n.Text, 80), fixed)
-		}
-	}
-	return b.String()
 }

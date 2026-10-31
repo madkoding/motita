@@ -542,8 +542,6 @@ func (answerRunner) RunModels(context.Context) (string, error) { return "", nil 
 func (answerRunner) Config() config.Config                     { return config.Default() }
 func (answerRunner) SetReasoning(string)                       {}
 func (answerRunner) SetLLM(string, string)                     {}
-func (answerRunner) RecordVerdict(bool, string) string         { return "" }
-func (answerRunner) RewardReport() string                      { return "" }
 
 // TestConnectWithAPromptReportsAFailedAnswer: a script needs a NON-ZERO exit when the question
 // could not be answered, or a failure becomes an empty string in a pipeline and nobody notices.
