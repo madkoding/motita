@@ -74,7 +74,6 @@ ${flow("Cómo corre una tarea", [["Tú pides", "Escribe una tarea en modo Tarea"
 <tr><td><code>/models</code></td><td>Lista y cambia el modelo de esta conversación.</td></tr>
 <tr><td><code>/sessions</code>, <code>/attach</code>, <code>/new</code>, <code>/back</code></td><td>Ver, unirse, abrir y dejar conversaciones. Una ejecución sigue mientras miras otra.</td></tr>
 <tr><td><code>/agents</code> (<kbd>Ctrl+G</kbd>)</td><td>Los agentes en segundo plano y qué hace cada uno.</td></tr>
-<tr><td><code>/good</code>, <code>/bad</code></td><td>Dile a motita si el último procedimiento ayudó.</td></tr>
 <tr><td><code>/git</code></td><td>Conecta GitHub, GitLab o Bitbucket.</td></tr>
 <tr><td><code>/artifacts</code></td><td>Archivos que el agente guardó en esta conversación.</td></tr>
 <tr><td><code>/language</code></td><td>Cambia entre inglés y español al instante.</td></tr>
@@ -258,7 +257,6 @@ ${flow("De hablar a escuchar la respuesta", [["Hablas", "Botón del micrófono, 
 <h2>Cómo mejora</h2>
 <ul>
 <li>Una instalación nueva parte con procedimientos incluidos (ejecutar comandos, archivos, git, APIs HTTP, búsqueda web, toolchains, verificar un cambio, diagramas e informes).</li>
-<li><code>/good</code> y <code>/bad</code> caen sobre los procedimientos que realmente se usaron, y la biblioteca se busca según lo que funcionó antes.</li>
 <li>Sin ajuste fino, sin API extra, sin cuenta extra. Un registro junto a un estante.</li>
 </ul>
 <h2>Ver y controlar el estante</h2>
