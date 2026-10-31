@@ -797,6 +797,9 @@ func (a *Agent) processTask(ctx context.Context, t task.Task, depth int) TaskRes
 	run := t
 	if depth == 0 {
 		run = a.prepareGoal(t)
+		if Unattended(ctx) {
+			a.Interactive = false
+		}
 	}
 	r := a.loop(ctx, run, depth)
 	if depth == 0 {

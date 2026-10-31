@@ -64,6 +64,9 @@ type Session struct {
 	summary string
 	// pinned is the active plan, carried verbatim and never compacted (see pin.go).
 	pinned string
+	// turnAt is one more than the index in messages of the request the current turn opened
+	// with, or 0 when no turn was begun (see BeginTurn).
+	turnAt int
 	// compactions counts them, for the report and for tests.
 	compactions int
 	// lastErr is why the last compaction could not be done, if it could not.
@@ -128,6 +131,15 @@ func (s *Session) Append(m llm.Message) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.messages = append(s.messages, m)
+}
+
+// BeginTurn appends the message a turn opens with: the person's request. A compaction in the
+// middle of the turn keeps it verbatim (see Compact).
+func (s *Session) BeginTurn(m llm.Message) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.messages = append(s.messages, m)
+	s.turnAt = len(s.messages)
 }
 
 // AppendAll adds several messages, which is what a turn produces.
@@ -298,10 +310,30 @@ func (s *Session) Compact(ctx context.Context) error {
 	// Appends only extend the history, so its first len(removed) messages are still the ones
 	// that were summarised. The rest is copied out so the removed prefix is not kept alive.
 	s.summary = summary
-	s.messages = append([]llm.Message(nil), s.messages[len(removed):]...)
+	s.messages = append(s.keptRequest(len(removed)), s.messages[len(removed):]...)
 	s.compactions++
 	s.lastErr = nil
 	return nil
+}
+
+// keptRequest is what a compaction that folds the first n messages keeps in front of the rest:
+// the current turn's request when it is among them, and nothing otherwise.
+//
+// Reported as the agent "forgetting what it was asked": a turn with a few rounds of tools grows
+// past the verbatim tail on its own, and the request that opened it was folded into the summary,
+// so the rounds after the compaction worked from a paraphrase. A summary is fine for earlier
+// turns; the request being answered is kept word for word, as the user wrote it.
+func (s *Session) keptRequest(n int) []llm.Message {
+	if s.turnAt == 0 {
+		return nil
+	}
+	if at := s.turnAt - 1; at >= n {
+		s.turnAt -= n
+		return nil
+	}
+	request := s.messages[s.turnAt-1]
+	s.turnAt = 1
+	return []llm.Message{request}
 }
 
 // compactionInput copies, under the lock, what a compaction summarises: the messages before the

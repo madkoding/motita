@@ -40,7 +40,20 @@ func (a *Agent) analyse(ctx context.Context, t task.Task, vars map[string]string
 	}
 
 	var analysis Analysis
-	if err := llm.DecodeJSON(text, &analysis); err != nil {
+	err = llm.DecodeJSON(text, &analysis)
+	if err != nil && ctx.Err() == nil {
+		// One bad reply used to end the turn with "I could not read the request", which reads to
+		// the person as the agent not understanding them, and a scheduled run stopped there with a
+		// question nobody answers. The rounds already get a second chance with the reason; the
+		// analysis gets the same one, once.
+		a.log.Warn("the analysis has an unexpected format; asking once more", "error", err)
+		text, err = a.askWith(ctx, a.cfg.Prompts.Analyze, vars, "analyze", formatRetry(text, err))
+		if err == nil {
+			analysis = Analysis{}
+			err = llm.DecodeJSON(text, &analysis)
+		}
+	}
+	if err != nil {
 		// A malformed analysis is OUR problem, not the user's: the model failed to follow the
 		// format, and reporting the parse error to the user asks them to fix something they did
 		// not do. The honest answer is that the request could not be read, with a question that
@@ -168,6 +181,24 @@ func (a *Agent) synthesizePhase(ctx context.Context, t task.Task, output string,
 // ask renders the prompt and calls the LLM, logging any variables that were
 // missing (unfilled gaps in a user template).
 func (a *Agent) ask(ctx context.Context, p config.Template, vars map[string]string, phase string) (string, error) {
+	return a.askWith(ctx, p, vars, phase, nil)
+}
+
+// formatRetry is the exchange that asks again for a reply that was not the JSON object asked for:
+// the reply as it came, and what was wrong with it.
+func formatRetry(reply string, why error) []llm.Message {
+	return []llm.Message{
+		{Role: "assistant", Content: truncate(reply, 2000)},
+		{Role: "user", Content: "Your last reply could not be used: " + truncate(why.Error(), 500) +
+			"\nReply again with ONLY the JSON object the instructions describe, nothing before or after it."},
+	}
+}
+
+// askWith is ask with messages added after the prompt, for a second try that says what the first
+// one got wrong.
+func (a *Agent) askWith(
+	ctx context.Context, p config.Template, vars map[string]string, phase string, extra []llm.Message,
+) (string, error) {
 	// Every call this agent makes is counted on its row of the fleet.
 	if a.member != nil {
 		ctx = llm.WithMeter(ctx, a.member.meter)
@@ -191,6 +222,7 @@ func (a *Agent) ask(ctx context.Context, p config.Template, vars map[string]stri
 	// The pictures the person attached are shown to every round that carries their message.
 	shots = append(shots, llm.AttachedImages(a.cfg.Agent.WorkspaceDir, user)...)
 	messages = append(messages, llm.Message{Role: "user", Content: user, Images: shots})
+	messages = append(messages, extra...)
 
 	start := time.Now()
 	var text string
