@@ -224,23 +224,6 @@ func (s *Server) handleReloadConfig(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, viewOf(c.svc.Config()))
 }
 
-// handleVerdict applies the user's verdict on the last turn and returns the report.
-func (s *Server) handleVerdict(w http.ResponseWriter, r *http.Request) {
-	var body struct {
-		Good bool   `json:"good"`
-		Note string `json:"note"`
-	}
-	if !s.decodeBody(w, r, &body) {
-		return
-	}
-	writeJSON(w, http.StatusOK, map[string]string{"text": convOf(r).svc.RecordVerdict(body.Good, body.Note)})
-}
-
-// handleReward answers what the library has learned.
-func (s *Server) handleReward(w http.ResponseWriter, r *http.Request) {
-	writeJSON(w, http.StatusOK, map[string]string{"text": convOf(r).svc.RewardReport()})
-}
-
 // handleQuestions answers the questions of the last turn and clears them.
 //
 // An empty LIST rather than null, always. A client that has to tell "there are no questions"

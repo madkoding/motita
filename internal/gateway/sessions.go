@@ -706,7 +706,7 @@ func (s *Server) sessionWorktree(ctx context.Context, repoDir, sessionID string)
 // behind it can carry a scope.
 //
 // It is an OPTIONAL interface and a type assertion rather than a method on Service, the same
-// pattern SetLibrary, SetReward and the approver already follow here: the many small services
+// pattern SetLibrary, SetUsage and the approver already follow here: the many small services
 // the tests build never run a turn and have no library to scope, and forcing every one of them
 // to grow a no-op method would be noise in exchange for a guarantee they do not need. A
 // service that cannot be scoped keeps the shared shelf, which is the behaviour that existed

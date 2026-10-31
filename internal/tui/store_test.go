@@ -8,14 +8,12 @@ import (
 	"github.com/madkoding/motita/internal/config"
 	"github.com/madkoding/motita/internal/logx"
 	"github.com/madkoding/motita/internal/procedures"
-	"github.com/madkoding/motita/internal/reward"
 	"github.com/madkoding/motita/internal/skills"
 )
 
 // TestAnInstalledStoreIsTheOneTheRunnerUses: the gateway hands every conversation the same library
 // and ledger, because the ledger is one file with one in-memory truth. A runner that built its own
-// would let two conversations save over each other and a verdict would be lost with nothing to
-// show for it.
+// would let two conversations save over each other.
 func TestAnInstalledStoreIsTheOneTheRunnerUses(t *testing.T) {
 	lg, err := logx.New(logx.Options{Path: filepath.Join(t.TempDir(), "log.txt"), Level: logx.Warn})
 	if err != nil {
@@ -24,7 +22,6 @@ func TestAnInstalledStoreIsTheOneTheRunnerUses(t *testing.T) {
 	r := NewAppRunner(io.Discard, io.Discard, config.Default(), nil, nil, lg)
 	store := &procedures.Store{
 		Library: skills.New(t.TempDir()),
-		Ledger:  &reward.Ledger{Scores: map[string]reward.Score{}},
 	}
 
 	r.UseStore(store)

@@ -45,7 +45,7 @@ var updateAPIURL string
 //
 // The runner is the same tui.AppRunner the text interface uses, which is the whole point of the
 // design: there is ONE agent, and a client on a phone and a terminal in front of the machine talk
-// to the same conversation, the same procedure library and the same reward ledger.
+// to the same conversation, the same procedure library and the same memory.
 func (op Options) runServe(
 	ctx context.Context, fl flags, cfg config.Config, engine *llm.Client, box *sandbox.Sandbox, log *logx.Logger,
 ) int {
@@ -175,9 +175,9 @@ func (op Options) startGateway(
 
 	// ONE procedure store for every conversation this process will ever hold.
 	//
-	// Shared deliberately: the store is the library AND its reward ledger, and the ledger is a
+	// Shared deliberately: the store is the library AND its usage ledger, and the ledger is a
 	// file read once into memory. Two conversations with two stores over one file would each save
-	// their own view over the other's, and a verdict would be lost with nothing to show for it.
+	// their own view over the other's.
 	// One store means one in-memory truth, and the ledger's lock makes it safe from two runs.
 	store := procedures.Open(cfg, log)
 	runner.UseStore(store)

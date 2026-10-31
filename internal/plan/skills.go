@@ -8,7 +8,6 @@ import (
 
 	"github.com/madkoding/motita/internal/procedures"
 	"github.com/madkoding/motita/internal/review"
-	"github.com/madkoding/motita/internal/reward"
 	"github.com/madkoding/motita/internal/skills"
 	"github.com/madkoding/motita/internal/usage"
 )
@@ -24,15 +23,6 @@ import (
 // WithLibrary gives the planner a procedure library, enabling the skill tools.
 func (p *Planner) WithLibrary(lib *skills.Library) *Planner {
 	p.library = lib
-	return p
-}
-
-// WithReward installs the long-term value ledger.
-//
-// It is optional: a planner without one behaves exactly as before, which is what an embedder
-// that does not want the feature gets. The library keeps working either way.
-func (p *Planner) WithReward(l *reward.Ledger) *Planner {
-	p.reward = l
 	return p
 }
 
@@ -65,21 +55,6 @@ func (p *Planner) WithReview(r *review.Review) *Planner {
 	return p
 }
 
-// Consulted returns the skills this run read, and how many times each.
-//
-// It is what the caller needs to turn the user's verdict into value: the skills are known
-// here and nowhere else, so this is the only place they can be reported from.
-func (p *Planner) Consulted() map[string]int {
-	if len(p.consulted) == 0 {
-		return nil
-	}
-	out := make(map[string]int, len(p.consulted))
-	for k, v := range p.consulted {
-		out[k] = v
-	}
-	return out
-}
-
 // ItersSinceSkill is how many tool-call rounds this run has taken since the last save_skill.
 //
 // It is read by a caller that owns the post-turn review: the counter is per-run, while the
@@ -87,68 +62,6 @@ func (p *Planner) Consulted() map[string]int {
 // that can accumulate it. A run that called save_skill reports zero, because the planner resets
 // it there — a turn that has just written a skill down does not also need reviewing.
 func (p *Planner) ItersSinceSkill() int { return p.itersSinceSkill }
-
-// consult records that a skill was read.
-func (p *Planner) consult(name string) {
-	if p.consulted == nil {
-		p.consulted = map[string]int{}
-	}
-	p.consulted[name]++
-}
-
-// historySuffix renders a skill's accumulated value, or nothing when it has no history.
-//
-// It is a NUMBER and two counts, deliberately, with no adjective attached. "used 4, value 0.7"
-// is a fact the model can weigh together with what it actually reads; "RELIABLE" or "UNPROVEN"
-// would be this program's interpretation, presented as if it were evidence, and a model told a
-// skill is good will reach for it even when the text says otherwise. The numbers also travel
-// with their counts, because 0.7 from one verdict and from forty are different claims.
-//
-// An unconsulted skill shows nothing rather than "0.0", which would read as "this failed".
-func (p *Planner) historySuffix(name string) string {
-	if p.reward == nil {
-		return ""
-	}
-	s, ok := p.reward.Get(name)
-	if !ok || s.Uses() == 0 {
-		return ""
-	}
-	return fmt.Sprintf("  [used %d, value %+.2f]", s.Uses(), s.Value)
-}
-
-// feedbackSuffix states the user's outstanding notes for a skill, quoted verbatim.
-//
-// This is the point of collecting the notes at all: a number says a skill failed, and the note
-// says what was wrong with it, which is the only form of the complaint that can be acted on.
-// It is quoted rather than summarised because it is the user's own words about their own work,
-// and every paraphrase of it loses the specific detail that makes the fix findable.
-//
-// Only notes with no fix attempted are shown: once the skill has been rewritten the complaint
-// is answered, and repeating it would send the model to re-fix what has already been fixed.
-func (p *Planner) feedbackSuffix(name string) string {
-	if p.reward == nil {
-		return ""
-	}
-	s, ok := p.reward.Get(name)
-	if !ok {
-		return ""
-	}
-	notes := s.Unaddressed()
-	if len(notes) == 0 {
-		return ""
-	}
-	var b strings.Builder
-	b.WriteString("\n  !! the user reported this skill failing, and the procedure has NOT been revised since:")
-	// Every note here is a complaint: Unaddressed filters out the notes that came with a good
-	// verdict, which are comments rather than reports of a fault. No verdict label is needed
-	// for the same reason.
-	for i, n := range notes {
-		fmt.Fprintf(&b, "\n     %d. %s", i+1, n.Text)
-	}
-	b.WriteString("\n     Read the procedure again, work out which step the report is about, and save the")
-	b.WriteString("\n     corrected version with save_skill. Fixing it is worth more than avoiding it.")
-	return b.String()
-}
 
 // toolListSkills reports the index: what the library holds, without any bodies.
 func (p *Planner) toolListSkills() string {
@@ -167,7 +80,7 @@ func (p *Planner) toolListSkills() string {
 	var b strings.Builder
 	fmt.Fprintf(&b, "%d skill(s) in the library. Use read_skill for the full procedure.\n", len(all))
 	for _, s := range all {
-		fmt.Fprintf(&b, "\n- %s: %s%s\n  %s%s", s.Name, s.Title, s.Tag(), s.Summary, p.historySuffix(s.Name))
+		fmt.Fprintf(&b, "\n- %s: %s%s\n  %s", s.Name, s.Title, s.Tag(), s.Summary)
 	}
 	return b.String()
 }
@@ -212,13 +125,7 @@ func (p *Planner) toolSearchSkills(args json.RawMessage) string {
 		"wrong thing gets done. Read the one that fits with read_skill BEFORE you act — the full text carries the " +
 		"steps and the pitfalls that the summary cannot.\n")
 	for _, s := range hits {
-		fmt.Fprintf(&b, "\n- %s: %s%s\n  %s%s", s.Name, s.Title, s.Tag(), s.Summary, p.historySuffix(s.Name))
-	}
-	// The outstanding complaints are appended after the list, so they cannot be missed by a
-	// model that only skims the summaries: a skill the user reported as broken is the reason
-	// this search happened.
-	for _, s := range hits {
-		b.WriteString(p.feedbackSuffix(s.Name))
+		fmt.Fprintf(&b, "\n- %s: %s%s\n  %s", s.Name, s.Title, s.Tag(), s.Summary)
 	}
 	return b.String()
 }
@@ -226,7 +133,7 @@ func (p *Planner) toolSearchSkills(args json.RawMessage) string {
 // reviewStore is the store the background review of this planner's turn works on: the planner's
 // own library and ledgers, which are the project's when the session belongs to one.
 func (p *Planner) reviewStore() *procedures.Store {
-	return &procedures.Store{Library: p.library, Ledger: p.reward, Usage: p.usage}
+	return &procedures.Store{Library: p.library, Usage: p.usage}
 }
 
 // toolReadSkill returns one procedure in full, which is the whole point of the library: the
@@ -249,9 +156,6 @@ func (p *Planner) toolReadSkill(args json.RawMessage) string {
 		}
 		return fmt.Sprintf("Error: %v", err)
 	}
-	// The procedure is being read, so it is being relied on: this is the moment the credit
-	// becomes knowable, and the only one.
-	p.consult(s.Name)
 	if p.usage != nil {
 		p.usage.BumpView(s.Name)
 		p.usage.BumpUse(s.Name)

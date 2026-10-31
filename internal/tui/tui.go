@@ -647,7 +647,7 @@ func (t *TUI) handleTypedCommand(ctx context.Context, line string) (bool, bool) 
 	}
 
 	// The NAME is everything up to the first space; the rest is the argument. Splitting once,
-	// here, is what lets a single table hold both "/plan" and "/bad <note>" — and it is why an
+	// here, is what lets a single table hold both "/plan" and "/find <text>" — and it is why an
 	// unknown name is refused instead of being matched by prefix against every entry.
 	name, arg := trimmed, ""
 	if i := strings.IndexAny(trimmed, " 	"); i >= 0 {
@@ -655,7 +655,7 @@ func (t *TUI) handleTypedCommand(ctx context.Context, line string) (bool, bool) 
 	}
 
 	// The argument is taken from the RAW line when the name matches, so it keeps the user's
-	// own capitalisation and quotes: it is their words, and /bad quotes them back verbatim.
+	// own capitalisation and quotes: it is their words.
 	if raw := strings.TrimSpace(line); arg != "" {
 		if i := strings.IndexAny(raw, " 	"); i >= 0 {
 			arg = strings.TrimSpace(raw[i+1:])

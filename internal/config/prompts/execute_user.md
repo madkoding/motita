@@ -232,11 +232,6 @@ commands that worked, the ones that failed and why, the order of the steps: reme
 procedures, never a report of this session). Also remember as soon as the person says "remember",
 "keep this" or "note that". Never secrets. Say in "notes" what you kept.
 
-A procedure whose line ends with "[used N, value ±0.X]" has been judged before: positive means the
-work it describes tended to go well; weigh it, it is not an instruction. A procedure followed by a
-complaint the user wrote is known to be wrong: open it, work out which step the complaint is about,
-and remember the CORRECTED version. Repairing a procedure that failed is worth more than avoiding it.
-
 ## THIS TURN
 
 Everything above is the same every round. What follows is what changes.

@@ -9,9 +9,9 @@ import (
 	"github.com/madkoding/motita/internal/skills"
 )
 
-// A project's store layers its documents and its own ledgers over the shared ones: a verdict and
-// a switch-off of the project's document stay in the project, the shared documents keep their one
-// record, and two sessions of one project share one ledger.
+// A project's store layers its documents and its own ledger over the shared ones: a switch-off of
+// the project's document stays in the project, the shared documents keep their one record, and
+// two sessions of one project share one ledger.
 func TestAScopedStoreKeepsTheProjectsTelemetryApart(t *testing.T) {
 	shared := Open(cfgAt(t.TempDir()), quiet(t))
 	project := t.TempDir()
@@ -23,20 +23,16 @@ func TestAScopedStoreKeepsTheProjectsTelemetryApart(t *testing.T) {
 		t.Fatal(err)
 	}
 	st := Scoped(shared, project)
-	if st.Ledger == shared.Ledger || st.Usage == shared.Usage || st.Library == shared.Library {
+	if st.Usage == shared.Usage || st.Library == shared.Library {
 		t.Fatal("a scoped store has its own library and ledgers")
 	}
-	if again := Scoped(shared, project); again.Ledger != st.Ledger || again.Usage != st.Usage {
+	if again := Scoped(shared, project); again.Usage != st.Usage {
 		t.Error("two sessions of one project share its ledgers")
 	}
 	st.Usage.SetDisabled("build", true)
 	st.Usage.SetDisabled("common", true)
-	_ = st.Ledger.Attribute([]string{"build"}, nil, false, "wrong target")
 	if shared.Usage.Disabled("build") || !shared.Usage.Disabled("common") {
 		t.Error("the project's switch-off stays in the project, the shared one is shared")
-	}
-	if _, ok := shared.Ledger.Get("build"); ok {
-		t.Error("the project's verdict stays in the project")
 	}
 	if !st.Library.Hidden("build") {
 		t.Error("the scoped library asks the project's ledger what is off")
@@ -57,14 +53,14 @@ func TestAScopedStoreKeepsTheProjectsTelemetryApart(t *testing.T) {
 // goes; a project ledger that cannot be read leaves the project on the shared one.
 func TestScopedDegradesLikeOpen(t *testing.T) {
 	shared := Open(cfgAt(t.TempDir()), quiet(t))
-	if st := Scoped(shared, " "); st.Ledger != shared.Ledger || st.Usage != shared.Usage {
+	if st := Scoped(shared, " "); st.Usage != shared.Usage {
 		t.Error("no project is the shared ledgers")
 	}
 	if st := Scoped(&Store{}, t.TempDir()); st.Library != nil {
 		t.Error("no library stays no library")
 	}
 	bare := &Store{Library: shared.Library}
-	if st := Scoped(bare, t.TempDir()); st.Ledger != nil || st.Usage != nil {
+	if st := Scoped(bare, t.TempDir()); st.Usage != nil {
 		t.Error("a ledger the shared store lacks is not made up for the project")
 	}
 	project := t.TempDir()
@@ -72,12 +68,10 @@ func TestScopedDegradesLikeOpen(t *testing.T) {
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	for _, f := range []string{".scores.json", ".usage.json"} {
-		if err := os.WriteFile(filepath.Join(dir, f), []byte("{not json"), 0o644); err != nil {
-			t.Fatal(err)
-		}
+	if err := os.WriteFile(filepath.Join(dir, ".usage.json"), []byte("{not json"), 0o644); err != nil {
+		t.Fatal(err)
 	}
-	if st := Scoped(shared, project); st.Ledger != shared.Ledger || st.Usage != shared.Usage {
+	if st := Scoped(shared, project); st.Usage != shared.Usage {
 		t.Error("an unreadable project ledger leaves the project on the shared one")
 	}
 }
@@ -101,13 +95,9 @@ func TestAProjectAdoptsItsOldTelemetry(t *testing.T) {
 	}
 	shared.Usage.SetPinned("build", true)
 	shared.Usage.SetPinned("both", true)
-	_ = shared.Ledger.Attribute([]string{"build"}, nil, true, "")
 	st := Scoped(shared, project)
 	if !st.Usage.Get("build").Pinned || shared.Usage.Get("build").Pinned {
 		t.Error("the project's pin moved to the project")
-	}
-	if _, ok := shared.Ledger.Scores["build"]; ok {
-		t.Error("the project's score moved to the project")
 	}
 	if !shared.Usage.Get("both").Pinned || !st.Usage.Get("both").Pinned {
 		t.Error("a name the shared shelf still has stays shared and is copied")

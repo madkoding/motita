@@ -61,9 +61,6 @@ var commands = []Command{
 	{Name: "/artifacts", Help: "files the agent saved: list, show one, or save it here", Arg: "[name | save name]",
 		Group: "session"},
 	{Name: "/agents", Help: "show or hide the run's agents: purpose, time, tokens", Group: "session"},
-	{Name: "/good", Help: "rate the last answer as good", Arg: "note", Group: "action"},
-	{Name: "/bad", Help: "rate the last answer as bad; the note says what to fix", Arg: "what was wrong", Group: "action"},
-	{Name: "/value", Aliases: []string{"/v"}, Help: "what motita has learned from your ratings", Group: "action"},
 	{Name: "/new", Help: "start a fresh conversation", Group: "session"},
 	{Name: "/update", Help: "install the newest motita release", Group: "action"},
 	{Name: "/help", Aliases: []string{"/h", "h", "help", "?"}, Help: "every command and key", Group: "meta"},
@@ -79,7 +76,7 @@ func Commands() []Command { return append([]Command(nil), commands...) }
 //
 // The argument is passed to every action rather than only to the ones that take one: the
 // signature is the same for all of them, which is what lets a single table serve `/plan` and
-// `/bad <note>` without a second, parallel list of "commands that carry an argument". Two
+// `/find <text>` without a second, parallel list of "commands that carry an argument". Two
 // lists meant two places to add a command, and the one that was forgotten did nothing.
 var commandActions = map[string]func(t *TUI, ctx context.Context, arg string) bool{
 	"/task": func(t *TUI, _ context.Context, _ string) bool {
@@ -202,20 +199,6 @@ var commandActions = map[string]func(t *TUI, ctx context.Context, arg string) bo
 		t.back(ctx)
 		return false
 	},
-	"/good": func(t *TUI, _ context.Context, note string) bool {
-		t.recordVerdict(true, note)
-		return false
-	},
-	"/bad": func(t *TUI, _ context.Context, note string) bool {
-		t.recordVerdict(false, note)
-		return false
-	},
-	// What the library has learned, worst first: the entries that need attention are the ones
-	// at the top, and the complaints attached to them are what a fix is written from.
-	"/value": func(t *TUI, _ context.Context, _ string) bool {
-		t.addPreformatted(AuthorSystem, t.Runner.RewardReport())
-		return false
-	},
 	// A new conversation is a clean screen: the old one is gone from the model's memory, and
 	// leaving it on screen would suggest the next answer can still see it. The welcome screen says
 	// what happened, the way it greets a first run.
@@ -245,16 +228,6 @@ var commandActions = map[string]func(t *TUI, ctx context.Context, arg string) bo
 		return false
 	},
 	"/quit": func(t *TUI, _ context.Context, _ string) bool { return true },
-}
-
-// recordVerdict writes the user's verdict on the turn that just ran.
-//
-// This is the only reward signal in the system, and it is the user's: the agent never rates
-// its own work. The optional note on /bad is what makes the verdict actionable — a number
-// says a skill failed, the note says which step was wrong, and that is the only form of the
-// complaint a fix can be written from.
-func (t *TUI) recordVerdict(ok bool, note string) {
-	t.addPreformatted(AuthorSystem, t.Runner.RecordVerdict(ok, note))
 }
 
 // hasAlias reports whether a spelling is one of the command's aliases.

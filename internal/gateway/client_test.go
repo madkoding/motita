@@ -32,8 +32,6 @@ var _ interface {
 	ConversationReport() string
 	ResetConversation()
 	RunModels(context.Context) (string, error)
-	RecordVerdict(bool, string) string
-	RewardReport() string
 	TakePendingQuestions() ([]agent.AskItem, string)
 	RunConfig(context.Context) error
 	RunPlan(context.Context, string, func(string, ...any)) (string, error)
@@ -218,9 +216,7 @@ func TestSummaryIsEmptyWhenTheGatewayIsUnreachable(t *testing.T) {
 func TestAnUnreadableReportSaysSoInsteadOfBeingEmpty(t *testing.T) {
 	c := NewClient("http://127.0.0.1:1", testToken)
 	for name, got := range map[string]string{
-		"report":  c.ConversationReport(),
-		"reward":  c.RewardReport(),
-		"verdict": c.RecordVerdict(true, "note"),
+		"report": c.ConversationReport(),
 	} {
 		if !strings.Contains(got, "could not be reached") {
 			t.Errorf("%s = %q, want it to name the failure", name, got)
@@ -229,19 +225,12 @@ func TestAnUnreadableReportSaysSoInsteadOfBeingEmpty(t *testing.T) {
 }
 
 func TestTheOneShotReadsCarryTheTextThrough(t *testing.T) {
-	svc := &fakeService{report: "the conversation so far", reward: "the reward line"}
-	svc.verdict = func(bool, string) string { return "the verdict line" }
+	svc := &fakeService{report: "the conversation so far"}
 	svc.models = func(context.Context) (string, error) { return "the catalogue", nil }
 	c, _, _ := clientFor(t, svc)
 
 	if got := c.ConversationReport(); got != "the conversation so far" {
 		t.Errorf("report = %q", got)
-	}
-	if got := c.RewardReport(); got != "the reward line" {
-		t.Errorf("reward = %q", got)
-	}
-	if got := c.RecordVerdict(true, "a note"); got != "the verdict line" {
-		t.Errorf("verdict = %q", got)
 	}
 	if got, err := c.RunModels(context.Background()); err != nil || got != "the catalogue" {
 		t.Errorf("models = %q, %v", got, err)
@@ -793,7 +782,7 @@ func TestAnUnencodableBodyIsReported(t *testing.T) {
 	if _, err := c.run(context.Background(), c.Session(), "/task", bad, nil); err == nil {
 		t.Error("a run with an unencodable body must be reported")
 	}
-	if err := c.do(context.Background(), http.MethodPost, c.scoped("/verdict"), bad, nil); err == nil {
+	if err := c.do(context.Background(), http.MethodPost, c.scoped("/reasoning"), bad, nil); err == nil {
 		t.Error("a one-shot request with an unencodable body must be reported")
 	}
 }
