@@ -366,6 +366,10 @@ func (s *Server) executeTurn(
 			Project: c.projectID, Turn: rn.turn, Text: command})
 	}
 	progress := s.watchRetries(c, rn, rn.progress())
+	if rn.quiet {
+		// A scheduled run has nobody to answer a question: it proceeds on its stated assumption.
+		ctx = agent.WithUnattended(ctx)
+	}
 	if kind == schedule.KindPlan {
 		return c.svc.RunPlan(ctx, task, progress)
 	}
