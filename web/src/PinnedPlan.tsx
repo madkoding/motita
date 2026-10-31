@@ -32,14 +32,42 @@ export function PinnedPlanBar() {
   return <PinnedPlanView pinnedPlan={pinnedPlan} />;
 }
 
+// LOOKS are what tells a proposed plan from the one in force: words, icon and colours.
+const LOOKS = {
+  proposed: {
+    label: "Proposed plan",
+    hint: "A plan the agent proposed. It becomes active when you approve it: say go ahead, or open it and approve it.",
+    icon: "📝",
+    box: "border-dashed border-white/20 bg-white/[0.03]",
+    tag: "text-[#c8c8d2]",
+    save: "Approve",
+  },
+  active: {
+    label: "Active plan",
+    hint: "The plan the agent follows until its work is done. Open it to change or drop it.",
+    icon: "📌",
+    box: "border-accent/30 bg-accent/5",
+    tag: "text-accent",
+    save: "Save",
+  },
+};
+
+// lookOf is the look of a plan in the given state; anything not proposed is in force.
+export function lookOf(state: string) {
+  if (state === "proposed") {
+    return LOOKS.proposed;
+  }
+  return LOOKS.active;
+}
+
 // PinnedPlanView draws a plan and its editor.
 export function PinnedPlanView({
   pinnedPlan,
 }: {
   pinnedPlan: ReturnType<typeof usePinnedPlan>;
 }) {
-  const proposed = pinnedPlan.state === "proposed";
-  const label = proposed ? t("Proposed plan") : t("Active plan");
+  const look = lookOf(pinnedPlan.state);
+  const label = t(look.label);
   const [open, setOpen] = useState(false);
   const [draft, setDraft] = useState("");
   if (pinnedPlan.plan === "") {
@@ -56,12 +84,7 @@ export function PinnedPlanView({
   };
   return (
     <section
-      class={
-        "mx-3 mb-2 rounded-xl border px-3 py-2 text-sm " +
-        (proposed
-          ? "border-dashed border-white/20 bg-white/[0.03]"
-          : "border-accent/30 bg-accent/5")
-      }
+      class={"mx-3 mb-2 rounded-xl border px-3 py-2 text-sm " + look.box}
       data-testid="pinned-plan"
       data-state={pinnedPlan.state}
       aria-label={label}
@@ -70,22 +93,12 @@ export function PinnedPlanView({
         <button
           type="button"
           class="w-full flex items-center gap-2 text-left min-h-[34px]"
-          title={
-            proposed
-              ? t(
-                  "A plan the agent proposed. It becomes active when you approve it: say go ahead, or open it and approve it.",
-                )
-              : t(
-                  "The plan the agent follows until its work is done. Open it to change or drop it.",
-                )
-          }
+          title={t(look.hint)}
           data-testid="pinned-plan-open"
           onClick={edit}
         >
-          <span
-            class={"flex-none " + (proposed ? "text-[#c8c8d2]" : "text-accent")}
-          >
-            {proposed ? "📝" : "📌"} {label}
+          <span class={"flex-none " + look.tag}>
+            {look.icon} {label}
           </span>
           <span class="truncate text-[#9a9aaa]">
             {firstStep(pinnedPlan.plan)}
@@ -124,7 +137,7 @@ export function PinnedPlanView({
               data-testid="pinned-plan-save"
               onClick={() => void keep(draft)}
             >
-              {proposed ? t("Approve") : t("Save")}
+              {t(look.save)}
             </button>
           </div>
         </div>

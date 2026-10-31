@@ -20,7 +20,10 @@ export function planState(d: { plan?: string; state?: string }): PlanState {
   if (!d.plan) {
     return "";
   }
-  return d.state === "proposed" ? "proposed" : "active";
+  if (d.state === "proposed") {
+    return "proposed";
+  }
+  return "active";
 }
 
 // usePinnedPlan reads the plan when the conversation changes and again when a turn ends (the turn
