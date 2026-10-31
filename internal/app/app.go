@@ -862,7 +862,6 @@ func (op Options) runTask(
 	// it has a library and gets "no procedure library is configured" for every lookup.
 	ag.SetLibrary(procs.Library)
 	ag.SetMemory(config.OpenMemory())
-	ag.SetReward(procs.Ledger)
 	ag.SetUsage(procs.Usage)
 
 	// Curator: run the deterministic pass on session start if enough time has

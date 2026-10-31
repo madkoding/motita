@@ -15,7 +15,6 @@ import (
 
 	"github.com/madkoding/motita/internal/config"
 	"github.com/madkoding/motita/internal/logx"
-	"github.com/madkoding/motita/internal/reward"
 )
 
 // quiet is a logger that writes nothing, so a warning about a broken ledger does not fill the
@@ -116,129 +115,40 @@ func TestTheShippedProceduresAreReachableThroughTheStore(t *testing.T) {
 }
 
 // TestTheLedgerLivesWithTheLibrary: one directory to copy or back up carries both the
-// procedures and what has been learned about them.
+// procedures and their telemetry.
 func TestTheLedgerLivesWithTheLibrary(t *testing.T) {
 	dir := t.TempDir()
 	st := Open(cfgAt(dir), quiet(t))
-	if st.Ledger == nil {
+	if st.Usage == nil {
 		t.Fatal("a fresh directory must still give a working ledger")
 	}
-	if got := filepath.Dir(st.Ledger.Path); got != dir {
-		t.Errorf("ledger dir = %q, want it with the library at %q", got, dir)
-	}
-}
-
-// TestTheLibraryScoresWithTheLedger: the search breaks ties by what has worked, so a library
-// that has a ledger must be using it. A store that opened both and connected neither would look
-// identical from the outside until someone read the scores.
-func TestTheLibraryScoresWithTheLedger(t *testing.T) {
-	st := Open(cfgAt(t.TempDir()), quiet(t))
-	if st.Ledger == nil {
-		t.Fatal("a fresh directory must still give a working ledger")
-	}
-	if st.Library.Scorer == nil {
-		t.Error("the library must read the ledger, or the tie-break never happens")
-	}
-	// The scorer must be THIS ledger and not another one: two ledgers over one file would let a
-	// verdict recorded on one be invisible to the search using the other.
-	if got, ok := st.Library.Scorer.(*reward.Ledger); !ok || got != st.Ledger {
-		t.Errorf("scorer = %#v, want this store's ledger", st.Library.Scorer)
-	}
-}
-
-// TestABrokenLedgerCostsTheScoresNotTheProcedures is the deliberate trade-off.
-//
-// The scores are the only record of what the user thought of the library, so losing them is
-// reported rather than hidden. But refusing to build the library over it would cost the
-// PROCEDURES too, and a library without its scores still answers every question the model asks.
-// So the ledger is nil and the library works.
-func TestABrokenLedgerCostsTheScoresNotTheProcedures(t *testing.T) {
-	dir := t.TempDir()
-	// A ledger that exists and is not JSON: what a truncated write or a bad merge leaves.
-	if err := os.WriteFile(filepath.Join(dir, ".scores.json"), []byte("this is not json"), 0o644); err != nil {
+	st.Usage.SetPinned("build", true)
+	if err := st.Usage.Save(); err != nil {
 		t.Fatal(err)
 	}
+	if _, err := os.Stat(filepath.Join(dir, ".usage.json")); err != nil {
+		t.Errorf("the ledger must be kept with the library: %v", err)
+	}
+}
 
+// TestAnOldScoresFileIsIgnored: the verdict ledger (.scores.json) was retired. A file an earlier
+// version left behind is neither read nor needed: the library and its telemetry open as usual.
+func TestAnOldScoresFileIsIgnored(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, ".scores.json"), []byte("{broken"), 0o644); err != nil {
+		t.Fatal(err)
+	}
 	st := Open(cfgAt(dir), quiet(t))
-	if st.Ledger != nil {
-		t.Error("a ledger that cannot be read must be absent, not silently replaced")
-	}
-	if st.Library == nil {
-		t.Fatal("the procedures must survive a broken ledger")
-	}
-	if st.Library.Scorer != nil {
-		t.Error("with no ledger there is no tie-break to apply, and pretending otherwise would panic")
-	}
-	all, err := st.Library.List()
-	if err != nil {
-		t.Fatalf("the library must still work: %v", err)
-	}
-	if len(all) == 0 {
-		t.Error("the shipped procedures must still be served")
+	if st.Library == nil || st.Usage == nil {
+		t.Fatal("an old scores file must not cost the library or its telemetry")
 	}
 }
 
-// TestABrokenLedgerIsReported: the loss is real information the user needs, so it goes to the
-// log rather than being swallowed. A store that opened quietly would make a lost history look
-// like a fresh one.
-func TestABrokenLedgerIsReported(t *testing.T) {
-	dir := t.TempDir()
-	if err := os.WriteFile(filepath.Join(dir, ".scores.json"), []byte("{broken"), 0o644); err != nil {
-		t.Fatal(err)
-	}
-
-	// The real logger, writing to a file, so the warning is observed rather than assumed.
-	logPath := filepath.Join(t.TempDir(), "motita.log")
-	l, err := logx.New(logx.Options{Level: logx.Warn, Path: logPath})
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	st := Open(cfgAt(dir), l)
-	if st.Ledger != nil {
-		t.Fatal("the fixture expects an unreadable ledger")
-	}
-	if st.Library == nil {
-		t.Fatal("the procedures must survive it")
-	}
-
-	data, err := os.ReadFile(logPath)
-	if err != nil {
-		t.Fatalf("the warning must have been written: %v", err)
-	}
-	if !strings.Contains(string(data), "ledger") {
-		t.Errorf("the loss must be reported, got %q", string(data))
-	}
-}
-
-// TestANilLoggerIsTolerated: Open is called from paths that may not have a logger, and a
-// warning with nowhere to go must not become a panic on the way to a working library.
-func TestANilLoggerIsTolerated(t *testing.T) {
-	dir := t.TempDir()
-	if err := os.WriteFile(filepath.Join(dir, ".scores.json"), []byte("{broken"), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	st := Open(cfgAt(dir), nil)
-	if st.Library == nil {
-		t.Fatal("a nil logger must not stop the library from being built")
-	}
-	if st.Ledger != nil {
-		t.Error("the broken ledger must still be treated as absent")
-	}
-}
-
-// TestABrokenUsageLedgerIsReportedAndSurvived: there are TWO ledgers, and they fail
-// independently. The scores one is covered above; this is the usage sidecar, which disables the
-// curator and the background review fork and nothing else. A corrupt .usage.json must cost that
-// telemetry and leave the library and the scores exactly as they were - a store that lost the
-// scores because a count file was truncated would be trading a loss for a bigger one.
+// TestABrokenUsageLedgerIsReportedAndSurvived: the usage sidecar disables the curator and the
+// background review fork and nothing else. A corrupt .usage.json must cost that telemetry and
+// leave the library exactly as it was.
 func TestABrokenUsageLedgerIsReportedAndSurvived(t *testing.T) {
 	dir := t.TempDir()
-	// A scores ledger that IS readable, so the assertion below is about the usage one failing
-	// and not about both being absent for the same reason.
-	if err := os.WriteFile(filepath.Join(dir, ".scores.json"), []byte(`{"entries":{}}`), 0o644); err != nil {
-		t.Fatal(err)
-	}
 	if err := os.WriteFile(filepath.Join(dir, ".usage.json"), []byte("{broken"), 0o644); err != nil {
 		t.Fatal(err)
 	}
@@ -252,9 +162,6 @@ func TestABrokenUsageLedgerIsReportedAndSurvived(t *testing.T) {
 	st := Open(cfgAt(dir), l)
 	if st.Library == nil {
 		t.Fatal("an unreadable usage ledger must not cost the procedures")
-	}
-	if st.Ledger == nil {
-		t.Error("the scores ledger was readable and must still be there")
 	}
 	if st.Usage != nil {
 		t.Error("a usage ledger that cannot be read must be absent rather than half-built")

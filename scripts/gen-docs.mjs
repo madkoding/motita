@@ -96,7 +96,6 @@ ${flow("How a task runs", [["You ask", "Type a task in Task mode"], ["It works",
 <tr><td><code>/models</code></td><td>List and switch the model for this conversation.</td></tr>
 <tr><td><code>/sessions</code>, <code>/attach</code>, <code>/new</code>, <code>/back</code></td><td>See, join, open and leave conversations. A run keeps going while you look at another one.</td></tr>
 <tr><td><code>/agents</code> (<kbd>Ctrl+G</kbd>)</td><td>The background agents and what each is doing.</td></tr>
-<tr><td><code>/good</code>, <code>/bad</code></td><td>Tell motita whether the last procedure helped.</td></tr>
 <tr><td><code>/git</code></td><td>Connect GitHub, GitLab or Bitbucket.</td></tr>
 <tr><td><code>/artifacts</code></td><td>Files the agent saved in this conversation.</td></tr>
 <tr><td><code>/language</code></td><td>Switch between English and Spanish at once.</td></tr>
@@ -288,7 +287,6 @@ ${flow("From speaking to hearing the answer", [["You speak", "Mic button, or the
 <h2>How it improves</h2>
 <ul>
 <li>A fresh install starts with built-in procedures (running commands, files, git, HTTP APIs, web search, toolchains, verifying a change, diagrams and reports).</li>
-<li><code>/good</code> and <code>/bad</code> land on the procedures that were actually used, and the library is searched by what has worked before.</li>
 <li>No fine-tuning, no extra API, no extra bill. A ledger next to a shelf.</li>
 </ul>
 <h2>See and control the shelf</h2>

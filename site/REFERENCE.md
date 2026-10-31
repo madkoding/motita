@@ -2387,7 +2387,7 @@ internal/contextmem/   the conversation's own archive: turns past the window, re
 internal/skills/        the procedure library: the documents, and their archive
 internal/curator/       the maintenance pass: stale, archive, and consolidation
 internal/procedures/    the library as the tools see it (search, load, save)
-internal/usage/         the ledger next to the shelf (/good, /bad, lifecycle telemetry)
+internal/usage/         the ledger next to the shelf (use counts, lifecycle telemetry)
 internal/gateway/       HTTP + WebSocket gateway (sessions, projects, schedules, skills, git logins)
 internal/gitforge/      git hosts: logins, credential helper, repositories, pull requests, CI
 internal/oauth/         direct logins (device code, PKCE, refresh) for the providers and the git hosts

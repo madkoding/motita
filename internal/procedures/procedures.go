@@ -1,5 +1,5 @@
 // Package procedures builds the two things that travel together: the agent's library of
-// procedure documents, and the ledger that records how each one has worked out.
+// procedure documents, and the ledger that records how each one is used.
 //
 // It exists because building them is not the private business of one front end. The prompts
 // that promise the model a library are shipped in internal/config and used by EVERY path — the
@@ -12,7 +12,7 @@
 // cache the result; what it must not do is have its own idea of what the library is.
 //
 // The ledger lives NEXT TO the library, in the same directory, so one thing to copy or back up
-// carries both the procedures and what has been learned about them.
+// carries both the procedures and their telemetry.
 package procedures
 
 import (
@@ -24,7 +24,6 @@ import (
 	"github.com/madkoding/motita/internal/config"
 	"github.com/madkoding/motita/internal/logx"
 	"github.com/madkoding/motita/internal/projectskills"
-	"github.com/madkoding/motita/internal/reward"
 	"github.com/madkoding/motita/internal/skills"
 	"github.com/madkoding/motita/internal/usage"
 )
@@ -34,10 +33,6 @@ type Store struct {
 	// Library is always present: a store without a library would be a store that cannot
 	// answer the tools the prompt advertises.
 	Library *skills.Library
-	// Ledger is nil when it could not be read, and the library then ranks exactly as it did
-	// before the feature existed. An absent ledger is a working library, not a broken one —
-	// see Open for why it is not an error.
-	Ledger *reward.Ledger
 	// Usage is the per-skill telemetry sidecar: view/use/patch counts, provenance
 	// markers, and lifecycle state. Nil when it could not be read; the curator
 	// and the background review fork are disabled without it.
@@ -50,11 +45,9 @@ type Store struct {
 // is motita's own state, and a configuration that names nothing must not scatter it through
 // whatever project the user happens to be standing in.
 //
-// A ledger that cannot be read is reported and then IGNORED, not returned as an error. The
-// scores are the only record of what the user thought of the library, so silently starting
-// empty would hide that they were lost; but refusing to build the library over it would cost
-// the procedures too, and a library without its scores still works. The caller gets the library
-// and a nil ledger, which is exactly what "the value-based ranking is off" means.
+// A ledger that cannot be read is reported and then IGNORED, not returned as an error: refusing
+// to build the library over it would cost the procedures too, and a library without its
+// telemetry still works. The caller gets the library and a nil ledger.
 func Open(cfg config.Config, log *logx.Logger) *Store {
 	dir := cfg.Skills.Dir
 	if dir == "" {
@@ -71,18 +64,6 @@ func Open(cfg config.Config, log *logx.Logger) *Store {
 	}
 
 	st := &Store{Library: lib}
-	led, err := reward.Open(filepath.Join(dir, ".scores.json"))
-	if err != nil {
-		if log != nil {
-			log.Warn("the reward ledger could not be read; value-based ranking is off", "error", err)
-		}
-		return st
-	}
-	st.Ledger = led
-	// The library reads the ledger for its tie-breaks, so the search prefers the procedure
-	// that has actually worked when two of them fit the question equally well.
-	lib.Scorer = led
-
 	// Usage telemetry sidecar: per-skill counts, provenance, and lifecycle state.
 	// An absent or unreadable ledger disables the curator and the background review
 	// fork, but the library still works — the feature degrades to "no telemetry".
@@ -106,16 +87,14 @@ func Open(cfg config.Config, log *logx.Logger) *Store {
 // project must share ONE in-memory ledger over the file, or each would save its view over the
 // other's (see UseStore in internal/tui).
 type projectLedgers struct {
-	reward *reward.Ledger
-	usage  *usage.Ledger
+	usage *usage.Ledger
 }
 
 // projectKey is what a project's ledgers are cached under: the file and the shared ledgers they
 // are layered over (a test may open several shared stores over one directory).
 type projectKey struct {
-	dir    string
-	reward *reward.Ledger
-	usage  *usage.Ledger
+	dir   string
+	usage *usage.Ledger
 }
 
 var (
@@ -125,7 +104,7 @@ var (
 
 // Scoped is the store a session of a project works with: the shared library with the project's
 // documents layered over it (projectskills.Scope), and ledgers of the project's own layered over
-// the shared ones, so a verdict, a count, a pin or a switch-off of a project's document stays in
+// the shared ones, so a count, a pin or a switch-off of a project's document stays in
 // that project while the shared documents keep their one record. An empty projectDir is the
 // shared store itself, unscoped.
 //
@@ -143,12 +122,7 @@ func Scoped(shared *Store, projectDir string) *Store {
 		return &out
 	}
 	dir := filepath.Join(shared.Library.Root(), ProjectsDir, projectskills.Key(projectDir))
-	led := projectLedgersFor(projectKey{dir: dir, reward: shared.Ledger, usage: shared.Usage}, lib.InScope,
-		sharedHas(shared.Library))
-	if led.reward != nil {
-		out.Ledger = led.reward
-		lib.Scorer = led.reward
-	}
+	led := projectLedgersFor(projectKey{dir: dir, usage: shared.Usage}, lib.InScope, sharedHas(shared.Library))
 	if led.usage != nil {
 		out.Usage = led.usage
 		lib.Hidden = led.usage.Disabled
@@ -175,14 +149,6 @@ func projectLedgersFor(key projectKey, owns, keep func(string) bool) projectLedg
 		return led
 	}
 	var led projectLedgers
-	if key.reward != nil {
-		if r, err := reward.Open(filepath.Join(key.dir, ".scores.json")); err == nil {
-			led.reward = r.Over(key.reward, owns)
-			if led.reward.Adopt(keep) {
-				_ = led.reward.Save()
-			}
-		}
-	}
 	if key.usage != nil {
 		if u, err := usage.Open(filepath.Join(key.dir, ".usage.json")); err == nil {
 			led.usage = u.Over(key.usage, owns)

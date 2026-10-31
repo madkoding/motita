@@ -1,7 +1,7 @@
 // Package gateway exposes one agent to many front ends over HTTP.
 //
 // It exists because an agent is not a terminal: the same conversation, the same procedure
-// library and the same reward ledger have to be reachable from a text interface, a web page
+// library and the same memory have to be reachable from a text interface, a web page
 // and a phone. The package owns the TRANSPORT only. The agent, its policy, its sandbox and its
 // configuration stay where they are, and this package reaches them through the Service
 // interface below.
@@ -65,11 +65,6 @@ type Service interface {
 	// other. The change takes effect on the next turn — the runner builds an engine
 	// per turn from the current configuration.
 	SetLLM(provider, model string)
-	// RecordVerdict applies the user's verdict on the last turn to the skills it read, and
-	// returns a human-readable report.
-	RecordVerdict(good bool, note string) string
-	// RewardReport renders what the library has learned, worst first.
-	RewardReport() string
 	// TakePendingQuestions returns the questions the last turn asked and CLEARS them.
 	//
 	// Taking clears because the window is opened once per question set: without that, a

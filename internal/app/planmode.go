@@ -26,7 +26,6 @@ func (op Options) runPlan(
 	ag := agent.New(cfg, log, engine, box, nil)
 	ag.SetLibrary(procs.Library)
 	ag.SetMemory(config.OpenMemory())
-	ag.SetReward(procs.Ledger)
 	ag.SetUsage(procs.Usage)
 
 	// Background self-improvement: the review fork runs on the conversation's engine.
@@ -57,9 +56,8 @@ func (op Options) runPlan(
 		WithSessionPolicy(cfg.LLM.Model, cfg.LLM.WindowOverride(), cfg.LLM.Session.Reserve,
 			cfg.LLM.Session.CompactAt, cfg.LLM.Session.KeepRecent).
 		// The same library the task path uses, so a procedure written down in one mode is
-		// reachable from the other and a verdict lands on one shelf rather than two.
+		// reachable from the other.
 		WithLibrary(procs.Library).
-		WithReward(procs.Ledger).
 		WithUsage(procs.Usage).
 		WithReview(reviewer).
 		WithMemory(config.OpenMemory()).
@@ -110,7 +108,6 @@ func buildSkillRunner(engine *llm.Client, procs *procedures.Store, soul string, 
 	p := plan.New(engine, nil).
 		WithLoops(maxLoops).
 		WithLibrary(procs.Library).
-		WithReward(procs.Ledger).
 		WithUsage(procs.Usage).
 		WithSoul(soul)
 	p.IsReviewFork = true

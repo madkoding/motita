@@ -15,12 +15,6 @@ import (
 	"github.com/madkoding/motita/internal/session"
 )
 
-// verdictCall is one RecordVerdict invocation.
-type verdictCall struct {
-	good bool
-	note string
-}
-
 type fakeRunner struct {
 	planCalled   bool
 	taskCalled   bool
@@ -33,10 +27,6 @@ type fakeRunner struct {
 	modelsCalls  int
 	modelsReport string
 	planProgress []string
-	// verdicts is what RecordVerdict was called with, so a test can assert the command wiring
-	// without the reward package.
-	verdicts     []verdictCall
-	rewardReport string
 	// The *Block channels make a run hang until the test closes them, which is how
 	// cancellation in the middle of a turn is exercised.
 	taskBlock   chan struct{}
@@ -129,18 +119,6 @@ func (f *fakeRunner) RunTask(ctx context.Context, task string, progress func(str
 }
 
 func (f *fakeRunner) SetTranscript([]agent.DialogueTurn) {}
-
-// The fake records verdicts instead of applying them: the reward policy is tested in its own
-// package, and what the interface has to get right is that the right command calls the right
-// thing with the right argument.
-func (f *fakeRunner) RecordVerdict(good bool, note string) string {
-	f.mu.Lock()
-	defer f.mu.Unlock()
-	f.verdicts = append(f.verdicts, verdictCall{good: good, note: note})
-	return "recorded"
-}
-
-func (f *fakeRunner) RewardReport() string { return f.rewardReport }
 
 func (f *fakeRunner) Transcript() []agent.DialogueTurn { return nil }
 

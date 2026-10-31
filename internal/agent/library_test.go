@@ -10,14 +10,13 @@ import (
 	"github.com/madkoding/motita/internal/config"
 	"github.com/madkoding/motita/internal/execx"
 	"github.com/madkoding/motita/internal/logx"
-	"github.com/madkoding/motita/internal/reward"
 	"github.com/madkoding/motita/internal/skills"
 	"github.com/madkoding/motita/internal/usage"
 )
 
 // Task mode and Plan mode share ONE library. Task mode reaches it through its action protocol
 // rather than tool calls, because its actions are JSON — the four operations are named by the
-// action's "kind". These tests pin that path, and the attribution that makes a verdict land.
+// action's "kind". These tests pin that path.
 
 // libraryAgent builds an agent with a library, no engine needed for these paths.
 func libraryAgent(t *testing.T, bodies map[string]string) *Agent {
@@ -28,14 +27,9 @@ func libraryAgent(t *testing.T, bodies map[string]string) *Agent {
 			t.Fatalf("Save(%s): %v", name, err)
 		}
 	}
-	led, err := reward.Open("")
-	if err != nil {
-		t.Fatal(err)
-	}
-	lib.Scorer = led
 	// A logger and a config are needed by the paths under test: nil ones panic, and the point
 	// of these tests is the library, not a nil-check.
-	a := &Agent{library: lib, reward: led, log: logx.Global(), cfg: config.Default()}
+	a := &Agent{library: lib, log: logx.Global(), cfg: config.Default()}
 	return a
 }
 
@@ -147,10 +141,6 @@ func TestReadingAMissingSkillIsReportedNotSilent(t *testing.T) {
 	if !strings.Contains(out, "No skill named") {
 		t.Errorf("a missing skill must be reported:\n%s", out)
 	}
-	// And nothing was credited for it.
-	if got := a.Consulted(); len(got) != 0 {
-		t.Errorf("a missing skill must not be recorded, got %+v", got)
-	}
 }
 
 func TestSaveSkillWritesIt(t *testing.T) {
@@ -178,101 +168,6 @@ func TestSaveSkillNeedsTheSeparator(t *testing.T) {
 	}
 	if !strings.Contains(out, "::") {
 		t.Errorf("the error must show the expected form:\n%s", out)
-	}
-}
-
-// --- the attribution ------------------------------------------------------
-
-func TestReadingInTaskModeIsRecorded(t *testing.T) {
-	// The verdict has to land somewhere, and this is where the somewhere is decided.
-	a := libraryAgent(t, map[string]string{"flash": "# Flash\nBody.\n"})
-	_ = act(t, a, "read_skill", "flash")
-	_ = act(t, a, "read_skill", "flash")
-
-	used := a.Consulted()
-	if used["flash"] != 2 {
-		t.Errorf("each read must count, got %+v", used)
-	}
-}
-
-func TestConsultedIsNilWhenNothingWasRead(t *testing.T) {
-	a := libraryAgent(t, map[string]string{"a": "# A\nBody.\n"})
-	_ = act(t, a, "list_skills", "")
-	if got := a.Consulted(); got != nil {
-		t.Errorf("listing is not reading, got %+v", got)
-	}
-}
-
-func TestConsultedIsACopy(t *testing.T) {
-	a := libraryAgent(t, map[string]string{"flash": "# F\nBody.\n"})
-	_ = act(t, a, "read_skill", "flash")
-	got := a.Consulted()
-	got["flash"] = 99
-	if a.Consulted()["flash"] != 1 {
-		t.Error("Consulted must return a copy")
-	}
-}
-
-// --- what the model is shown ---------------------------------------------
-
-func TestTheValueIsShownInTheIndex(t *testing.T) {
-	a := libraryAgent(t, map[string]string{"flash": "# Flash\nBody.\n"})
-	_ = a.reward.Attribute([]string{"flash"}, map[string]int{"flash": 1}, true, "")
-
-	out := act(t, a, "list_skills", "")
-	if !strings.Contains(out, "[used 1, value +") {
-		t.Errorf("the value must be visible with its counts:\n%s", out)
-	}
-	for _, label := range []string{"RELIABLE", "GOOD", "BAD", "TRUST"} {
-		if strings.Contains(out, label) {
-			t.Errorf("the listing must carry no interpretation, found %q:\n%s", label, out)
-		}
-	}
-}
-
-func TestTheComplaintReachesTheModelOnRead(t *testing.T) {
-	// This is what makes a verdict actionable: the model reads the procedure AND what the user
-	// said was wrong with it, in the user's words.
-	a := libraryAgent(t, map[string]string{"flash": "# Flash\n1. use /dev/ttyUSB0\n"})
-	note := "my board shows up as /dev/ttyACM0, step 1 is wrong"
-	_ = a.reward.Attribute([]string{"flash"}, map[string]int{"flash": 1}, false, note)
-
-	out := act(t, a, "read_skill", "flash")
-	if !strings.Contains(out, note) {
-		t.Errorf("the complaint must reach the model verbatim:\n%s", out)
-	}
-	if !strings.Contains(strings.ToLower(out), "not been revised") {
-		t.Errorf("it must say the procedure has not been fixed:\n%s", out)
-	}
-	if !strings.Contains(out, "save_skill") {
-		t.Errorf("it must point at the tool that fixes it:\n%s", out)
-	}
-}
-
-func TestSavingASkillMarksTheComplaintAddressed(t *testing.T) {
-	// The fix is the observable event: once the procedure has been rewritten the complaint is
-	// answered, and repeating it would send the model to re-fix what is already fixed.
-	a := libraryAgent(t, map[string]string{"flash": "# Flash\n1. wrong step\n"})
-	_ = a.reward.Attribute([]string{"flash"}, map[string]int{"flash": 1}, false, "step 1 is wrong")
-
-	out := act(t, a, "save_skill", "flash :: # Flash\n1. corrected step\n")
-	if !strings.Contains(strings.ToLower(out), "addressed") {
-		t.Errorf("the save must say the complaint was answered:\n%s", out)
-	}
-
-	// And it is no longer handed out.
-	again := act(t, a, "read_skill", "flash")
-	if strings.Contains(again, "step 1 is wrong") {
-		t.Errorf("an addressed complaint must not be repeated:\n%s", again)
-	}
-}
-
-func TestSavingDoesNotInventAComplaint(t *testing.T) {
-	// A skill nobody complained about is just saved: no note, no mention.
-	a := libraryAgent(t, nil)
-	out := act(t, a, "save_skill", "fresh :: # Fresh\nBody.\n")
-	if strings.Contains(strings.ToLower(out), "addressed") {
-		t.Errorf("there was no complaint to address:\n%s", out)
 	}
 }
 
@@ -306,36 +201,14 @@ func TestAnUnknownKindIsNotALibraryAction(t *testing.T) {
 	}
 }
 
-func TestTheSuffixesAreEmptyWithoutALedger(t *testing.T) {
-	a := &Agent{}
-	if got := a.historySuffix("a"); got != "" {
-		t.Errorf("no ledger means no value, got %q", got)
-	}
-	if got := a.feedbackSuffix("a"); got != "" {
-		t.Errorf("no ledger means no complaint, got %q", got)
-	}
-}
-
-func TestTheSuffixesAreEmptyForAnUnknownSkill(t *testing.T) {
-	a := libraryAgent(t, map[string]string{"a": "# A\nBody.\n"})
-	if got := a.historySuffix("nobody"); got != "" {
-		t.Errorf("an unknown skill has no value, got %q", got)
-	}
-	if got := a.feedbackSuffix("nobody"); got != "" {
-		t.Errorf("an unknown skill has no complaint, got %q", got)
-	}
-}
-
 // --- the failure branches -------------------------------------------------
 
 func TestTheSettersInstall(t *testing.T) {
 	// The runner reaches the agent through these, so they have to actually assign.
 	a := &Agent{}
 	lib := skills.New(t.TempDir())
-	led, _ := reward.Open("")
 	a.SetLibrary(lib)
-	a.SetReward(led)
-	if a.library != lib || a.reward != led {
+	if a.library != lib {
 		t.Error("the setters must install what they are given")
 	}
 }
@@ -400,22 +273,6 @@ func TestSavingASkillThatCannotBeWrittenIsReported(t *testing.T) {
 	}
 }
 
-func TestASaveThatAddressesNothingSaysNothing(t *testing.T) {
-	// The "addressed" note is only added when a complaint was actually marked, so a save over
-	// an already-addressed complaint must not claim to have addressed it again.
-	a := libraryAgent(t, map[string]string{"flash": "# Flash\nBody.\n"})
-	_ = a.reward.Attribute([]string{"flash"}, map[string]int{"flash": 1}, false, "broken")
-
-	first := act(t, a, "save_skill", "flash :: # Flash\nFixed.\n")
-	if !strings.Contains(strings.ToLower(first), "addressed") {
-		t.Errorf("the first save must mark the complaint:\n%s", first)
-	}
-	second := act(t, a, "save_skill", "flash :: # Flash\nFixed again.\n")
-	if strings.Contains(strings.ToLower(second), "addressed") {
-		t.Errorf("a second save has nothing left to address:\n%s", second)
-	}
-}
-
 // --- the action protocol --------------------------------------------------
 
 func TestRunActionsDispatchesALibraryAction(t *testing.T) {
@@ -434,9 +291,6 @@ func TestRunActionsDispatchesALibraryAction(t *testing.T) {
 	}
 	if !strings.Contains(out, "[read_skill]") {
 		t.Errorf("the step must say what it was:\n%s", out)
-	}
-	if used := a.Consulted(); used["flash"] != 1 {
-		t.Errorf("the read must be recorded for a later verdict, got %+v", used)
 	}
 }
 

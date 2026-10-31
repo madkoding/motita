@@ -399,12 +399,11 @@ func TestQuittingDoesNotStopTheRunAtTheGateway(t *testing.T) {
 	}
 }
 
-// The commands that replace the conversation, hand over the terminal or rate an unfinished turn
-// wait for the turn; the rest work while it runs.
+// The commands that replace the conversation or hand over the terminal wait for the turn; the rest work while it runs.
 func TestSomeCommandsWaitForTheTurn(t *testing.T) {
 	tu, _ := newKeyTUI("")
 	tu.current = &turn{}
-	for _, cmd := range []string{"/new", "/config", "/models", "/attach x", "/good", "/bad"} {
+	for _, cmd := range []string{"/new", "/config", "/models", "/attach x"} {
 		tu.messages = nil
 		handled, _ := tu.handleTypedCommand(context.Background(), cmd)
 		if !handled || !strings.Contains(messageTexts(tu), "has to wait") {

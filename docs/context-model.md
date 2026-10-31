@@ -21,7 +21,7 @@ de cableado que bastan para explicar el síntoma.
 | 6 | Lecciones del proyecto (`agent/memory.go`) | `<proyecto>/.motita/memory.md` | `{{project}}` | 3000 car. | **no** | sí | sí |
 | 7 | Memoria de trabajo de la tarea (`workmemory.go`) | solo durante la tarea | "WHAT YOU HAVE ALREADY READ" | por tarea | no | no | sí |
 | 8 | Rondas previas + `notes` | solo durante la tarea | "PREVIOUS ROUNDS" | 10 rondas | no | no | sí |
-| 9 | Biblioteca de procedimientos (skills) + reward + usage + curator + revisión en segundo plano + propuestas al cerrar | `~/.motita/skills`, por proyecto | 4 herramientas (`list/search/read/save_skill`) | bajo demanda | sí | sí | sí |
+| 9 | Biblioteca de procedimientos (skills) + usage + curator + revisión en segundo plano + propuestas al cerrar | `~/.motita/skills`, por proyecto | 4 herramientas (`list/search/read/save_skill`) | bajo demanda | sí | sí | sí |
 | 10 | Diario de fricción (`internal/friction`) | local | nunca | — | no | no | no |
 | 11 | SOUL.md + nota del proyecto | `~/.motita/SOUL.md`, sesión | prompt de sistema | fijo | sí | sí | sí |
 

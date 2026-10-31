@@ -39,8 +39,6 @@ func (noopRunner) RunModels(context.Context) (string, error) { return "", nil }
 func (noopRunner) Config() config.Config                     { return config.Default() }
 func (noopRunner) SetReasoning(string)                       {}
 func (noopRunner) SetLLM(string, string)                     {}
-func (noopRunner) RecordVerdict(bool, string) string         { return "" }
-func (noopRunner) RewardReport() string                      { return "" }
 
 // ListSessions is here because checkSession reaches for it: a double that omitted it would take
 // the "this is not a remote client" branch and the session check would never run, which is the

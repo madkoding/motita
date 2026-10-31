@@ -3,7 +3,7 @@
 // whether autonomous curation may touch it.
 //
 // It is a sidecar JSON file — .usage.json — that lives next to the skills
-// directory, the same pattern as reward.Ledger's .scores.json. One entry per
+// directory. One entry per
 // skill, keyed by the sanitised skill name. The file is never inlined into a
 // skill's markdown body: the body is text the model writes and rewrites, and
 // embedding state in it would mean the next save_skill silently wipes the
