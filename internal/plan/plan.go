@@ -499,7 +499,7 @@ func (p *Planner) Run(ctx context.Context, input string) (string, error) {
 	defer p.saveUsage()
 
 	sess := p.sessionFor()
-	sess.Append(llm.Message{Role: "user", Content: input, Images: llm.AttachedImages(p.workspace, input)})
+	sess.BeginTurn(llm.Message{Role: "user", Content: input, Images: llm.AttachedImages(p.workspace, input)})
 
 	if err := p.compactIfNeeded(ctx, sess); err != nil {
 		return "", err
