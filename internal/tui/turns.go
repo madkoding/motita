@@ -206,8 +206,8 @@ func (t *TUI) submit(ctx context.Context, line string) {
 }
 
 // busyCommands are the commands that cannot run while a turn is in flight: they replace the
-// conversation the turn is writing into or hand the terminal to the setup. Everything else - help, search, scrolling, switching the mode for the next message -
-// works while the agent works.
+// conversation the turn is writing into or hand the terminal to the setup. Everything else -
+// help, search, scrolling, switching the mode for the next message - works while the agent works.
 var busyCommands = map[string]bool{
 	"/models": true, "/config": true, "/new": true, "/attach": true, "/update": true,
 }
