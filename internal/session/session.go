@@ -64,6 +64,8 @@ type Session struct {
 	summary string
 	// pinned is the active plan, carried verbatim and never compacted (see pin.go).
 	pinned string
+	// proposed marks a pinned plan the person has not approved yet (see Propose).
+	proposed bool
 	// turnAt is one more than the index in messages of the request the current turn opened
 	// with, or 0 when no turn was begun (see BeginTurn).
 	turnAt int

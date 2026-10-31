@@ -529,7 +529,7 @@ func (p *Planner) Run(ctx context.Context, input string) (string, error) {
 		}
 		if !reply.WantsTools() {
 			answer := p.finalize(reply.Content)
-			pinIfPlan(sess, answer)
+			pinIfPlan(sess, input, answer)
 			// Background self-improvement: after the answer is delivered, a
 			// separate goroutine replays the transcript and patches the skill
 			// library. Best-effort: if the process exits, the review is lost.
@@ -580,7 +580,7 @@ func (p *Planner) Run(ctx context.Context, input string) (string, error) {
 	// history the model saw next.
 	answer := p.finalize(reply)
 	sess.Append(llm.Message{Role: "assistant", Content: answer})
-	pinIfPlan(sess, answer)
+	pinIfPlan(sess, input, answer)
 	if p.review != nil {
 		p.review.MaybeRun(p.reviewStore(), sess.Messages(), p.itersSinceSkill)
 	}

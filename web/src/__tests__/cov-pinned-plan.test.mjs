@@ -5,7 +5,7 @@ import assert from "node:assert/strict";
 import { setupDom, load, text } from "./cov-render-helpers.mjs";
 
 setupDom();
-const { usePinnedPlan, planPath } = await load("usePinnedPlan.ts");
+const { usePinnedPlan, planPath, planState } = await load("usePinnedPlan.ts");
 const { PinnedPlanBar, PinnedPlanView, firstStep } =
   await load("PinnedPlan.tsx");
 const { AppCtx } = await load("appStore.ts");
@@ -25,8 +25,8 @@ const json = (body, status = 200) =>
   });
 
 // gateway keeps a plan per session; mode makes it refuse ("status") or throw ("throw").
-function gateway(plan = "") {
-  const g = { plan, mode: "", calls: [] };
+function gateway(plan = "", state = "") {
+  const g = { plan, state, mode: "", calls: [] };
   g.api = async (url, init = {}) => {
     g.calls.push([init.method || "GET", url]);
     if (g.mode === "throw") {
@@ -37,11 +37,14 @@ function gateway(plan = "") {
     }
     if (init.method === "PUT") {
       g.plan = JSON.parse(init.body).plan.trim();
+      g.state = g.plan ? "active" : "";
     }
     if (g.mode === "noplan") {
       return json({});
     }
-    return json({ plan: g.plan });
+    return g.state
+      ? json({ plan: g.plan, state: g.state })
+      : json({ plan: g.plan });
   };
   return g;
 }
@@ -157,7 +160,11 @@ test("a gateway that keeps no plan, or cannot be reached, shows none and says wh
 test("the plan's words have their Spanish", () => {
   for (const k of [
     "Active plan",
-    "The plan the agent keeps word for word. Open it to change or drop it.",
+    "The plan the agent follows until its work is done. Open it to change or drop it.",
+    "Proposed plan",
+    "Approve",
+    "A plan the agent proposed. It becomes active when you approve it: say go ahead, or open it and approve it.",
+    "plan done: it is no longer pinned",
     "Drop the plan",
     "could not change the plan",
   ]) {
@@ -182,4 +189,31 @@ test("the bar reads the plan of the conversation on screen", async () => {
   assert.ok(root.querySelector('[data-testid="pinned-plan"]'));
   await act(() => render(null, root));
   root.remove();
+});
+
+test("planState reads what the gateway answers", () => {
+  assert.equal(planState({}), "");
+  assert.equal(
+    planState({ plan: "1. a" }),
+    "active",
+    "an older gateway pins only active plans",
+  );
+  assert.equal(planState({ plan: "1. a", state: "proposed" }), "proposed");
+  assert.equal(planState({ plan: "1. a", state: "active" }), "active");
+});
+
+test("a proposed plan reads as proposed until the person approves it", async () => {
+  const g = gateway("1. a\n2. b\n3. c", "proposed");
+  const m = await mount(g, { sessionId: "s1", running: false });
+  assert.equal(m.q("pinned-plan").dataset.state, "proposed");
+  assert.match(text(m.q("pinned-plan-open")), /Proposed plan.*1\. a/);
+  await m.click("pinned-plan-open");
+  assert.equal(text(m.q("pinned-plan-save")), "Approve");
+  await m.click("pinned-plan-save");
+  assert.equal(g.state, "active");
+  assert.equal(m.q("pinned-plan").dataset.state, "active");
+  assert.match(text(m.q("pinned-plan-open")), /Active plan/);
+  await m.rerender({ sessionId: "", running: false });
+  assert.equal(m.hook.current.state, "");
+  await m.done();
 });

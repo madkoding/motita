@@ -1042,6 +1042,9 @@ func (r *AppRunner) RunTask(ctx context.Context, task string, progress func(stri
 	installApproverOn(ag, r.approverOrNil())
 	r.installLiveApproveAll(ag)
 	r.equipAgent(ag)
+	// A go-ahead to a plan makes it the plan in force before the work starts, so a run that is
+	// cut off, or a "continue" after a failure, still has it.
+	r.pinFollowedPlan(task)
 	// The project this session works in, the same sentences Plan mode's system prompt ends with:
 	// a turn in Task mode is as bound to the project as a question in Plan mode, and it is the one
 	// that writes.
@@ -1114,6 +1117,9 @@ func (r *AppRunner) observe(o taskObserver, task string, progress func(string, .
 	o.SetProgress(progress)
 	o.SetObserver(func(tr agent.TaskResult) {
 		*result = summarise(tr)
+		if r.releaseFollowedPlan(task, tr.Pass) && progress != nil {
+			progress("plan done: it is no longer pinned")
+		}
 		r.setReport(tr.Report)
 		r.setAsked(tr)
 		// The questions are handed to the caller as STRUCTURE, not only as the sentence

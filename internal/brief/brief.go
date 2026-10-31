@@ -54,6 +54,10 @@ func Compose(budget int, parts ...Part) string {
 	return strings.TrimSpace(b.String())
 }
 
+// Cut shortens s to at most n bytes on a rune boundary, marking the cut, so a part can be held to
+// its own share of a brief before Compose sees it.
+func Cut(s string, n int) string { return cut(s, n) }
+
 // cut shortens s to at most n bytes on a rune boundary, marking the cut.
 func cut(s string, n int) string {
 	if len(s) <= n {

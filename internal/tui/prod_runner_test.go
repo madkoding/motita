@@ -780,3 +780,21 @@ func TestTheProjectNoteFollowsTheProject(t *testing.T) {
 		t.Fatalf("clearing the note must leave only the services one, got %q", s.System)
 	}
 }
+
+// TestAPlanCarriedOutIsLetGoWhenItPasses: a go-ahead task pins its plan, and once it passes the
+// plan is let go and the person is told so.
+func TestAPlanCarriedOutIsLetGoWhenItPasses(t *testing.T) {
+	r := NewAppRunner(&bytes.Buffer{}, &bytes.Buffer{}, config.Default(), &llm.Client{}, &sandbox.Sandbox{}, logx.Global())
+	fake := &resultAgent{tr: agent.TaskResult{Pass: true, Kind: agent.KindTask}}
+	r.newAgent = func(config.Config, *logx.Logger, *llm.Client, *sandbox.Sandbox, taskpkg.Source, bool) AgentRunner {
+		return fake
+	}
+	var lines []string
+	progress := func(f string, a ...any) { lines = append(lines, fmt.Sprintf(f, a...)) }
+	if _, err := r.RunTask(context.Background(), agent.FollowPlanTask("ok", "1. a\n2. b\n3. c"), progress); err != nil {
+		t.Fatal(err)
+	}
+	if r.PinnedPlan() != "" || !strings.Contains(strings.Join(lines, "\n"), "plan done") {
+		t.Errorf("pinned %q after a passed plan, lines %v", r.PinnedPlan(), lines)
+	}
+}

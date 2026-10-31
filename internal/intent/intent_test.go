@@ -147,3 +147,19 @@ func TestAimsAtPlanLooksOnlyAFewWordsAhead(t *testing.T) {
 		}
 	}
 }
+
+func TestAsksForPlan(t *testing.T) {
+	cases := map[string]bool{
+		"make a plan to migrate the database":    true,
+		"Planifica la migración":                 true, // spanish-fixture: input
+		"¿cuáles son los pasos para instalarlo?": true, // spanish-fixture: input
+		"what are the differences?":              false,
+		"dame una comparación de las opciones":   false, // spanish-fixture: input
+		"explain the diff":                       false,
+	}
+	for in, want := range cases {
+		if got := AsksForPlan(in); got != want {
+			t.Errorf("AsksForPlan(%q) = %v, want %v", in, got, want)
+		}
+	}
+}

@@ -31,7 +31,7 @@ func (r *AppRunner) equipAgent(ag AgentRunner) {
 	}
 	// And the plan the chat pinned, so "go on" in Task mode still knows which plan it means.
 	if setter, ok := ag.(interface{ SetPinnedPlan(func() string) }); ok {
-		setter.SetPinnedPlan(r.PinnedPlan)
+		setter.SetPinnedPlan(r.briefPlan)
 	}
 	r.equipThreads(ag)
 	// The same sidecar the library screen reads, so what this run consults is counted.
