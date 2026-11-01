@@ -14,6 +14,7 @@ import (
 func (s *Server) sessionRoutes(mux *http.ServeMux, plain func(http.HandlerFunc) http.Handler) {
 	mux.Handle("GET /v1/sessions", plain(s.handleListSessions))
 	mux.Handle("GET /v1/sessions/events", plain(s.handleSessionEvents))
+	mux.Handle("GET /v1/events", plain(s.handleEvents))
 	mux.Handle("POST /v1/sessions", plain(s.handleCreateSession))
 	mux.Handle("POST /v1/sessions/prune-blank", plain(s.handlePruneBlankSessions))
 }

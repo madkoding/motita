@@ -5,6 +5,7 @@ import (
 	"crypto/sha256"
 	"encoding/json"
 	"net/http"
+	"sort"
 	"sync"
 	"time"
 )
@@ -138,21 +139,35 @@ func (s *Server) handleProjectEvents(w http.ResponseWriter, r *http.Request) {
 // streamFeed writes one event named name each time the feed sees a change, and a comment on a
 // timer so proxies keep a quiet stream open, until the page goes away.
 func (s *Server) streamFeed(w http.ResponseWriter, r *http.Request, f *projectFeed, name string) {
+	s.streamFeeds(w, r, map[string]*projectFeed{name: f})
+}
+
+// streamFeeds is streamFeed over several feeds on one connection: each change is an event named
+// after the feed that saw it.
+func (s *Server) streamFeeds(w http.ResponseWriter, r *http.Request, feeds map[string]*projectFeed) {
 	rc := http.NewResponseController(w)
 	if err := startStream(w, rc); err != nil {
 		return
 	}
-	changed, unsubscribe := f.subscribe(s)
-	defer unsubscribe()
+	ctx, cancel := context.WithCancel(r.Context())
+	defer cancel()
+	changed := &feedChanges{signal: make(chan struct{}, 1), names: map[string]bool{}}
+	for name, f := range feeds {
+		ch, unsubscribe := f.subscribe(s)
+		defer unsubscribe()
+		go changed.forward(ctx, ch, name)
+	}
 	keepalive := time.NewTicker(projectFeedKeepalive)
 	defer keepalive.Stop()
 	for {
 		select {
-		case <-r.Context().Done():
+		case <-ctx.Done():
 			return
-		case <-changed:
-			if writeEvent(w, rc, 0, name, map[string]bool{"changed": true}) != nil {
-				return
+		case <-changed.signal:
+			for _, name := range changed.take() {
+				if writeEvent(w, rc, 0, name, map[string]bool{"changed": true}) != nil {
+					return
+				}
 			}
 		case <-keepalive.C:
 			if _, err := w.Write([]byte(": keepalive\n\n")); err != nil || rc.Flush() != nil {
@@ -160,4 +175,43 @@ func (s *Server) streamFeed(w http.ResponseWriter, r *http.Request, f *projectFe
 			}
 		}
 	}
+}
+
+// feedChanges are the feeds that saw a change the stream has not written yet. A feed that changes
+// twice before the stream writes is one event, as it is on a single feed.
+type feedChanges struct {
+	mu     sync.Mutex
+	names  map[string]bool
+	signal chan struct{}
+}
+
+// forward marks name as changed each time its feed says so, until ctx ends.
+func (c *feedChanges) forward(ctx context.Context, from <-chan struct{}, name string) {
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-from:
+			c.mu.Lock()
+			c.names[name] = true
+			c.mu.Unlock()
+			select {
+			case c.signal <- struct{}{}:
+			default:
+			}
+		}
+	}
+}
+
+// take returns the changed feeds, in name order, and forgets them.
+func (c *feedChanges) take() []string {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	names := make([]string, 0, len(c.names))
+	for n := range c.names {
+		names = append(names, n)
+	}
+	clear(c.names)
+	sort.Strings(names)
+	return names
 }

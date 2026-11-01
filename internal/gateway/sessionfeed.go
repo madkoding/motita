@@ -43,3 +43,9 @@ func sessionsSignature(s *Server) string {
 func (s *Server) handleSessionEvents(w http.ResponseWriter, r *http.Request) {
 	s.streamFeed(w, r, &s.sessionFeed, "sessions")
 }
+
+// handleEvents is every change feed on one stream ("projects" and "sessions" events), so a page
+// keeps one connection open instead of one per feed. The single-feed routes stay for older pages.
+func (s *Server) handleEvents(w http.ResponseWriter, r *http.Request) {
+	s.streamFeeds(w, r, map[string]*projectFeed{"projects": &s.remoteWatch.feed, "sessions": &s.sessionFeed})
+}

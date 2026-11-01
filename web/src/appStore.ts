@@ -27,7 +27,7 @@ import { useCheckpoints } from "./useCheckpoints";
 import { useAuth, useLanguage } from "./useAuth";
 import { usePrefsSync } from "./usePrefsSync";
 import { useRemoteChanges } from "./useRemoteChanges";
-import { useProjectFeed, useSessionFeed } from "./useProjectFeed";
+import { useChangeFeed } from "./useProjectFeed";
 import { useUpdates } from "./useUpdates";
 import { useRowMenus } from "./useRowMenus";
 import { useRepoGit } from "./useRepoGit";
@@ -37,9 +37,9 @@ import { useVoice } from "./useVoice";
 import { useSpeech } from "./useSpeech";
 import { useVoiceConversation } from "./useVoiceConversation";
 
-// useSessionSync keeps the page in step with what other pages do: the session list follows the
-// gateway's feed, and when another page moved the conversation on screen it is read again, softly,
-// and a turn still in flight there is followed from here too.
+// useSessionSync keeps the page in step with what other pages do: the projects and the session
+// list follow the gateway's change stream, and when another page moved the conversation on screen
+// it is read again, softly, and a turn still in flight there is followed from here too.
 function useSessionSync(
   api: Api,
   rs: ReturnType<typeof useRunState>,
@@ -47,7 +47,7 @@ function useSessionSync(
   conv: ReturnType<typeof useConversation>,
   authed: boolean,
 ) {
-  useSessionFeed(api, lists.fetchSessions, authed);
+  useChangeFeed(api, lists.fetchProjects, lists.fetchSessions, authed);
   useOnScreenSync(
     lists.sessions,
     rs.sessionId,
@@ -156,7 +156,6 @@ export function useAppStore(api: Api, machine = "") {
   });
   const updates = useUpdates(api, setToast, auth.authState === "ok");
   useRemoteChanges(lists, setToast, auth.authState === "ok");
-  useProjectFeed(api, lists.fetchProjects, auth.authState === "ok");
   useSessionSync(api, rs, lists, conv, auth.authState === "ok");
   const voice = useVoice({
     api,

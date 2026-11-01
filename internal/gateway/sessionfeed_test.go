@@ -92,3 +92,80 @@ func namedDefault(t *testing.T, srv *Server) *conversation {
 	c.stateMu.Unlock()
 	return c
 }
+
+// One stream carries both feeds: a session that moved is a "sessions" event and a project that
+// moved a "projects" event, on the same connection.
+func TestEventsStreamCarriesEveryFeed(t *testing.T) {
+	srv := newTestServer(t, &fakeService{})
+	withProjectsAndFake(t, srv, t.TempDir())
+	c := namedDefault(t, srv)
+	if w := get(t, srv, "/v1/events", "wrong"); w.Code != http.StatusUnauthorized {
+		t.Fatalf("without the token: %d", w.Code)
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	req := httptest.NewRequest(http.MethodGet, "/v1/events", nil).WithContext(ctx)
+	rec := &lockedRecorder{ResponseRecorder: httptest.NewRecorder()}
+	done := make(chan struct{})
+	go func() {
+		srv.handleEvents(rec, req)
+		close(done)
+	}()
+	time.Sleep(200 * time.Millisecond) // the listeners are registered
+	c.takeRunSlot()
+	srv.sessionFeed.kick()
+	srv.remoteWatch.feed.broadcast()
+	deadline := time.Now().Add(5 * time.Second)
+	both := func() bool {
+		b := rec.body()
+		return strings.Contains(b, "event: sessions") && strings.Contains(b, "event: projects")
+	}
+	for !both() && time.Now().Before(deadline) {
+		time.Sleep(20 * time.Millisecond)
+	}
+	cancel()
+	<-done
+	if !both() {
+		t.Errorf("not both events in %q", rec.body())
+	}
+}
+
+// Two changes of one feed before the stream writes are one event, and the names come out sorted.
+func TestFeedChangesCoalesce(t *testing.T) {
+	c := &feedChanges{signal: make(chan struct{}, 1), names: map[string]bool{}}
+	ctx, cancel := context.WithCancel(context.Background())
+	from := make(chan struct{})
+	other := make(chan struct{})
+	go c.forward(ctx, from, "sessions")
+	go c.forward(ctx, other, "projects")
+	from <- struct{}{}
+	from <- struct{}{}
+	other <- struct{}{}
+	from <- struct{}{} // sent only once the forwarder handled the one before
+	cancel()
+	<-c.signal
+	if got := strings.Join(c.take(), ","); got != "projects,sessions" {
+		t.Fatalf("take = %q", got)
+	}
+	if len(c.take()) != 0 {
+		t.Fatal("take did not forget")
+	}
+}
+
+// A page that is gone ends the combined stream at an event.
+func TestEventsStreamEndsWhenThePageIsGone(t *testing.T) {
+	srv := newTestServer(t, &fakeService{})
+	req := httptest.NewRequest(http.MethodGet, "/v1/events", nil)
+	done := make(chan struct{})
+	go func() {
+		srv.handleEvents(&goneWriter{header: http.Header{}, ok: 1}, req)
+		close(done)
+	}()
+	time.Sleep(200 * time.Millisecond)
+	srv.sessionFeed.broadcast()
+	select {
+	case <-done:
+	case <-time.After(5 * time.Second):
+		t.Fatal("the stream did not end")
+	}
+}

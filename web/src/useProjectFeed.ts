@@ -6,21 +6,26 @@
 // The sessions have the same feed: a turn started or ended from another browser or computer, a
 // session renamed or created there. Without it a page polled the list only while a run of its own
 // was in flight, and a conversation open on two machines drifted apart until it was reloaded.
+//
+// Both feeds come down one stream (/v1/events), so a tab holds one connection, not one per feed. A
+// gateway from before that stream (a remote computer not yet updated) answers 404, and the page
+// falls back to the projects' own stream there.
 import { useEffect } from "preact/hooks";
 import { PROJECT_FEED_RETRY_MS } from "./appConst";
 import { readFrames } from "./useUpdates";
 import type { Api } from "./prApi";
 
+export const EVENTS_URL = "/v1/events";
 export const PROJECT_EVENTS_URL = "/v1/projects/events";
-export const SESSION_EVENTS_URL = "/v1/sessions/events";
 
-// useFeed follows one of the gateway's change feeds and calls refresh when it says `event`, when it
-// (re)connects and when the tab is shown again.
-export function useFeed(
+type Refresh = () => Promise<unknown>;
+
+// useChangeFeed follows the gateway's change stream: "projects" reads the projects again,
+// "sessions" the sessions, and both are read when it (re)connects and when the tab is shown again.
+export function useChangeFeed(
   api: Api,
-  url: string,
-  event: string,
-  refresh: () => Promise<unknown>,
+  fetchProjects: Refresh,
+  fetchSessions: Refresh,
   authOk: boolean,
 ) {
   useEffect(() => {
@@ -29,16 +34,27 @@ export function useFeed(
     }
     const ctrl = new AbortController();
     let retry: ReturnType<typeof setTimeout> | undefined;
+    let url = EVENTS_URL;
+    const both = () => {
+      void fetchProjects();
+      void fetchSessions();
+    };
+    const onFrame = (frame: string) => {
+      if (frame.includes("event: projects")) {
+        void fetchProjects();
+      }
+      if (frame.includes("event: sessions")) {
+        void fetchSessions();
+      }
+    };
     const follow = async () => {
       try {
         const res = await api(url, { signal: ctrl.signal });
         if (res.ok && res.body) {
-          void refresh();
-          await readFrames(res.body.getReader(), (frame) => {
-            if (frame.includes("event: " + event)) {
-              void refresh();
-            }
-          });
+          both();
+          await readFrames(res.body.getReader(), onFrame);
+        } else if (res.status === 404) {
+          url = PROJECT_EVENTS_URL;
         }
       } catch {
         /* dropped: listen again below */
@@ -50,7 +66,7 @@ export function useFeed(
     void follow();
     const onVisible = () => {
       if (document.visibilityState === "visible") {
-        void refresh();
+        both();
       }
     };
     document.addEventListener("visibilitychange", onVisible);
@@ -59,21 +75,5 @@ export function useFeed(
       clearTimeout(retry);
       document.removeEventListener("visibilitychange", onVisible);
     };
-  }, [authOk, refresh]);
-}
-
-export function useProjectFeed(
-  api: Api,
-  fetchProjects: () => Promise<unknown>,
-  authOk: boolean,
-) {
-  useFeed(api, PROJECT_EVENTS_URL, "projects", fetchProjects, authOk);
-}
-
-export function useSessionFeed(
-  api: Api,
-  fetchSessions: () => Promise<unknown>,
-  authOk: boolean,
-) {
-  useFeed(api, SESSION_EVENTS_URL, "sessions", fetchSessions, authOk);
+  }, [authOk, fetchProjects, fetchSessions]);
 }
