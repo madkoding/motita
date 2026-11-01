@@ -144,6 +144,25 @@ func (m Mode) DecisionFor(command string, args []string, dir string) Decision {
 	return m.unconfinedDecision(m.fullDiskDecision(m.decisionFor(command, args, dir), args), args, dir)
 }
 
+// namedRules are the rules judged by a program's name and arguments alone, in order: a commit whose
+// message is not semantic, the commands motita gives the agent for pull requests, installing what the
+// project's own manifest declares and running its own dev tools (without them the run stops to ask
+// before `npm ci` on a run with nobody to answer), then `git fetch`, `xargs` into a reader and plain
+// exports.
+var namedRules = []func(name string, args []string) (Decision, bool){
+	commitMessageDecision, forgeDecision, projectToolDecision, gitFetchDecision, xargsDecision, exportDecision,
+}
+
+// namedRuleDecision is the first of namedRules that has a say about the line.
+func namedRuleDecision(name string, args []string) (Decision, bool) {
+	for _, rule := range namedRules {
+		if d, hit := rule(name, args); hit {
+			return d, true
+		}
+	}
+	return Decision{}, false
+}
+
 // decisionFor is DecisionFor before what the lack of confinement changes.
 func (m Mode) decisionFor(command string, args []string, dir string) Decision {
 	// Leading `VAR=value` assignments are the environment, not the program: `FOO=1 ls` runs
@@ -176,19 +195,9 @@ func (m Mode) decisionFor(command string, args []string, dir string) Decision {
 	if d, hit := leavesWorkspace(name, args, dir); hit {
 		return d
 	}
-	// Two rules about the work the agent does for the user's repository, judged before the
-	// generic ones because the generic ones cannot see them: a commit whose message is not
-	// semantic, and the commands motita gives the agent for pull requests.
-	if d, hit := commitMessageDecision(name, args); hit {
-		return d
-	}
-	if d, hit := forgeDecision(name, args); hit {
-		return d
-	}
-	// Installing what the project's own manifest declares, and running the project's own dev
-	// tools, is the ordinary work of every project: without it the run stops to ask before
-	// `npm ci` on a run with nobody to answer, and the anchor then fails on a missing module.
-	if d, hit := projectToolDecision(name, args); hit {
+	// The rules about the work the agent does for the user's repository are judged before the
+	// generic ones, because the generic ones cannot see them.
+	if d, hit := namedRuleDecision(name, args); hit {
 		return d
 	}
 	switch kind {
@@ -201,6 +210,9 @@ func (m Mode) decisionFor(command string, args []string, dir string) Decision {
 		// until it is interpreted, and `sh -c 'ls'` and `sh -c 'rm -rf /'` have the same
 		// shape. It is offered to the user rather than refused, because they can read the
 		// line and decide — but it is never run unreviewed.
+		if d, hit := shellScriptDecision(name, args, dir); hit {
+			return d
+		}
 		return Decision{Ask, reason + ": a shell line has to be approved as a whole", "shell", false}
 	case readonly.KindWriter:
 		return m.writerDecision(command, name, args, dir)

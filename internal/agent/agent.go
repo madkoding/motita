@@ -140,6 +140,10 @@ type Agent struct {
 	// a script has no user, and a command that needs approval in that situation is refused
 	// rather than run on the user's behalf. See Approver.
 	approver Approver
+	// approvedInTurn are the lines the person approved in this turn, and clock where the turn's
+	// time went (see turnclock.go).
+	approvedInTurn turnApprovals
+	clock          turnClock
 
 	// fleet is the run's agents and member is this agent's row in it; subs is what the main agent
 	// started with spawn_agent. isChild marks a background agent (it cannot start agents), and
@@ -525,11 +529,13 @@ type Command struct {
 
 // TaskResult is the final verdict of one task.
 type TaskResult struct {
-	Task        string         `json:"task"`
-	Pass        bool           `json:"pass"`
-	Attempts    int            `json:"attempts"`
-	Subtasks    int            `json:"subtasks"`
-	DurationMS  int64          `json:"duration_ms"`
+	Task       string `json:"task"`
+	Pass       bool   `json:"pass"`
+	Attempts   int    `json:"attempts"`
+	Subtasks   int    `json:"subtasks"`
+	DurationMS int64  `json:"duration_ms"`
+	// Timings is how the turn divided its time (the outermost task only).
+	Timings     *TurnTimings   `json:"timings,omitempty"`
 	Validation  *anchor.Result `json:"validation,omitempty"`
 	FinalAction string         `json:"final_action,omitempty"`
 	Reason      string         `json:"reason"`
@@ -763,7 +769,10 @@ func (a *Agent) processTask(ctx context.Context, t task.Task, depth int) TaskRes
 	if depth == 0 {
 		a.begin(t)
 		a.startFleet(t)
+		a.approvedInTurn.reset()
+		a.clock.reset()
 	}
+	started := time.Now()
 	run := t
 	if depth == 0 {
 		run = a.prepareGoal(t)
@@ -778,6 +787,8 @@ func (a *Agent) processTask(ctx context.Context, t task.Task, depth int) TaskRes
 	if depth == 0 {
 		// Whatever way the loop ended, nothing it started keeps running behind it.
 		a.endFleet(r)
+		r.Timings = a.turnTimings(started)
+		a.logTurnTimings(r.Timings)
 	}
 	if a.Observer != nil {
 		a.Observer(r)

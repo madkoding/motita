@@ -117,3 +117,26 @@ func TestTheApprovalsFileLivesInTheMotitaHome(t *testing.T) {
 		t.Errorf("without a home the path is empty, got %q", got)
 	}
 }
+
+// TestAlwaysAllowOnABatchKeepsEachLine: "a" on a round's card keeps the shape of each line, so a
+// later card with the same shapes runs without a window and one with a new shape still asks.
+func TestAlwaysAllowOnABatchKeepsEachLine(t *testing.T) {
+	withApprovalsFile(t)
+	tui, _, _ := confirmTUI(t, "a\n", "git push")
+	batch := func(lines ...string) agent.ApprovalRequest {
+		req := agent.ApprovalRequest{Rule: agent.BatchRule, Command: strings.Join(lines, "\n")}
+		for _, l := range lines {
+			req.Batch = append(req.Batch, agent.BatchItem{Command: l, Rule: "external-effect"})
+		}
+		return req
+	}
+	if !askAndAnswer(t, tui, batch("git push", "npm publish")) {
+		t.Fatal("a is a yes")
+	}
+	if !tui.alwaysAllowed(batch("git push origin x", "npm publish --tag y")) {
+		t.Error("the same shapes must run without a window")
+	}
+	if tui.alwaysAllowed(batch("git push", "curl x")) {
+		t.Error("a new shape on the card still asks")
+	}
+}

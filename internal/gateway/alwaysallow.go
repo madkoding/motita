@@ -4,6 +4,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/madkoding/motita/internal/agent"
 	"github.com/madkoding/motita/internal/approvals"
 )
 
@@ -43,6 +44,28 @@ func approvalScope(c *conversation) string {
 func (s *Server) alwaysAllowed(c *conversation, rule, command string) bool {
 	keys, ok := approvals.KeysOf(rule, command)
 	return ok && s.approvals.AllowedAll(approvalScope(c), keys)
+}
+
+// allAlwaysAllowed says every line of a question is of a shape the person always allows here.
+func (s *Server) allAlwaysAllowed(c *conversation, items []agent.BatchItem) bool {
+	for _, it := range items {
+		if !s.alwaysAllowed(c, it.Rule, it.Command) {
+			return false
+		}
+	}
+	return true
+}
+
+// rememberApprovals is rememberApproval for every line of a question: "kept" when any of them had
+// a shape to keep.
+func (s *Server) rememberApprovals(c *conversation, items []agent.BatchItem) string {
+	kept := "none"
+	for _, it := range items {
+		if s.rememberApproval(c, it.Rule, it.Command) == "kept" {
+			kept = "kept"
+		}
+	}
+	return kept
 }
 
 // headerAlwaysAllow tells a client what became of an "always allow": "kept" when this gateway keeps

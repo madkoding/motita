@@ -1168,11 +1168,12 @@ switched off in a week, and then it protects nothing. What gets asked about is
 what nobody can predict: an infrastructure tool, a binary nobody knows, an
 interpreter handed code inline, or a script from outside the workspace.
 
-There is one asymmetry in that row worth knowing before you meet it:
-`./scripts/deploy.sh` runs silently, but `sh scripts/deploy.sh` is asked about.
-Handing the same file to a shell hides it from the classifier — `sh -c 'ls'` and
-`sh -c 'rm -rf /'` have the same shape — so the cautious answer is to ask. Name
-the program directly and the policy can see it is yours.
+A shell is asked about when it is handed a line (`sh -c 'ls'` and
+`sh -c 'rm -rf /'` have the same shape), not when it is handed a file:
+`sh scripts/deploy.sh` runs as silently as `./scripts/deploy.sh`, because the
+policy can see the script is yours. An in-place `sed -i 's/a/b/' file` on a file
+of the workspace is a write inside the workspace and runs too; one whose script
+writes or runs something else (`w`, `e`) is still a question.
 
 There is no YAML key, no environment variable and no flag that relaxes the floor.
 **That's the point.** A guardrail an operator can switch off is a guardrail that

@@ -221,7 +221,8 @@ func (a *Agent) askWith(
 	}
 	// The pictures the person attached are shown to every round that carries their message.
 	shots = append(shots, llm.AttachedImages(a.cfg.Agent.WorkspaceDir, user)...)
-	messages = append(messages, llm.Message{Role: "user", Content: user, Images: shots})
+	messages = append(messages, llm.Message{Role: "user", Content: user, Images: shots,
+		Stable: stablePart(phase, p.User, vars, user)})
 	messages = append(messages, extra...)
 
 	start := time.Now()
@@ -246,6 +247,7 @@ func (a *Agent) askWith(
 			"describe. If you wanted to use a tool, put it in the \"actions\" list of that JSON (kind and command)."})
 		text, err = engine.Complete(ctx, retry)
 	}
+	since(&a.clock.model, &a.clock.modelCalls, start)
 	if err != nil {
 		return "", err
 	}
@@ -375,3 +377,21 @@ func (a *Agent) secretsNote() string { return describeSecrets(a.sandbox.SecretNa
 // SetTestsFloor tells the agent the most tests the project has had. A task never starts below it:
 // a PASS over fewer is refused even when the tests were deleted before the task began.
 func (a *Agent) SetTestsFloor(n int) { a.gateTests = n }
+
+// stableVars are the variables of the execution prompt that do not change between the rounds of a
+// run: what the sandbox has, what the anchor checks, the desktop and the workspace.
+var stableVars = map[string]bool{"tools": true, "rules": true, "desktop": true, "workspace": true}
+
+// stablePart is how many leading bytes of user, the rendered user prompt of phase, are the same in
+// every round of the run, for the provider's prompt cache (see llm.Message.Stable). Only the
+// execution rounds repeat a prompt; the other phases run once and are not marked.
+func stablePart(phase, tpl string, vars map[string]string, user string) int {
+	if phase != "execute" {
+		return 0
+	}
+	head, _ := template.Render(template.StablePrefix(tpl, stableVars), vars)
+	if !strings.HasPrefix(user, head) {
+		return 0
+	}
+	return len(head)
+}

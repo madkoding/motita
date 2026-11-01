@@ -60,6 +60,9 @@ type ApprovalRequest struct {
 	// and otherwise refuses without opening a question that would cover the main agent's.
 	Background bool
 	Agent      string
+	// Batch, on a question about several lines of one round (Rule BatchRule), is each line with
+	// the rule it falls under; Command then holds them one per line. See batchapproval.go.
+	Batch []BatchItem
 }
 
 // Approver asks the user whether a command may run. It returns false to refuse.

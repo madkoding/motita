@@ -72,6 +72,7 @@ import { useVisualViewport } from "./viewport";
 import { machineApi } from "./machinesApi";
 import { MachinesCtx, useMachineChoice, useMachines } from "./useMachines";
 import { ConnectMachineModal } from "./ConnectMachineModal";
+import { TurnTimingsLine } from "./TurnTimings";
 
 // api is the one place a request is built. The cookie is sent automatically
 // by the browser; the X-Motita header is what tells the gateway a request was
@@ -411,6 +412,7 @@ function MessageItem({ m, auto }: { m: Message; auto?: boolean }) {
       <MessageBody m={m} auto={auto} />
       {m.changes && <ChangesCard changes={m.changes} />}
       {m.artifacts && <RunArtifacts artifacts={m.artifacts} />}
+      {m.timings && <TurnTimingsLine timings={m.timings} />}
       {answer && <FlagButton m={m} />}
       {answer && <SpeakButton m={m} />}
     </div>

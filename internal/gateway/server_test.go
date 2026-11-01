@@ -45,7 +45,9 @@ type fakeService struct {
 	asked []agent.AskItem
 	// structured is what TakeReport hands back: the report of the last task, as structure.
 	structured *agent.Report
-	origin     string
+	// timings is what TakeTimings hands back.
+	timings *agent.TurnTimings
+	origin  string
 	// transcript is the conversation the service holds. It is what the read endpoint publishes,
 	// so a test can put a conversation there and read it back over HTTP.
 	transcript []agent.DialogueTurn
@@ -71,6 +73,8 @@ func (f *fakeService) RunTask(ctx context.Context, t2 string, pr func(string, ..
 }
 
 func (f *fakeService) TakeReport() *agent.Report { return f.structured }
+
+func (f *fakeService) TakeTimings() *agent.TurnTimings { return f.timings }
 
 func (f *fakeService) TakeQuestions() []agent.AskItem { return f.asked }
 

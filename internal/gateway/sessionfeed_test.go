@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 )
@@ -136,13 +137,19 @@ func TestFeedChangesCoalesce(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	from := make(chan struct{})
 	other := make(chan struct{})
-	go c.forward(ctx, from, "sessions")
-	go c.forward(ctx, other, "projects")
+	var wg sync.WaitGroup
+	wg.Add(2)
+	forward := func(ch chan struct{}, name string) {
+		defer wg.Done()
+		c.forward(ctx, ch, name)
+	}
+	go forward(from, "sessions")
+	go forward(other, "projects")
 	from <- struct{}{}
 	from <- struct{}{}
 	other <- struct{}{}
-	from <- struct{}{} // sent only once the forwarder handled the one before
 	cancel()
+	wg.Wait() // each forwarder marked what it received before it saw the end
 	<-c.signal
 	if got := strings.Join(c.take(), ","); got != "projects,sessions" {
 		t.Fatalf("take = %q", got)

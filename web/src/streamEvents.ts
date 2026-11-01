@@ -2,6 +2,7 @@
 import { tf } from "./i18n";
 import { choose } from "./choose";
 import { hasReport, type TaskReport } from "./Report";
+import { hasTimings, type TurnTimings } from "./TurnTimings";
 import { hasQuestions, turnTask, type AskItem } from "./questions";
 import { sortAgents } from "./appFormat";
 import {
@@ -42,6 +43,7 @@ export interface StreamPayload {
   changes?: ChangeReport;
   artifacts?: { name: string; type: string; size: number }[];
   report?: TaskReport;
+  timings?: TurnTimings;
   questions?: AskItem[];
   error?: string;
   // approval_denied: what was refused, and why it needed asking.
@@ -351,6 +353,11 @@ function onDone({ rs, finish }: StreamContext, payload: StreamPayload) {
           undefined,
         ),
         report: choose(hasReport(payload.report), payload.report, undefined),
+        timings: choose(
+          hasTimings(payload.timings),
+          payload.timings,
+          undefined,
+        ),
         ...questionsOf(payload.questions, rest),
       },
     ];

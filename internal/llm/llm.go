@@ -45,6 +45,10 @@ type Message struct {
 	ToolCalls  []ToolCall // for assistant turns that ask for tool results
 	ToolCallID string     // for tool turns, matching the assistant call
 	Images     []Image    // pictures a user turn shows the model (see image.go)
+	// Stable is how many leading bytes of Content are the same on every call of the run - the
+	// instructions before the task and its history. A provider with an explicit prompt cache
+	// (Anthropic) is told it may keep them; the others cache a repeated prefix on their own.
+	Stable int
 }
 
 // Client talks to the configured provider.
@@ -101,6 +105,11 @@ func New(cfg config.LLM, log *logx.Logger) (*Client, error) {
 		Transport: &http.Transport{
 			Proxy:           http.ProxyFromEnvironment,
 			TLSClientConfig: TLSConfig(),
+			// A transport with its own TLS configuration speaks only HTTP/1.1 unless told
+			// otherwise, so a phase's calls running at the same time (a background agent, the
+			// summary model) each opened a connection and a TLS handshake of their own. HTTP/2
+			// carries them on one.
+			ForceAttemptHTTP2: true,
 		},
 	}
 	login, err := newLoginState(cfg, hc)
@@ -243,6 +252,7 @@ func (c *Client) CompleteStream(
 // Complete sends the conversation and returns the model's text, retrying with
 // exponential backoff on transient failures.
 func (c *Client) Complete(ctx context.Context, messages []Message) (string, error) {
+	defer c.keepWarm()
 	retry := c.newRetry()
 	for {
 		text, err := c.call(ctx, messages)
@@ -294,6 +304,7 @@ func (c *Client) CompleteToolsStream(ctx context.Context, messages []Message, to
 	out := make(chan StreamChunk, 8)
 	go func() {
 		defer close(out)
+		defer c.keepWarm()
 		retry := c.newRetry()
 		for {
 			chunkCh, err := c.openStreamOr()(ctx, messages, tools)
@@ -347,6 +358,7 @@ func forwardStream(chunkCh <-chan StreamChunk, out chan<- StreamChunk) error {
 }
 
 func (c *Client) completeWithTool(ctx context.Context, messages []Message, tools []Tool) (Reply, error) {
+	defer c.keepWarm()
 	retry := c.newRetry()
 	var empty Reply
 	for {

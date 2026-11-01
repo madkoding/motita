@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/madkoding/motita/internal/policy"
 )
@@ -24,6 +25,8 @@ type roundRun struct {
 	lastErr error
 	// told is set once the action being run has announced itself with its words (see announce).
 	told bool
+	// declined are the lines the person declined with the rest of the round (see askRound).
+	declined []string
 }
 
 // runRound is runActions with the run's working memory. A read the run already holds, and
@@ -39,8 +42,15 @@ func (a *Agent) runRound(
 		mem.sync(a.cfg.Agent.WorkspaceDir)
 	}
 
-	for i, action := range actions {
-		rr.run(i, action)
+	rr.askRound(actions)
+	for i := 0; i < len(actions); {
+		if n := rr.readBatch(actions[i:]); n > 1 {
+			rr.runReads(i, actions[i:i+n])
+			i += n
+			continue
+		}
+		rr.run(i, actions[i])
+		i++
 	}
 	return rr.sb.String(), rr.lastErr
 }
@@ -53,6 +63,11 @@ func (rr *roundRun) run(i int, action Command) {
 	// planner exposes as tools, reachable from here too.
 	if kind := strings.ToLower(strings.TrimSpace(action.Kind)); kind != "" && kind != "command" {
 		rr.told = false
+		if rr.mem != nil {
+			// An agent, a box or the desktop may change the tree with no sync after it; a file
+			// action syncs, which takes this back.
+			rr.mem.unsynced = true
+		}
 		if rr.kindAction(i, kind, action) {
 			if !rr.told {
 				// A read answered from the library, the memory or the session announces no
@@ -286,11 +301,13 @@ func (rr *roundRun) shell(i int, action Command) {
 		return
 	}
 
+	started := time.Now()
 	output, truncated, exit, err := a.exec(rr.ctx, plan.Request)
+	since(&a.clock.commands, &a.clock.commandRuns, started)
 	output = withSudoHint(action.Command, output, exit)
 	rr.record(action, output, truncated, exit, err)
 	if err != nil {
-		rr.lastErr = fmt.Errorf("action %d (%s) could not run: %w", i+1, action.Command, err)
+		rr.lastErr = errRun(i, action.Command, err)
 	}
 }
 
@@ -298,8 +315,22 @@ func (rr *roundRun) shell(i int, action Command) {
 // may run; an approved one runs unconfined.
 func (rr *roundRun) approved(i int, action Command, plan *RequestPlan) bool {
 	a := rr.a
-	a.report("asking you to approve: %s", action.Command)
-	approved, err := a.approve(rr.ctx, *plan, action.Command)
+	if a.approvedInTurn.has(action.Command) {
+		a.clock.reusedAsked.Add(1)
+		a.report("approved earlier in this turn: %s", action.Command)
+		a.log.Info(rr.prefix+"action approved earlier in this turn", "command", action.Command, "rule", plan.Rule)
+		approveRequest(&plan.Request, action.Command)
+		return true
+	}
+	approved, err := false, error(nil)
+	if rr.declinedInRound(action.Command) {
+		a.report("declined with the rest of the round: %s", action.Command)
+	} else {
+		a.report("asking you to approve: %s", action.Command)
+		asked := time.Now()
+		approved, err = a.approve(rr.ctx, *plan, action.Command)
+		since(&a.clock.approvals, &a.clock.asked, asked)
+	}
 	if err != nil {
 		// There is nobody to ask. This is not a failure of the command, it is the
 		// absence of the only thing that could authorise it, and the output says
@@ -319,6 +350,7 @@ func (rr *roundRun) approved(i int, action Command, plan *RequestPlan) bool {
 		return false
 	}
 	a.log.Info(rr.prefix+"action approved by the user", "command", action.Command)
+	a.approvedInTurn.keep(action.Command)
 	approveRequest(&plan.Request, action.Command)
 	return true
 }
@@ -372,4 +404,9 @@ func (rr *roundRun) remember(action Command, output string, truncated bool, exit
 	default:
 		// Neither a write nor a clean read: nothing to keep.
 	}
+}
+
+// errRun is the error of the i-th action of a round, which could not run.
+func errRun(i int, command string, err error) error {
+	return fmt.Errorf("action %d (%s) could not run: %w", i+1, command, err)
 }

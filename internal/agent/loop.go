@@ -727,7 +727,7 @@ func (r *taskRun) progressNotes() string {
 	// Rounds that only READ. Reported from a real session: thirteen rounds of reading and no
 	// writing, each one re-reading what the last had already shown. The model is told how
 	// long it has been reading, and that what it read is in front of it.
-	if cur, ok := treeFingerprint(r.a.cfg.Agent.WorkspaceDir, true); ok && cur != r.lastSources {
+	if cur, ok := r.mem.sources(r.a.cfg.Agent.WorkspaceDir); ok && cur != r.lastSources {
 		r.lastSources, r.readOnlyRounds = cur, 0
 	} else {
 		r.readOnlyRounds++
@@ -788,7 +788,7 @@ func (r *taskRun) claimSentBack(action Action) bool {
 // unbackedClaim reports a claim of "done" over a tree that is still the one the run found, after
 // rounds that only read, and not yet questioned.
 func (r *taskRun) unbackedClaim() bool {
-	cur, ok := treeFingerprint(r.a.cfg.Agent.WorkspaceDir, true)
+	cur, ok := r.mem.sources(r.a.cfg.Agent.WorkspaceDir)
 	if !ok || !r.baselineOK || cur != r.baseline {
 		return false
 	}

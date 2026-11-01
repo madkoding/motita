@@ -57,3 +57,20 @@ func TestHistoryWithAttempts(t *testing.T) {
 		t.Errorf("missing the attempt contents: %q", h)
 	}
 }
+
+// TestStablePrefixStopsAtTheFirstVaryingVariable: the cacheable part of a prompt runs up to the
+// first variable that changes between calls, and is the whole text when none does.
+func TestStablePrefixStopsAtTheFirstVaryingVariable(t *testing.T) {
+	stable := map[string]bool{"tools": true, "rules": true}
+	cases := []struct{ text, want string }{
+		{"{{tools}} intro {{ rules }} then {{task}} and {{tools}}", "{{tools}} intro {{ rules }} then "},
+		{"{{history}} first", ""},
+		{"no variables at all", "no variables at all"},
+		{"{{tools}} only stable", "{{tools}} only stable"},
+	}
+	for _, c := range cases {
+		if got := StablePrefix(c.text, stable); got != c.want {
+			t.Errorf("StablePrefix(%q) = %q, want %q", c.text, got, c.want)
+		}
+	}
+}

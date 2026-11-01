@@ -4,6 +4,7 @@ import type { PRWatch, ToastType } from "./prApi";
 import type { SuggestionAnswers } from "./proposals";
 import type { AskItem, QuestionAnswers } from "./questions";
 import type { SelfHosted } from "./GitConnect";
+import type { TurnTimings } from "./TurnTimings";
 
 export interface Message {
   id: number;
@@ -16,6 +17,8 @@ export interface Message {
   report?: TaskReport;
   // artifacts are the files this run saved for the person, offered under the answer.
   artifacts?: { name: string; type: string; size: number }[];
+  // timings is how the turn that ended in this answer divided its time.
+  timings?: TurnTimings;
   // turn, on a message of the user's, is the checkpoint that input became: the number the
   // gateway knows it by. It is unset until the gateway has said which one it is. On an answer it
   // is the turn that answer ended.

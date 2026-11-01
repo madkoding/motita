@@ -378,11 +378,12 @@ func TestAFileDescriptorRedirectIsNotAFile(t *testing.T) {
 	}
 }
 
-// TestAShellIsNeverRunUnreviewed: an interpreter is the one thing whose line cannot be
-// classified, so it is always offered to the user, whatever the settings.
+// TestAShellIsNeverRunUnreviewed: a shell handed a line, its standard input or a script from
+// outside cannot be classified, so it is always offered to the user, whatever the settings.
 func TestAShellIsNeverRunUnreviewed(t *testing.T) {
 	dir := t.TempDir()
-	for _, line := range []string{"sh -c 'echo hi'", "bash build.sh", "zsh -i"} {
+	for _, line := range []string{"sh -c 'echo hi'", "bash /opt/build.sh", "zsh -i", "bash", "bash -s",
+		"sh -o pipefail build.sh", "bash ''"} {
 		d := testMode().DecideLine(line, dir)
 		if d.Verdict != Ask && d.Verdict != Deny {
 			t.Errorf("%q is an interpreter and must not run unreviewed, got %s", line, d.Verdict)

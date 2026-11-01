@@ -53,3 +53,15 @@ func History(attempts []string) string {
 	}
 	return sb.String()
 }
+
+// StablePrefix is the part of text before its first variable that is not in stable: the part of
+// a prompt that renders the same on every call made with the same stable values, which is what a
+// provider's prompt cache can keep between calls. It is "" when the first variable already varies.
+func StablePrefix(text string, stable map[string]bool) string {
+	for _, loc := range placeholder.FindAllStringSubmatchIndex(text, -1) {
+		if !stable[text[loc[2]:loc[3]]] {
+			return text[:loc[0]]
+		}
+	}
+	return text
+}

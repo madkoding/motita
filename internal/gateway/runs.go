@@ -7,8 +7,10 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"os"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/madkoding/motita/internal/agent"
@@ -402,11 +404,15 @@ func (s *Server) reportDone(c *conversation, rn *run, kind, startRev, result str
 	if src, ok := c.svc.(interface{ TakeQuestions() []agent.AskItem }); ok && kind != schedule.KindPlan {
 		done.Questions = src.TakeQuestions()
 	}
+	if src, ok := c.svc.(interface{ TakeTimings() *agent.TurnTimings }); ok && kind != schedule.KindPlan {
+		done.Timings = src.TakeTimings()
+	}
 	if rep := buildChangeReport(s.baseCtx, c.workspace, startRev); len(rep.Files) > 0 || len(rep.Previews) > 0 {
 		done.Changes = &rep
 	}
 	done.Artifacts = made
-	out := turnOutcome{Result: result, Report: done.Report, Artifacts: made, Questions: done.Questions}
+	out := turnOutcome{Result: result, Report: done.Report, Artifacts: made, Questions: done.Questions,
+		Timings: done.Timings}
 	if done.Changes != nil {
 		out.Files = done.Changes.Files
 	}
@@ -697,7 +703,7 @@ func (s *Server) approverFor(c *conversation, rn *run) agent.Approver {
 		}
 		// "Always allow this here", said in an earlier session of the project: answered the same
 		// way, and announced the same way.
-		if !notCommand && s.alwaysAllowed(c, req.Rule, req.Command) {
+		if !notCommand && s.allAlwaysAllowed(c, req.Items()) {
 			rn.append(EventProgress, progressEvent{Text: "approved (always allowed in this project): " + req.Command})
 			return true, nil
 		}
@@ -713,7 +719,8 @@ func (s *Server) approverFor(c *conversation, rn *run) agent.Approver {
 			// safely" already means no in this design.
 			return false, err
 		}
-		p := &pendingApproval{id: id, ch: make(chan bool, 1), command: req.Command, reason: req.Reason, rule: req.Rule}
+		p := &pendingApproval{id: id, ch: make(chan bool, 1), command: req.Command, reason: req.Reason, rule: req.Rule,
+			items: req.Items()}
 		c.setPendingApproval(p)
 		// Cleared on the way out whatever happened, so a late answer cannot land on the next one.
 		defer c.clearPendingApproval()
@@ -766,11 +773,40 @@ func (r *run) deny(req agent.ApprovalRequest, err error) {
 // follows the change at its next question.
 func (s *Server) approvalTimeout(c *conversation) time.Duration {
 	if s.opts.ConfigPath != "" {
-		if cfg, err := loadConfig(s.opts.ConfigPath); err == nil {
-			return cfg.Agent.ApprovalTimeout
+		if wait, ok := s.approvalWait.read(s.opts.ConfigPath); ok {
+			return wait
 		}
 	}
 	return c.svc.Config().Agent.ApprovalTimeout
+}
+
+// fileTimeout is agent.approval_timeout as the configuration file last said it, kept with the
+// file's size and modification time: a question asked while the file is unchanged does not parse
+// it again, and a change made in the settings is read at the next question as before.
+type fileTimeout struct {
+	mu    sync.Mutex
+	stamp string
+	wait  time.Duration
+}
+
+// read is the timeout path holds, and false when the file cannot be read.
+func (f *fileTimeout) read(path string) (time.Duration, bool) {
+	st, err := os.Stat(path)
+	if err != nil {
+		return 0, false
+	}
+	stamp := fmt.Sprint(st.Size(), st.ModTime().UnixNano())
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if stamp == f.stamp {
+		return f.wait, true
+	}
+	cfg, err := loadConfig(path)
+	if err != nil {
+		return 0, false
+	}
+	f.stamp, f.wait = stamp, cfg.Agent.ApprovalTimeout
+	return f.wait, true
 }
 
 // handleApproval answers the question of the run in progress IN THIS conversation.
@@ -816,7 +852,7 @@ func (s *Server) deliverApproval(c *conversation, p *pendingApproval, approve bo
 		s.saveSession(c)
 	}
 	if approve && scope == "project" {
-		kept = s.rememberApproval(c, p.rule, p.command)
+		kept = s.rememberApprovals(c, p.items)
 	}
 	if !approve {
 		turn := 0

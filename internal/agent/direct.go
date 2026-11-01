@@ -240,6 +240,7 @@ func (a *Agent) directReply(ctx context.Context, msgs []llm.Message) (llm.Reply,
 		eng = a.engine
 	}
 	var acc llm.StreamResult
+	defer since(&a.clock.model, &a.clock.modelCalls, time.Now())
 	for chunk := range eng.CompleteToolsStream(ctx, msgs, directTools()) {
 		switch chunk.Event {
 		case llm.StreamError:

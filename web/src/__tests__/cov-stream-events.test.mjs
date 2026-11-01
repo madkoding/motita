@@ -342,6 +342,7 @@ test("the answer grows as a draft and the final one takes its place", async () =
     changes: { files: [] },
     artifacts: [{ name: "a.txt", type: "text/plain", size: 1 }],
     report: { risks: [{ risk: "x" }] },
+    timings: { total_ms: 900, model_ms: 600 },
   });
   const done = rs().messages[1];
   assert.equal(done.id, id2);
@@ -351,6 +352,7 @@ test("the answer grows as a draft and the final one takes its place", async () =
   assert.deepEqual(done.changes, { files: [] });
   assert.equal(done.artifacts.length, 1);
   assert.deepEqual(done.report, { risks: [{ risk: "x" }] });
+  assert.deepEqual(done.timings, { total_ms: 900, model_ms: 600 });
   assert.equal(finished(), 1);
   assert.equal(rs().activity, null);
 

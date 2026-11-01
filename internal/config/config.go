@@ -244,6 +244,10 @@ type LLM struct {
 	TransientBudget time.Duration `yaml:"transient_budget"`
 	// RetryAfterMax caps the wait a provider asks for in Retry-After; 0 ignores the header.
 	RetryAfterMax time.Duration `yaml:"retry_after_max"`
+	// KeepAlive is how long a self-hosted Ollama keeps the model loaded after each call. Its
+	// OpenAI-compatible endpoint takes no keep_alive, so the server's default (5 minutes) unloads
+	// the model between turns and the next call waits for it to load again; 0 leaves the default.
+	KeepAlive time.Duration `yaml:"keep_alive"`
 	// Jitter is the share (0 to 1) of each backoff that is cut off at random; 0 turns it off.
 	Jitter    float64   `yaml:"jitter"`
 	Reasoning Reasoning `yaml:"reasoning"`
@@ -1135,8 +1139,8 @@ func (c *Config) validateLLM(requireKey bool) error {
 	if c.LLM.BackoffMax < c.LLM.BackoffInitial {
 		return fmt.Errorf("llm.backoff_max cannot be smaller than llm.backoff_initial")
 	}
-	if c.LLM.TransientBudget < 0 || c.LLM.RetryAfterMax < 0 {
-		return fmt.Errorf("llm.transient_budget and llm.retry_after_max cannot be negative")
+	if c.LLM.TransientBudget < 0 || c.LLM.RetryAfterMax < 0 || c.LLM.KeepAlive < 0 {
+		return fmt.Errorf("llm.transient_budget, llm.retry_after_max and llm.keep_alive cannot be negative")
 	}
 	if c.LLM.Jitter < 0 || c.LLM.Jitter > 1 {
 		return fmt.Errorf("llm.jitter must be between 0 and 1")
