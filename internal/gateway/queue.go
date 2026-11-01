@@ -102,6 +102,8 @@ func (s *Server) drainQueue(c *conversation) {
 // was held.
 func (s *Server) releaseAndDrain(c *conversation) {
 	c.releaseRunSlot()
+	// Open pages hear that the turn ended now, not at the feed's next look.
+	s.sessionFeed.kick()
 	s.drainQueue(c)
 }
 

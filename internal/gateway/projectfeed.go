@@ -28,6 +28,26 @@ type projectFeed struct {
 	subs   map[chan struct{}]struct{}
 	cancel context.CancelFunc
 	nudge  chan struct{}
+	// sign is the digest the feed compares, and every how often it looks. Left zero they are the
+	// projects' (projectsSignature, projectFeedInterval); the sessions feed sets its own.
+	sign  func(*Server) string
+	every *time.Duration
+}
+
+// signature is the digest of what this feed watches.
+func (f *projectFeed) signature(s *Server) string {
+	if f.sign != nil {
+		return f.sign(s)
+	}
+	return projectsSignature(s)
+}
+
+// interval is how often this feed looks while a page listens.
+func (f *projectFeed) interval() time.Duration {
+	if f.every != nil {
+		return *f.every
+	}
+	return projectFeedInterval
 }
 
 // subscribe registers a listener; the returned function removes it, and stops the look when it
@@ -74,8 +94,8 @@ func (f *projectFeed) kick() {
 
 // watch compares the projects until ctx ends and tells every listener when they differ.
 func (f *projectFeed) watch(ctx context.Context, s *Server, nudge <-chan struct{}) {
-	last := projectsSignature(s)
-	tick := time.NewTicker(projectFeedInterval)
+	last := f.signature(s)
+	tick := time.NewTicker(f.interval())
 	defer tick.Stop()
 	for {
 		select {
@@ -84,7 +104,7 @@ func (f *projectFeed) watch(ctx context.Context, s *Server, nudge <-chan struct{
 		case <-tick.C:
 		case <-nudge:
 		}
-		if sig := projectsSignature(s); sig != last {
+		if sig := f.signature(s); sig != last {
 			last = sig
 			f.broadcast()
 		}
@@ -112,11 +132,17 @@ func projectsSignature(s *Server) string {
 
 // handleProjectEvents streams "projects" events: the projects changed, read them again.
 func (s *Server) handleProjectEvents(w http.ResponseWriter, r *http.Request) {
+	s.streamFeed(w, r, &s.remoteWatch.feed, "projects")
+}
+
+// streamFeed writes one event named name each time the feed sees a change, and a comment on a
+// timer so proxies keep a quiet stream open, until the page goes away.
+func (s *Server) streamFeed(w http.ResponseWriter, r *http.Request, f *projectFeed, name string) {
 	rc := http.NewResponseController(w)
 	if err := startStream(w, rc); err != nil {
 		return
 	}
-	changed, unsubscribe := s.remoteWatch.feed.subscribe(s)
+	changed, unsubscribe := f.subscribe(s)
 	defer unsubscribe()
 	keepalive := time.NewTicker(projectFeedKeepalive)
 	defer keepalive.Stop()
@@ -125,7 +151,7 @@ func (s *Server) handleProjectEvents(w http.ResponseWriter, r *http.Request) {
 		case <-r.Context().Done():
 			return
 		case <-changed:
-			if writeEvent(w, rc, 0, "projects", map[string]bool{"changed": true}) != nil {
+			if writeEvent(w, rc, 0, name, map[string]bool{"changed": true}) != nil {
 				return
 			}
 		case <-keepalive.C:

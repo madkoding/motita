@@ -27,11 +27,11 @@ import { useCheckpoints } from "./useCheckpoints";
 import { useAuth, useLanguage } from "./useAuth";
 import { usePrefsSync } from "./usePrefsSync";
 import { useRemoteChanges } from "./useRemoteChanges";
-import { useProjectFeed } from "./useProjectFeed";
+import { useProjectFeed, useSessionFeed } from "./useProjectFeed";
 import { useUpdates } from "./useUpdates";
 import { useRowMenus } from "./useRowMenus";
 import { useRepoGit } from "./useRepoGit";
-import { useFinishedElsewhere } from "./sessionWatch";
+import { useFinishedElsewhere, useOnScreenSync } from "./sessionWatch";
 import type { Api } from "./prApi";
 import { useVoice } from "./useVoice";
 import { useSpeech } from "./useSpeech";
@@ -99,6 +99,14 @@ export function useAppStore(api: Api, machine = "") {
     setToast,
   });
   const stream = useStream({ api, rs, lists, conv, setState, setToast });
+  // Another page moved the conversation on screen: it is read again, softly, and a turn still in
+  // flight there is followed from here too.
+  useOnScreenSync(
+    lists.sessions,
+    rs.sessionId,
+    () => rs.runningRef.current,
+    (id) => void conv.switchSessionRef.current?.(id, "none", true),
+  );
   const { answerSuggestions, answerQuestions } = useSuggestions(
     api,
     rs,
@@ -138,6 +146,7 @@ export function useAppStore(api: Api, machine = "") {
   const updates = useUpdates(api, setToast, auth.authState === "ok");
   useRemoteChanges(lists, setToast, auth.authState === "ok");
   useProjectFeed(api, lists.fetchProjects, auth.authState === "ok");
+  useSessionFeed(api, lists.fetchSessions, auth.authState === "ok");
   const voice = useVoice({
     api,
     authed: auth.authState === "ok",

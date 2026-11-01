@@ -7,7 +7,7 @@ import { installDom, load, settle } from "./cov-settings-helpers.mjs";
 
 installDom("http://localhost/");
 
-const { useProjectFeed } = await load("useProjectFeed.ts");
+const { useProjectFeed, useSessionFeed } = await load("useProjectFeed.ts");
 const { h, render } = await import("preact");
 
 // feedResponse is a stream whose frames the test pushes one by one.
@@ -123,4 +123,37 @@ test("a dropped feed is listened to again, a refused one too, and none while sig
   await settle();
   assert.equal(calls, 3, "no feed without a login");
   await signedOut();
+});
+
+test("the sessions feed re-reads the sessions on its own event only", async () => {
+  const feed = feedResponse();
+  const asked = [];
+  let reads = 0;
+  function Harness() {
+    useSessionFeed(
+      async (path) => {
+        asked.push(path);
+        return feed.res;
+      },
+      async () => {
+        reads++;
+      },
+      true,
+    );
+    return null;
+  }
+  const root = document.createElement("div");
+  document.body.appendChild(root);
+  render(h(Harness), root);
+  await later();
+  assert.deepEqual(asked, ["/v1/sessions/events"]);
+  assert.equal(reads, 1, "connecting reads once");
+  feed.push('id: 0\nevent: projects\ndata: {"changed":true}\n\n');
+  await later();
+  assert.equal(reads, 1, "another feed's event is not this one's");
+  feed.push('id: 0\nevent: sessions\ndata: {"changed":true}\n\n');
+  await later();
+  assert.equal(reads, 2);
+  render(null, root);
+  await settle();
 });

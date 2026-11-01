@@ -208,7 +208,7 @@ test("a run that ends takes its open question with it, and leaves a typed comman
   await h.unmount();
 });
 
-test("a stream that ends without its last blank line, or without a terminal event, still finishes", async () => {
+test("a stream cut without a terminal event is followed again, and finishes when the run is over", async () => {
   const b = body();
   const m = await mount({ "POST /v1/merge": () => streamRes(b) });
   const { h, cur, states } = m;
@@ -223,6 +223,15 @@ test("a stream that ends without its last blank line, or without a terminal even
     b.end();
     await done;
   });
+  // Cut on the way, not ended: the run may still be working in the gateway.
+  assert.equal(cur().rs.running, true, "a cut stream does not end the run");
+  assert.deepEqual(states.at(-1), ["reconnecting", true]);
+  // The gateway says the run is gone: what it said is in the history, read again.
+  m.routes["GET /v1/sessions/s1/events?from=0"] = () => res(404, {});
+  await h.act(async () => {
+    await cur().stream.followReconnect();
+  });
+  assert.equal(m.conv.transcripts, 1, "the history is read again");
   assert.equal(
     cur().rs.activity,
     null,

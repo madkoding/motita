@@ -301,6 +301,39 @@ for (const B of transcriptCopies) {
       ["q", "r"],
     );
     assert.deepEqual(B.transcriptMessages([], [], nextId), []);
+    // A turn still running is not in the transcript yet: its input comes from its checkpoint, so
+    // a page that opens mid-run (or follows it from another browser) shows what was asked.
+    const live = B.transcriptMessages(
+      [{ User: "q", Agent: "a" }],
+      [{ turn: 1, task: "still running", files: false, steps: [] }],
+      nextId,
+    );
+    assert.deepEqual(
+      live.map((m) => [m.role, m.text, m.turn]),
+      [
+        ["user", "q", 0],
+        ["agent", "a", undefined],
+        ["user", "still running", 1],
+      ],
+    );
+    // One that ended with an answer is drawn from the transcript, not a second time from here.
+    const ended = B.transcriptMessages(
+      [{ User: "q", Agent: "a" }],
+      [
+        {
+          turn: 1,
+          task: "x",
+          files: false,
+          steps: [],
+          outcome: { result: "r" },
+        },
+      ],
+      nextId,
+    );
+    assert.deepEqual(
+      ended.map((m) => m.text),
+      ["q", "a"],
+    );
   });
 }
 
