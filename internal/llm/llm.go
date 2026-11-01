@@ -105,6 +105,11 @@ func New(cfg config.LLM, log *logx.Logger) (*Client, error) {
 		Transport: &http.Transport{
 			Proxy:           http.ProxyFromEnvironment,
 			TLSClientConfig: TLSConfig(),
+			// A transport with its own TLS configuration speaks only HTTP/1.1 unless told
+			// otherwise, so a phase's calls running at the same time (a background agent, the
+			// summary model) each opened a connection and a TLS handshake of their own. HTTP/2
+			// carries them on one.
+			ForceAttemptHTTP2: true,
 		},
 	}
 	login, err := newLoginState(cfg, hc)

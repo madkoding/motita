@@ -80,3 +80,14 @@ func TestAnthropicTextBlocksNeverSplitIntoABlankBlock(t *testing.T) {
 	}
 	cacheConversation(nil) // nothing to mark, and no panic
 }
+
+// TestTheClientSpeaksHTTP2: the calls of a run share one connection where the provider allows it.
+func TestTheClientSpeaksHTTP2(t *testing.T) {
+	c, err := New(config.LLM{Provider: "openai", Model: "m", APIKey: "k"}, logx.Global())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if tr, ok := c.http.Transport.(*http.Transport); !ok || !tr.ForceAttemptHTTP2 {
+		t.Error("the client's transport must attempt HTTP/2")
+	}
+}
