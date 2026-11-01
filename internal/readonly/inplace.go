@@ -37,35 +37,56 @@ func SedInPlace(args []string) (files []string, ok bool) {
 // SedInPlace leaves it to the question.
 func withoutInPlace(args []string) (rest []string, inPlace bool) {
 	for i := 0; i < len(args); i++ {
-		a := args[i]
-		switch {
-		case a == "" || a == "--":
-			// An empty argument means different things to GNU and BSD sed; `--` ends the options.
+		keep, edit, used, safe := inPlaceStep(args, i)
+		if !safe {
 			return nil, false
-		case strings.HasPrefix(a, "--"):
-			keep, edit, safe := inPlaceLong(a)
-			if !safe {
-				return nil, false
-			}
-			inPlace = inPlace || edit
-			rest = append(rest, keep...)
-		case isShortOption(a):
-			keep, edit, value, safe := inPlaceShort(a)
-			if !safe || (edit && a == "-i" && i+1 < len(args) && strings.Contains(args[i+1], "..")) {
-				// BSD sed takes the argument after a bare -i as the backup suffix.
-				return nil, false
-			}
-			inPlace = inPlace || edit
-			rest = append(rest, keep...)
-			if value && i+1 < len(args) {
-				i++
-				rest = append(rest, args[i])
-			}
-		default:
-			rest = append(rest, a)
 		}
+		inPlace = inPlace || edit
+		rest = append(rest, keep...)
+		i += used
 	}
 	return rest, inPlace
+}
+
+// inPlaceStep reads args[i]: keep is what stays of it (and of the value it takes), edit says it was
+// the in-place option, used how many arguments after it it took, and safe that it can be read.
+func inPlaceStep(args []string, i int) (keep []string, edit bool, used int, safe bool) {
+	a := args[i]
+	switch {
+	case a == "" || a == "--":
+		// An empty argument means different things to GNU and BSD sed; `--` ends the options.
+		return nil, false, 0, false
+	case strings.HasPrefix(a, "--"):
+		keep, edit, safe = inPlaceLong(a)
+		return keep, edit, 0, safe
+	case isShortOption(a):
+		return inPlaceShortAt(args, i)
+	default:
+		return []string{a}, false, 0, true
+	}
+}
+
+// inPlaceShortAt is inPlaceStep for a short option or cluster, with the value it takes.
+func inPlaceShortAt(args []string, i int) (keep []string, edit bool, used int, safe bool) {
+	a := args[i]
+	keep, edit, value, safe := inPlaceShort(a)
+	if !safe || bsdSuffixEscapes(args, i, edit) {
+		return nil, false, 0, false
+	}
+	if value && i+1 < len(args) {
+		keep = append(keep, args[i+1])
+		used = 1
+	}
+	return keep, edit, used, true
+}
+
+// bsdSuffixEscapes says a bare -i is followed by an argument that, read by BSD sed as the backup
+// suffix, would name another directory.
+func bsdSuffixEscapes(args []string, i int, edit bool) bool {
+	if !edit || args[i] != "-i" || i+1 >= len(args) {
+		return false
+	}
+	return strings.Contains(args[i+1], "..")
 }
 
 // inPlaceLong reads a long option: keep is what stays of it, edit says it was --in-place.

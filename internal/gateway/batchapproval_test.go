@@ -52,7 +52,8 @@ func TestAlwaysAllowingABatchKeepsEachLineItsShape(t *testing.T) {
 	if len(answers) != 3 || !answers[0] || !answers[1] || answers[2] {
 		t.Errorf("answers = %v", answers)
 	}
-	if got := srv.rememberApprovals(srv.sessions[DefaultSession], []agent.BatchItem{{Command: "x", Rule: ""}}); got != "none" {
+	shapeless := []agent.BatchItem{{Command: "x", Rule: ""}}
+	if got := srv.rememberApprovals(srv.sessions[DefaultSession], shapeless); got != "none" {
 		t.Errorf("a batch with no shape to keep keeps none: %q", got)
 	}
 }

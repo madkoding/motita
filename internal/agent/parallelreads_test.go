@@ -42,7 +42,9 @@ func TestReadsOfARoundRunSideBySide(t *testing.T) {
 	if most.Load() < 2 {
 		t.Errorf("the reads must run at the same time, at most %d ran together", most.Load())
 	}
-	ia, ib, ic := strings.Index(out, "out of cat a.txt"), strings.Index(out, "out of cat b.txt"), strings.Index(out, "touch c.txt")
+	ia := strings.Index(out, "out of cat a.txt")
+	ib := strings.Index(out, "out of cat b.txt")
+	ic := strings.Index(out, "touch c.txt")
 	if ia < 0 || ib < ia || ic < ib {
 		t.Errorf("the output must keep the model's order:\n%s", out)
 	}

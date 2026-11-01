@@ -51,7 +51,11 @@ func TestAnthropicKeepsTheStableStartAndTheConversation(t *testing.T) {
 		t.Errorf("only the stable start may be marked in a text call: %v", got)
 	}
 
-	conv := []Message{{Role: "user", Content: "do it"}, {Role: "assistant", Content: "ok"}, {Role: "user", Content: "more"}}
+	conv := []Message{
+		{Role: "user", Content: "do it"},
+		{Role: "assistant", Content: "ok"},
+		{Role: "user", Content: "more"},
+	}
 	if _, err := c.CompleteTools(context.Background(), conv, []Tool{{Type: "function",
 		Function: FunctionDef{Name: "shell", Description: "run"}}}); err != nil {
 		t.Fatal(err)
