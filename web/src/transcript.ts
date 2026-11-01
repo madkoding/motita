@@ -12,6 +12,7 @@ import {
   type QuestionAnswers,
 } from "./questions";
 import type { ChangeReport, Message, StepView } from "./appTypes";
+import { hasTimings, type TurnTimings } from "./TurnTimings";
 
 // TurnOutcome is how a turn ended, as the gateway kept it with the turn's checkpoint.
 export interface TurnOutcome {
@@ -21,6 +22,7 @@ export interface TurnOutcome {
   files?: NonNullable<ChangeReport["files"]>;
   artifacts?: { name: string; type: string; size: number }[];
   questions?: AskItem[];
+  timings?: TurnTimings;
 }
 
 export interface Checkpoint {
@@ -59,6 +61,7 @@ function answerOf(
     text: result,
     changes: choose(!!out.files?.length, { files: out.files }, undefined),
     report: choose(hasReport(out.report), out.report, undefined),
+    timings: choose(hasTimings(out.timings), out.timings, undefined),
     artifacts: choose(!!out.artifacts?.length, out.artifacts, undefined),
     questions: choose(asked, out.questions, undefined),
     origin: choose(asked, cp?.task ?? "", undefined),

@@ -17,6 +17,13 @@ const pinnedPlan: Record<string, string> = {
     "Una tarea es una sola conversación con herramientas nativas (shell, escribir y editar archivos, memoria), como Claude Code: sin análisis ni plan antes, sin resumen después. El sandbox y las aprobaciones son los mismos, y las verificaciones del proyecto corren una vez al final.",
   "A task is analysed and planned first, carried out in rounds the agent reports on, checked at every claim of done, and summarised at the end.":
     "Una tarea se analiza y planifica primero, se ejecuta en rondas que el agente reporta, se verifica cada vez que dice terminar y se resume al final.",
+  // TurnTimings.tsx
+  "model {time} ({n} calls)": "modelo {time} ({n} llamadas)",
+  "commands {time} ({n})": "comandos {time} ({n})",
+  "waiting for you {time} ({n})": "esperándote {time} ({n})",
+  "checks {time}": "verificaciones {time}",
+  "{n} approved earlier in the turn": "{n} aprobados antes en el turno",
+  "Where this turn's time went": "En qué se fue el tiempo de este turno",
 };
 
 export default pinnedPlan;

@@ -95,6 +95,9 @@ type doneEvent struct {
 	// and its assumption, so a client can offer them as answers to pick instead of Result's text,
 	// which carries only the first. Omitted when the turn asked nothing.
 	Questions []agent.AskItem `json:"questions,omitempty"`
+	// Timings is how the turn divided its time (model, commands, waiting for approval, checks),
+	// for a client to show next to the answer. Omitted for a plan, which has none.
+	Timings *agent.TurnTimings `json:"timings,omitempty"`
 }
 
 // approvalDeniedEvent is a command that was asked about and refused because there was

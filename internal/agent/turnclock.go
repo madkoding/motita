@@ -35,18 +35,42 @@ func (c *turnClock) reset() {
 // ms is a duration counter in milliseconds.
 func ms(v *atomic.Int64) int64 { return time.Duration(v.Load()).Milliseconds() }
 
-// logTurnTimings writes how the turn that began at start divided its time. "other" is what no
-// counter holds: the tree fingerprints, the prompts being built, the transcript being saved.
-func (a *Agent) logTurnTimings(start time.Time) {
+// TurnTimings is how a turn divided its time, in milliseconds, with the counts behind each part.
+// Other is what no counter holds: the tree fingerprints, the prompts being built, the transcript
+// being saved.
+type TurnTimings struct {
+	TotalMS         int64 `json:"total_ms"`
+	ModelMS         int64 `json:"model_ms"`
+	ModelCalls      int64 `json:"model_calls"`
+	CommandsMS      int64 `json:"commands_ms"`
+	Commands        int64 `json:"commands"`
+	ApprovalWaitMS  int64 `json:"approval_wait_ms"`
+	ApprovalsAsked  int64 `json:"approvals_asked"`
+	ApprovalsReused int64 `json:"approvals_reused"`
+	AnchorMS        int64 `json:"anchor_ms"`
+	OtherMS         int64 `json:"other_ms"`
+}
+
+// turnTimings is how the turn that began at start has divided its time so far.
+func (a *Agent) turnTimings(start time.Time) *TurnTimings {
 	c := &a.clock
-	total := time.Since(start).Milliseconds()
-	counted := ms(&c.model) + ms(&c.commands) + ms(&c.approvals) + ms(&c.anchor)
-	a.log.Info("turn timings", "total_ms", total,
-		"model_ms", ms(&c.model), "model_calls", c.modelCalls.Load(),
-		"commands_ms", ms(&c.commands), "commands", c.commandRuns.Load(),
-		"approval_wait_ms", ms(&c.approvals), "approvals_asked", c.asked.Load(),
-		"approvals_reused", c.reusedAsked.Load(),
-		"anchor_ms", ms(&c.anchor), "other_ms", max(total-counted, 0))
+	t := &TurnTimings{TotalMS: time.Since(start).Milliseconds(),
+		ModelMS: ms(&c.model), ModelCalls: c.modelCalls.Load(),
+		CommandsMS: ms(&c.commands), Commands: c.commandRuns.Load(),
+		ApprovalWaitMS: ms(&c.approvals), ApprovalsAsked: c.asked.Load(), ApprovalsReused: c.reusedAsked.Load(),
+		AnchorMS: ms(&c.anchor)}
+	t.OtherMS = max(t.TotalMS-t.ModelMS-t.CommandsMS-t.ApprovalWaitMS-t.AnchorMS, 0)
+	return t
+}
+
+// logTurnTimings writes how a turn divided its time.
+func (a *Agent) logTurnTimings(t *TurnTimings) {
+	a.log.Info("turn timings", "total_ms", t.TotalMS,
+		"model_ms", t.ModelMS, "model_calls", t.ModelCalls,
+		"commands_ms", t.CommandsMS, "commands", t.Commands,
+		"approval_wait_ms", t.ApprovalWaitMS, "approvals_asked", t.ApprovalsAsked,
+		"approvals_reused", t.ApprovalsReused,
+		"anchor_ms", t.AnchorMS, "other_ms", t.OtherMS)
 }
 
 // turnApprovals are the lines a person approved in this turn. A line the run proposes again in the

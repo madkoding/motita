@@ -263,17 +263,19 @@ func TestTheDoneEventCarriesTheStructuredReport(t *testing.T) {
 		Verification: []agent.ReportCheck{{Check: "go test", Result: "pass", Evidence: "3 passed"}}}
 	svc := &fakeService{structured: rep, task: func(context.Context, string, func(string, ...any)) (string, error) {
 		return "added Foo", nil
-	}, plan: func(context.Context, string, func(string, ...any)) (string, error) { return "a plan", nil }}
+	}, plan: func(context.Context, string, func(string, ...any)) (string, error) { return "a plan", nil },
+		timings: &agent.TurnTimings{TotalMS: 4200, ModelMS: 3000, ModelCalls: 2}}
 	srv := newTestServer(t, svc)
 
 	raw := rawStream(t, srv, http.MethodPost, sessionPath(srv, DefaultSession, "/task"), `{"task":"x"}`)
-	for _, want := range []string{`"report":{"version":1,"status":"done"`, `"check":"go test"`, `"evidence":"3 passed"`} {
+	for _, want := range []string{`"report":{"version":1,"status":"done"`, `"check":"go test"`, `"evidence":"3 passed"`,
+		`"timings":{"total_ms":4200,"model_ms":3000,"model_calls":2`} {
 		if !strings.Contains(raw, want) {
 			t.Errorf("the done event lacks %s:\n%s", want, raw)
 		}
 	}
 	raw = rawStream(t, srv, http.MethodPost, sessionPath(srv, DefaultSession, "/plan"), `{"prompt":"x"}`)
-	if strings.Contains(raw, `"report"`) {
+	if strings.Contains(raw, `"report"`) || strings.Contains(raw, `"timings"`) {
 		t.Errorf("a plan must not carry a task report:\n%s", raw)
 	}
 }

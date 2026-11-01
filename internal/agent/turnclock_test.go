@@ -72,7 +72,7 @@ func TestTheTurnSaysWhereItsTimeWent(t *testing.T) {
 	start := time.Now().Add(-time.Second)
 	since(&a.clock.model, &a.clock.modelCalls, start)
 	a.clock.anchor.Add(int64(2 * time.Second)) // more than the turn: "other" cannot go below zero
-	a.logTurnTimings(start)
+	a.logTurnTimings(a.turnTimings(start))
 
 	data, err := os.ReadFile(path)
 	if err != nil {

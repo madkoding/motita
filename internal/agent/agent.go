@@ -529,11 +529,13 @@ type Command struct {
 
 // TaskResult is the final verdict of one task.
 type TaskResult struct {
-	Task        string         `json:"task"`
-	Pass        bool           `json:"pass"`
-	Attempts    int            `json:"attempts"`
-	Subtasks    int            `json:"subtasks"`
-	DurationMS  int64          `json:"duration_ms"`
+	Task       string `json:"task"`
+	Pass       bool   `json:"pass"`
+	Attempts   int    `json:"attempts"`
+	Subtasks   int    `json:"subtasks"`
+	DurationMS int64  `json:"duration_ms"`
+	// Timings is how the turn divided its time (the outermost task only).
+	Timings     *TurnTimings   `json:"timings,omitempty"`
 	Validation  *anchor.Result `json:"validation,omitempty"`
 	FinalAction string         `json:"final_action,omitempty"`
 	Reason      string         `json:"reason"`
@@ -769,8 +771,8 @@ func (a *Agent) processTask(ctx context.Context, t task.Task, depth int) TaskRes
 		a.startFleet(t)
 		a.approvedInTurn.reset()
 		a.clock.reset()
-		defer a.logTurnTimings(time.Now())
 	}
+	started := time.Now()
 	run := t
 	if depth == 0 {
 		run = a.prepareGoal(t)
@@ -785,6 +787,8 @@ func (a *Agent) processTask(ctx context.Context, t task.Task, depth int) TaskRes
 	if depth == 0 {
 		// Whatever way the loop ended, nothing it started keeps running behind it.
 		a.endFleet(r)
+		r.Timings = a.turnTimings(started)
+		a.logTurnTimings(r.Timings)
 	}
 	if a.Observer != nil {
 		a.Observer(r)

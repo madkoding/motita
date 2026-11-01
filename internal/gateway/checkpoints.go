@@ -110,6 +110,8 @@ type turnOutcome struct {
 	// Questions are what the turn asked the user, each with its options and what the agent
 	// assumes when it is left unanswered. The web draws them as a card to answer.
 	Questions []agent.AskItem `json:"questions,omitempty"`
+	// Timings is how the turn divided its time, shown again with the answer after a reload.
+	Timings *agent.TurnTimings `json:"timings,omitempty"`
 }
 
 // checkpointView is the checkpoint as a client sees it: the anchors are the gateway's business.

@@ -404,11 +404,15 @@ func (s *Server) reportDone(c *conversation, rn *run, kind, startRev, result str
 	if src, ok := c.svc.(interface{ TakeQuestions() []agent.AskItem }); ok && kind != schedule.KindPlan {
 		done.Questions = src.TakeQuestions()
 	}
+	if src, ok := c.svc.(interface{ TakeTimings() *agent.TurnTimings }); ok && kind != schedule.KindPlan {
+		done.Timings = src.TakeTimings()
+	}
 	if rep := buildChangeReport(s.baseCtx, c.workspace, startRev); len(rep.Files) > 0 || len(rep.Previews) > 0 {
 		done.Changes = &rep
 	}
 	done.Artifacts = made
-	out := turnOutcome{Result: result, Report: done.Report, Artifacts: made, Questions: done.Questions}
+	out := turnOutcome{Result: result, Report: done.Report, Artifacts: made, Questions: done.Questions,
+		Timings: done.Timings}
 	if done.Changes != nil {
 		out.Files = done.Changes.Files
 	}

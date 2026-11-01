@@ -5546,3 +5546,11 @@ html .project-bar button.project-new-session {
 .memory-chip.saved::before {
   content: "✓ ";
 }
+
+/* How a finished turn divided its time (TurnTimings.tsx): one quiet line under the answer. */
+.turn-timings {
+  margin-top: 0.35rem;
+  font-size: 0.75rem;
+  color: var(--t3);
+  font-variant-numeric: tabular-nums;
+}

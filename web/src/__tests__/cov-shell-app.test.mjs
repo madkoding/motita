@@ -719,6 +719,7 @@ test("the conversation is one turn per input, with its steps, its answer and the
       msg(3, "agent", "Done, the build is green.", {
         changes: { files: [] },
         artifacts: [{ name: "a.log", type: "text/plain", size: 3 }],
+        timings: { total_ms: 4200, model_ms: 3000, model_calls: 2 },
       }),
       msg(4, "user", "And the tests?", { turn: 2 }),
       msg(5, "activity", "agents: 2 running", { kind: "agents" }),
@@ -757,6 +758,10 @@ test("the conversation is one turn per input, with its steps, its answer and the
   assert.equal(text(stubEl(answer, "Markdown")), "Done, the build is green.");
   assert.ok(stubEl(answer, "ChangesCard"));
   assert.ok(stubEl(answer, "RunArtifacts"));
+  assert.ok(
+    answer.querySelector(".turn-timings"),
+    "the answer says where its time went",
+  );
   assert.equal(
     answer.querySelector(".speak-msg-btn"),
     null,

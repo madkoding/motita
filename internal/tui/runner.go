@@ -144,6 +144,8 @@ type AppRunner struct {
 	pending   []agent.AskItem
 	// report is the structured account of the last finished task, kept for TakeReport.
 	report *agent.Report
+	// timings is how the last finished task divided its time, kept for TakeTimings.
+	timings *agent.TurnTimings
 	// asked is the questions the last finished turn asked, kept for TakeQuestions. Unlike pending
 	// it holds only questions about the request, never proposals: a client that lays the report
 	// out itself already has those.
@@ -1124,6 +1126,7 @@ func (r *AppRunner) observe(o taskObserver, task string, progress func(string, .
 			progress("plan done: it is no longer pinned")
 		}
 		r.setReport(tr.Report)
+		r.setTimings(tr.Timings)
 		r.setAsked(tr)
 		// The questions are handed to the caller as STRUCTURE, not only as the sentence
 		// above: the window needs the question, its assumption and its options to draw a
@@ -1198,6 +1201,23 @@ func (r *AppRunner) TakeQuestions() []agent.AskItem {
 	items := r.asked
 	r.asked = nil
 	return items
+}
+
+// setTimings records how the turn that just finished divided its time.
+func (r *AppRunner) setTimings(t *agent.TurnTimings) {
+	r.pendingMu.Lock()
+	defer r.pendingMu.Unlock()
+	r.timings = t
+}
+
+// TakeTimings returns how the last task divided its time and clears it, or nil when no task ran
+// since the last take.
+func (r *AppRunner) TakeTimings() *agent.TurnTimings {
+	r.pendingMu.Lock()
+	defer r.pendingMu.Unlock()
+	t := r.timings
+	r.timings = nil
+	return t
 }
 
 // TakeReport returns the structured report of the last task and clears it, or nil when that turn
