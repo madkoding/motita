@@ -114,6 +114,9 @@ func (a *Agent) SetApproveAllSource(fn func() bool) { a.approveAllNow = fn }
 
 // approveAll reports whether every command the policy asks about runs without asking, now.
 func (a *Agent) approveAll() bool {
+	if a.goalApprovesAll() {
+		return true
+	}
 	if a.approveAllNow != nil {
 		return a.approveAllNow()
 	}

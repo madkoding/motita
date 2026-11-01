@@ -64,24 +64,51 @@ type goalState struct {
 	run string
 	// interactive is what Agent.Interactive was before the goal turned it off.
 	interactive bool
+	// approveAll says the person launched it with "/goal --all": every command the policy would
+	// ask about runs without asking, for this goal only. What the policy DENIES stays denied.
+	approveAll bool
 }
+
+// goalAllFlag is the option, right after "/goal", that approves every command during the goal:
+// a goal launched before leaving should not sit for hours on one approval.
+const goalAllFlag = "--all"
 
 // goalOf reports whether a task is a goal and returns it without the prefix.
 func goalOf(description string) (string, bool) {
+	goal, _, ok := parseGoal(description)
+	return goal, ok
+}
+
+// parseGoal is goalOf plus whether the goal was launched with --all.
+func parseGoal(description string) (goal string, all, ok bool) {
 	d := strings.TrimSpace(description)
 	if d == goalPrefix || !strings.HasPrefix(d, goalPrefix+" ") {
-		return description, false
+		return description, false, false
 	}
-	return strings.TrimSpace(d[len(goalPrefix):]), true
+	goal = strings.TrimSpace(d[len(goalPrefix):])
+	if rest, found := strings.CutPrefix(goal, goalAllFlag); found && (rest == "" || rest[0] == ' ') {
+		goal, all = strings.TrimSpace(rest), true
+	}
+	if goal == "" {
+		return description, false, false
+	}
+	return goal, all, true
 }
+
+// goalApprovesAll reports a goal launched with --all.
+func (a *Agent) goalApprovesAll() bool { return a.goal != nil && a.goal.approveAll }
 
 // prepareGoal is the task as the outermost run works on it: a goal becomes autonomous.
 func (a *Agent) prepareGoal(t task.Task) task.Task {
 	a.goal = nil
 	run := t
-	if goal, ok := goalOf(t.Description); ok {
+	if goal, all, ok := parseGoal(t.Description); ok {
 		run.Description = goal + goalDirective
-		a.goal = &goalState{original: t.Description, run: run.Description, interactive: a.Interactive}
+		a.goal = &goalState{original: t.Description, run: run.Description, interactive: a.Interactive,
+			approveAll: all}
+		if all {
+			a.report("goal: every command the policy would ask about runs without asking until it ends")
+		}
 		// A goal is autonomous: nobody is asked, the stated assumption is the answer.
 		a.Interactive = false
 	}
@@ -154,6 +181,50 @@ func (a *Agent) directGateLimit() int {
 // turn that applies accepted suggestions, and a goal.
 func (r *taskRun) workByRequest() bool {
 	return IsApplyingTurn(r.t.Description) || (r.depth == 0 && r.a.isGoal())
+}
+
+// Lines a goal leaves in its progress trail about its success criteria. The trail is what a goal
+// resumed after a restart, or the turn after one that stopped, reads back: with the criteria and
+// which of them were still not shown, it knows what is LEFT, not only which commands ran.
+const (
+	goalCriteriaLine = "goal criteria (what done means):"
+	goalPendingLine  = "criteria not shown yet:"
+	goalAllShownLine = "every goal criterion is shown"
+)
+
+// noteGoalCriteria writes the goal's criteria to its trail once, when the run starts.
+func (r *taskRun) noteGoalCriteria() {
+	if r.depth > 0 || !r.a.isGoal() || len(r.analysis.SuccessCrit) == 0 {
+		return
+	}
+	for _, line := range r.trail {
+		if strings.Contains(line, goalCriteriaLine) {
+			return
+		}
+	}
+	r.addTrail(goalCriteriaLine + "\n- " + strings.Join(r.analysis.SuccessCrit, "\n- "))
+}
+
+// noteCriteriaState writes to a goal's trail what the last criteria audit found.
+func (r *taskRun) noteCriteriaState(unmet []auditCriterion) {
+	if r.depth > 0 || !r.a.isGoal() {
+		return
+	}
+	if len(unmet) == 0 {
+		r.addTrail(goalAllShownLine)
+		return
+	}
+	names := make([]string, 0, len(unmet))
+	for _, c := range unmet {
+		names = append(names, strings.TrimSpace(c.Criterion))
+	}
+	r.addTrail(goalPendingLine + "\n- " + strings.Join(names, "\n- "))
+}
+
+// addTrail adds a line to the run's trail and writes it to the pending turn.
+func (r *taskRun) addTrail(line string) {
+	r.trail = append(r.trail, line)
+	r.a.trail(r.t, r.trail)
 }
 
 // goalCheck reports whether a goal in direct mode is sent back to check its work before it stops,

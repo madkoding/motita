@@ -454,6 +454,25 @@ test("the figures are read again when a run starts or ends and on a timer", asyn
   mock.restoreAll();
 });
 
+test("a provider saved or disconnected in Settings is read again at once", async () => {
+  let shown = ["openai", "gemini"];
+  const gw = fakeApi({
+    [ROUTE]: () => json(200, { providers: shown.map((id) => row(id)) }),
+  });
+  const { PROVIDERS_CHANGED_EVENT } = await load("llmApi.ts");
+  const root = await mount(gw.api);
+  assert.ok(q(root, "provider-usage-gemini"));
+  shown = ["openai"];
+  window.dispatchEvent(new window.CustomEvent(PROVIDERS_CHANGED_EVENT));
+  await settle();
+  assert.equal(q(root, "provider-usage-gemini"), null);
+  render(null, root);
+  shown = [];
+  window.dispatchEvent(new window.CustomEvent(PROVIDERS_CHANGED_EVENT));
+  await settle();
+  assert.equal(root.textContent, "", "an unmounted panel stops listening");
+});
+
 test("leaving the panel ignores a late answer", async () => {
   let release;
   const gw = fakeApi({

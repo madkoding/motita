@@ -297,3 +297,88 @@ func TestADirectGoalChecksBeforeStopping(t *testing.T) {
 		t.Errorf("red gate: pass=%v turns=%d", r2.Pass, len(s2.sent))
 	}
 }
+
+// "/goal --all" approves every command for that goal only.
+func TestAGoalWithAllApprovesEveryCommand(t *testing.T) {
+	cases := []struct {
+		in, goal string
+		all, ok  bool
+	}{
+		{"/goal --all ship it", "ship it", true, true},
+		{"/goal ship --all", "ship --all", false, true},
+		{"/goal --allow x", "--allow x", false, true},
+		{"/goal --all", "/goal --all", false, false},
+	}
+	for _, c := range cases {
+		goal, all, ok := parseGoal(c.in)
+		if goal != c.goal || all != c.all || ok != c.ok {
+			t.Errorf("parseGoal(%q) = %q %v %v", c.in, goal, all, ok)
+		}
+	}
+	a := &Agent{}
+	a.prepareGoal(task.Task{Description: "/goal --all ship it"})
+	if !a.approveAll() || !a.goalApprovesAll() {
+		t.Fatal("a goal launched with --all approves every command")
+	}
+	a.endGoal()
+	if a.approveAll() {
+		t.Fatal("the approval ends with the goal")
+	}
+	a.prepareGoal(task.Task{Description: "/goal ship it"})
+	if a.approveAll() {
+		t.Fatal("a plain goal still asks")
+	}
+}
+
+// A goal's trail carries its criteria and which are still not shown, once each.
+func TestAGoalTrailCarriesItsCriteria(t *testing.T) {
+	s := &scriptServer{
+		analyze: func(string) string {
+			return `{"kind":"task","understandable":true,"summary":"w","success_criteria":["the page works"]}`
+		},
+		execute: func(round int, _ string) string { return step(true, fmt.Sprintf("echo %d > f.txt", round)) },
+	}
+	first := true
+	s.audit = func(string) string {
+		if first {
+			first = false
+			return `{"criteria":[{"criterion":"the page works","met":false}]}`
+		}
+		return `{"criteria":[{"criterion":"the page works","met":true}]}`
+	}
+	srv := httptest.NewServer(s.handler(t))
+	t.Cleanup(srv.Close)
+	e := mount(t, srv, config.Anchor{Kind: "command", Command: "sh", Args: []string{"-c", "exit 0"},
+		Timeout: 10 * time.Second}, nil)
+	var trail string
+	e.agent.Observer = func(TaskResult) { trail = e.agent.workSoFar(task.Task{Description: "/goal ship"}) }
+	e.agent.SetTranscript(nil)
+	e.agent.processTask(context.Background(), task.Task{Description: "/goal ship", Origin: "test"}, 0)
+	for _, want := range []string{goalCriteriaLine + "\n- the page works", goalPendingLine + "\n- the page works",
+		goalAllShownLine} {
+		if !strings.Contains(trail, want) {
+			t.Errorf("the trail misses %q:\n%s", want, trail)
+		}
+	}
+	// Written once: a resumed run that already has it does not add it again.
+	r := &taskRun{a: e.agent, t: task.Task{Description: "x"}, trail: []string{goalCriteriaLine}}
+	r.analysis.SuccessCrit = []string{"c"}
+	e.agent.goal = &goalState{}
+	r.noteGoalCriteria()
+	r.depth = 1
+	r.noteCriteriaState(nil)
+	if len(r.trail) != 1 {
+		t.Errorf("trail = %v", r.trail)
+	}
+}
+
+// A run going A, B, A, B is stuck as surely as one going A, A, A.
+func TestACycleIsAStall(t *testing.T) {
+	s := &scriptServer{execute: func(round int, _ string) string {
+		return step(false, map[bool]string{true: "echo a", false: "echo b"}[round%2 == 0])
+	}}
+	_, r := goalScript(t, s, "exit 0", "go around", nil)
+	if r.Pass || !strings.Contains(r.Reason, "stalled") || r.Attempts > 2+stallStopAt {
+		t.Fatalf("a cycle must stop as a stall: attempts=%d reason=%q", r.Attempts, r.Reason)
+	}
+}

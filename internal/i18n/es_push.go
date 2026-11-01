@@ -12,6 +12,10 @@ var esPush = map[string]string{
 	"It is waiting to run: %s":   "Está esperando para ejecutar: %s",
 	"Motita stopped":             "Motita se detuvo",
 	"Motita finished":            "Motita terminó",
+	"Your goal stopped":          "Tu objetivo se detuvo",
+	"Your goal is done":          "Tu objetivo está listo",
+	"Open the session to read what was done and how it was checked.": "Abre la sesión para leer qué " +
+		"se hizo y cómo se comprobó.",
 	"The run is done: open the session to read the answer.": "La tarea terminó: abre la sesión para leer la respuesta.",
 	"Motita notifications work":                             "Las notificaciones de Motita funcionan",
 	"This is how a CI that ends will look.":                 "Así se verá cuando termine un CI.",

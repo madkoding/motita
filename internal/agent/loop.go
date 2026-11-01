@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"slices"
 	"strings"
 	"time"
 
@@ -56,9 +57,10 @@ type taskRun struct {
 	rejected       int
 	unusable       int
 	repeats        int
-	lastSignature  string
-	maxSteps       int
-	round          int
+	// recent are the signatures of the last cycleWindow progress rounds, oldest first.
+	recent   []string
+	maxSteps int
+	round    int
 }
 
 // loop is the 9-step loop itself.
@@ -443,6 +445,7 @@ func (r *taskRun) execute() TaskResult {
 	if r.seed != nil {
 		r.journal = append(r.journal, *r.seed)
 	}
+	r.noteGoalCriteria()
 	// workLog is what every round ran and printed, for the final answer: the synthesis used
 	// to see only the LAST round, which on a long task is a final `git status` and nothing
 	// of the work.
@@ -503,7 +506,7 @@ func (r *taskRun) step() (res TaskResult, done bool) {
 	if !action.isDone() {
 		return r.progress(action, runOutput, runErr)
 	}
-	r.repeats, r.lastSignature = 0, ""
+	r.repeats, r.recent = 0, nil
 
 	if r.claimSentBack(action) {
 		return TaskResult{}, false
@@ -704,13 +707,14 @@ func (r *taskRun) progress(action Action, runOutput string, runErr error) (res T
 func (r *taskRun) stalled(action Action, runOutput string) bool {
 	signature := proposedCommands(action) + "\x00" + runOutput
 	// A round that only asked for things it already holds did nothing, whatever
-	// its commands were: it counts as a repeat even when the wording differs.
-	if signature == r.lastSignature || (r.mem.recalled > 0 && r.mem.executed == 0) {
+	// its commands were: it counts as a repeat even when the wording differs. So does a
+	// round that is one of the last few again, same actions and same output: a run going
+	// A, B, A, B is as stuck as one going A, A, A, and used to spend the whole budget on it.
+	if r.seenRecently(signature) || (r.mem.recalled > 0 && r.mem.executed == 0) {
 		r.repeats++
 	} else {
 		r.repeats = 0
 	}
-	r.lastSignature = signature
 	if r.repeats < stallStopAt {
 		return false
 	}
@@ -724,11 +728,25 @@ func (r *taskRun) stalled(action Action, runOutput string) bool {
 	return true
 }
 
+// cycleWindow is how many earlier progress rounds a round is compared with to tell a cycle.
+const cycleWindow = 4
+
+// seenRecently reports whether a round's signature is one of the last cycleWindow rounds', and
+// remembers it.
+func (r *taskRun) seenRecently(signature string) bool {
+	seen := slices.Contains(r.recent, signature)
+	r.recent = append(r.recent, signature)
+	if len(r.recent) > cycleWindow {
+		r.recent = r.recent[1:]
+	}
+	return seen
+}
+
 // progressNotes are the warnings a progress round's record carries for the next round.
 func (r *taskRun) progressNotes() string {
 	notes := ""
 	if r.repeats >= stallWarnAt {
-		notes += "\n!! This round repeated the previous one exactly: same actions, same output. " +
+		notes += "\n!! This round repeated an earlier one exactly: same actions, same output. " +
 			"Repeating it again will not change anything. Do something DIFFERENT, or report " +
 			`"done": true if the task is already complete.`
 	}
