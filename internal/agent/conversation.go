@@ -52,7 +52,7 @@ func (a *Agent) trail(t task.Task, lines []string) {
 	a.transcriptMu.Lock()
 	defer a.transcriptMu.Unlock()
 	n := len(a.transcript)
-	if n == 0 || !a.transcript[n-1].Pending || a.transcript[n-1].User != t.Description {
+	if n == 0 || !a.transcript[n-1].Pending || a.transcript[n-1].User != a.turnUser(t.Description) {
 		return
 	}
 	text := strings.Join(lines, "\n")
@@ -71,7 +71,7 @@ func (a *Agent) workSoFar(t task.Task) string {
 	a.transcriptMu.Lock()
 	defer a.transcriptMu.Unlock()
 	n := len(a.transcript)
-	if n == 0 || !a.transcript[n-1].Pending || a.transcript[n-1].User != t.Description {
+	if n == 0 || !a.transcript[n-1].Pending || a.transcript[n-1].User != a.turnUser(t.Description) {
 		return ""
 	}
 	_, work, _ := strings.Cut(a.transcript[n-1].Agent, workMarker)
