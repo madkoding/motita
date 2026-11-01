@@ -25,6 +25,8 @@ type roundRun struct {
 	lastErr error
 	// told is set once the action being run has announced itself with its words (see announce).
 	told bool
+	// declined are the lines the person declined with the rest of the round (see askRound).
+	declined []string
 }
 
 // runRound is runActions with the run's working memory. A read the run already holds, and
@@ -40,6 +42,7 @@ func (a *Agent) runRound(
 		mem.sync(a.cfg.Agent.WorkspaceDir)
 	}
 
+	rr.askRound(actions)
 	for i := 0; i < len(actions); {
 		if n := rr.readBatch(actions[i:]); n > 1 {
 			rr.runReads(i, actions[i:i+n])
@@ -319,10 +322,15 @@ func (rr *roundRun) approved(i int, action Command, plan *RequestPlan) bool {
 		approveRequest(&plan.Request, action.Command)
 		return true
 	}
-	a.report("asking you to approve: %s", action.Command)
-	asked := time.Now()
-	approved, err := a.approve(rr.ctx, *plan, action.Command)
-	since(&a.clock.approvals, &a.clock.asked, asked)
+	approved, err := false, error(nil)
+	if rr.declinedInRound(action.Command) {
+		a.report("declined with the rest of the round: %s", action.Command)
+	} else {
+		a.report("asking you to approve: %s", action.Command)
+		asked := time.Now()
+		approved, err = a.approve(rr.ctx, *plan, action.Command)
+		since(&a.clock.approvals, &a.clock.asked, asked)
+	}
 	if err != nil {
 		// There is nobody to ask. This is not a failure of the command, it is the
 		// absence of the only thing that could authorise it, and the output says

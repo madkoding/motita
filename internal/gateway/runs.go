@@ -703,7 +703,7 @@ func (s *Server) approverFor(c *conversation, rn *run) agent.Approver {
 		}
 		// "Always allow this here", said in an earlier session of the project: answered the same
 		// way, and announced the same way.
-		if !notCommand && s.alwaysAllowed(c, req.Rule, req.Command) {
+		if !notCommand && s.allAlwaysAllowed(c, req.Items()) {
 			rn.append(EventProgress, progressEvent{Text: "approved (always allowed in this project): " + req.Command})
 			return true, nil
 		}
@@ -719,7 +719,8 @@ func (s *Server) approverFor(c *conversation, rn *run) agent.Approver {
 			// safely" already means no in this design.
 			return false, err
 		}
-		p := &pendingApproval{id: id, ch: make(chan bool, 1), command: req.Command, reason: req.Reason, rule: req.Rule}
+		p := &pendingApproval{id: id, ch: make(chan bool, 1), command: req.Command, reason: req.Reason, rule: req.Rule,
+			items: req.Items()}
 		c.setPendingApproval(p)
 		// Cleared on the way out whatever happened, so a late answer cannot land on the next one.
 		defer c.clearPendingApproval()
@@ -851,7 +852,7 @@ func (s *Server) deliverApproval(c *conversation, p *pendingApproval, approve bo
 		s.saveSession(c)
 	}
 	if approve && scope == "project" {
-		kept = s.rememberApproval(c, p.rule, p.command)
+		kept = s.rememberApprovals(c, p.items)
 	}
 	if !approve {
 		turn := 0

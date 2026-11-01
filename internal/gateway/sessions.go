@@ -206,6 +206,8 @@ type pendingApproval struct {
 	command string
 	reason  string
 	rule    string
+	// items are the lines the question is about, with their rules: one, or a round's batch.
+	items []agent.BatchItem
 }
 
 func newConversation(id string, svc Service) *conversation {

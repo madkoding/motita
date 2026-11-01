@@ -680,6 +680,12 @@ is connected to one through Other computers, says that computer did not keep it 
 the confirmation window's `a` key does the same for the folder the commands run in, kept in
 `~/.motita/approvals.json`; the transcript says when a command ran without asking.
 
+Two rules keep the questions to one per decision. When a round proposes two or more lines that need
+approval, they are asked about **together**, before the round runs: one card with every line, one
+answer for all (rule `batch`; "always allow" keeps each line's own shape). And a line the person
+approved is not asked about again when the run proposes it word for word **in the same turn**
+(`approved earlier in this turn: …`); a declined line, a different line and the next turn still ask.
+
 **The interactive terminal.** `GET /v1/sessions/{id}/terminal?cols=N&rows=M` (a WebSocket) is
 the session's shell on a pseudo-terminal, for a command that asks for input, an editor or a REPL:
 binary frames carry the terminal's bytes both ways, the client's text frames are
