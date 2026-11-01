@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/madkoding/motita/internal/policy"
 )
@@ -286,7 +287,9 @@ func (rr *roundRun) shell(i int, action Command) {
 		return
 	}
 
+	started := time.Now()
 	output, truncated, exit, err := a.exec(rr.ctx, plan.Request)
+	since(&a.clock.commands, &a.clock.commandRuns, started)
 	output = withSudoHint(action.Command, output, exit)
 	rr.record(action, output, truncated, exit, err)
 	if err != nil {
@@ -298,8 +301,17 @@ func (rr *roundRun) shell(i int, action Command) {
 // may run; an approved one runs unconfined.
 func (rr *roundRun) approved(i int, action Command, plan *RequestPlan) bool {
 	a := rr.a
+	if a.approvedInTurn.has(action.Command) {
+		a.clock.reusedAsked.Add(1)
+		a.report("approved earlier in this turn: %s", action.Command)
+		a.log.Info(rr.prefix+"action approved earlier in this turn", "command", action.Command, "rule", plan.Rule)
+		approveRequest(&plan.Request, action.Command)
+		return true
+	}
 	a.report("asking you to approve: %s", action.Command)
+	asked := time.Now()
 	approved, err := a.approve(rr.ctx, *plan, action.Command)
+	since(&a.clock.approvals, &a.clock.asked, asked)
 	if err != nil {
 		// There is nobody to ask. This is not a failure of the command, it is the
 		// absence of the only thing that could authorise it, and the output says
@@ -319,6 +331,7 @@ func (rr *roundRun) approved(i int, action Command, plan *RequestPlan) bool {
 		return false
 	}
 	a.log.Info(rr.prefix+"action approved by the user", "command", action.Command)
+	a.approvedInTurn.keep(action.Command)
 	approveRequest(&plan.Request, action.Command)
 	return true
 }

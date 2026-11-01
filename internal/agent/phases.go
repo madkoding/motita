@@ -246,6 +246,7 @@ func (a *Agent) askWith(
 			"describe. If you wanted to use a tool, put it in the \"actions\" list of that JSON (kind and command)."})
 		text, err = engine.Complete(ctx, retry)
 	}
+	since(&a.clock.model, &a.clock.modelCalls, start)
 	if err != nil {
 		return "", err
 	}

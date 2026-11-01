@@ -140,6 +140,10 @@ type Agent struct {
 	// a script has no user, and a command that needs approval in that situation is refused
 	// rather than run on the user's behalf. See Approver.
 	approver Approver
+	// approvedInTurn are the lines the person approved in this turn, and clock where the turn's
+	// time went (see turnclock.go).
+	approvedInTurn turnApprovals
+	clock          turnClock
 
 	// fleet is the run's agents and member is this agent's row in it; subs is what the main agent
 	// started with spawn_agent. isChild marks a background agent (it cannot start agents), and
@@ -763,6 +767,9 @@ func (a *Agent) processTask(ctx context.Context, t task.Task, depth int) TaskRes
 	if depth == 0 {
 		a.begin(t)
 		a.startFleet(t)
+		a.approvedInTurn.reset()
+		a.clock.reset()
+		defer a.logTurnTimings(time.Now())
 	}
 	run := t
 	if depth == 0 {

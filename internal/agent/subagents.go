@@ -688,8 +688,10 @@ func (a *Agent) validateClaim(ctx context.Context, before *runBaseline) anchor.R
 		return anchor.Result{Pass: true, Checks: []anchor.CheckLog{},
 			Reason: "read-only background agent: its answer is the result, and it changed nothing to validate"}
 	}
+	started := time.Now()
 	v := anchor.New(a.cfg.Anchor, a.cfg.Agent.WorkspaceDir, a.sandbox).
 		WithTools(a.cfg.Sandbox.ToolsDir, a.cfg.Sandbox.CheckTimeout).Validate(ctx)
+	a.clock.anchor.Add(int64(time.Since(started)))
 	// A background agent's tree with no gate to run has nothing to be measured against here; its
 	// branch is measured when the main agent merges it and claims done.
 	if a.isChild && !v.Pass && len(v.Checks) == 0 {
