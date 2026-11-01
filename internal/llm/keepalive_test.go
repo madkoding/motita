@@ -46,8 +46,8 @@ func TestALocalOllamaIsToldToKeepTheModel(t *testing.T) {
 			t.Fatal(err)
 		}
 		_, _ = c.CompleteTools(context.Background(), []Message{{Role: "user", Content: "hi"}}, nil)
-		for range c.CompleteToolsStream(context.Background(), []Message{{Role: "user", Content: "hi"}}, nil) {
-		}
+		stream := c.CompleteToolsStream(context.Background(), []Message{{Role: "user", Content: "hi"}}, nil)
+		drainStream(stream)
 	}
 	run("ollama", 30*time.Minute)
 	if len(warmed) != 3 || warmed[0]["model"] != "qwen3" || warmed[0]["keep_alive"] != float64(1800) {
@@ -59,4 +59,11 @@ func TestALocalOllamaIsToldToKeepTheModel(t *testing.T) {
 		t.Errorf("keep_alive 0 and other providers must send nothing: %v", warmed)
 	}
 
+}
+
+// drainStream reads a stream to its end.
+func drainStream[T any](ch <-chan T) {
+	for v := range ch {
+		_ = v
+	}
 }

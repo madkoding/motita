@@ -139,8 +139,12 @@ func TestFeedChangesCoalesce(t *testing.T) {
 	other := make(chan struct{})
 	var wg sync.WaitGroup
 	wg.Add(2)
-	go func() { defer wg.Done(); c.forward(ctx, from, "sessions") }()
-	go func() { defer wg.Done(); c.forward(ctx, other, "projects") }()
+	forward := func(ch chan struct{}, name string) {
+		defer wg.Done()
+		c.forward(ctx, ch, name)
+	}
+	go forward(from, "sessions")
+	go forward(other, "projects")
 	from <- struct{}{}
 	from <- struct{}{}
 	other <- struct{}{}

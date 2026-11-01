@@ -32,6 +32,17 @@ func (r ApprovalRequest) Items() []BatchItem {
 	return []BatchItem{{Command: r.Command, Rule: r.Rule}}
 }
 
+// batchable says c is a shell line that would be asked about on its own: not another kind of action,
+// not blank, not already approved this turn and not a fake check.
+func (rr *roundRun) batchable(c Command) bool {
+	kind := strings.ToLower(strings.TrimSpace(c.Kind))
+	if kind != "" && kind != "command" {
+		return false
+	}
+	line := strings.TrimSpace(c.Command)
+	return line != "" && !rr.a.approvedInTurn.has(c.Command) && fakeCheckCommand(c.Command) == ""
+}
+
 // askRound asks once about every line of actions that would be asked about one by one, when there
 // are at least two of them.
 func (rr *roundRun) askRound(actions []Command) {
@@ -39,9 +50,7 @@ func (rr *roundRun) askRound(actions []Command) {
 	var items []BatchItem
 	var reasons []string
 	for _, c := range actions {
-		kind := strings.ToLower(strings.TrimSpace(c.Kind))
-		if (kind != "" && kind != "command") || strings.TrimSpace(c.Command) == "" ||
-			a.approvedInTurn.has(c.Command) || fakeCheckCommand(c.Command) != "" {
+		if !rr.batchable(c) {
 			continue
 		}
 		plan := a.planRequest(c.Command)

@@ -11,31 +11,43 @@ import (
 	"github.com/madkoding/motita/internal/execx"
 )
 
-// TestReadsOfARoundRunSideBySide: consecutive reads run at the same time, and their output is
-// reported in the order the model wrote them; the write after them runs on its own.
-func TestReadsOfARoundRunSideBySide(t *testing.T) {
-	a := agentWith(t, false)
-	var inFlight, most atomic.Int32
-	a.ExecCommand = func(_ context.Context, r execx.Request) (string, bool, int, error) {
+// overlappingExec runs a line by sleeping (the one about a.txt longest, so the first ends last),
+// fails the one about "broken", and keeps in most how many ran at once.
+func overlappingExec(most *atomic.Int32) func(context.Context, execx.Request) (string, bool, int, error) {
+	var inFlight atomic.Int32
+	return func(_ context.Context, r execx.Request) (string, bool, int, error) {
 		n := inFlight.Add(1)
 		defer inFlight.Add(-1)
-		for {
-			m := most.Load()
-			if n <= m || most.CompareAndSwap(m, n) {
-				break
-			}
-		}
+		raise(most, n)
 		line := r.Args[len(r.Args)-1]
+		pause := 5 * time.Millisecond
 		if strings.Contains(line, "a.txt") {
-			time.Sleep(30 * time.Millisecond) // the first one ends last
-		} else {
-			time.Sleep(5 * time.Millisecond)
+			pause = 30 * time.Millisecond
 		}
+		time.Sleep(pause)
 		if strings.Contains(line, "broken") {
 			return "", false, -1, errors.New("no executor")
 		}
 		return "out of " + line, false, 0, nil
 	}
+}
+
+// raise keeps in v the largest of its value and n.
+func raise(v *atomic.Int32, n int32) {
+	for {
+		m := v.Load()
+		if n <= m || v.CompareAndSwap(m, n) {
+			return
+		}
+	}
+}
+
+// TestReadsOfARoundRunSideBySide: consecutive reads run at the same time, and their output is
+// reported in the order the model wrote them; the write after them runs on its own.
+func TestReadsOfARoundRunSideBySide(t *testing.T) {
+	a := agentWith(t, false)
+	var most atomic.Int32
+	a.ExecCommand = overlappingExec(&most)
 	out, err := a.runActions(context.Background(), []Command{
 		{Command: "cat a.txt"}, {Command: "cat b.txt"}, {Command: "ls broken"}, {Command: "touch c.txt"},
 	}, "")
