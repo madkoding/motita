@@ -177,6 +177,7 @@ final_action:
 agent:
   max_retries: 3               # total attempts = max_retries + 1. default: 8
   plan_loops: 40               # tool rounds a chat (plan) turn may make before it must answer. default: 40
+  direct: false                # true: a task is one conversation with native tools (like a coding agent), no JSON rounds. default: false
   subtask_depth: 1             # allowed splitting levels
   subtask_retries: 2           # tries again a failed subtask, told why, before the parent gives up; 0 = off
   quick_plan: true             # the analysis writes the plan itself (one model call before the first action); false = always plan apart

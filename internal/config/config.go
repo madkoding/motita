@@ -319,6 +319,11 @@ type Agent struct {
 	// codebase stopped after eight looks and answered half-informed, and the person asked again.
 	// Zero is the default (DefaultPlanLoops).
 	PlanLoops int `yaml:"plan_loops"`
+	// Direct runs a task as one conversation with native tool calls (a shell, write and edit a
+	// file, recall, remember), the way a coding agent works, instead of the phased loop of JSON
+	// rounds. The sandbox, the policy and the approvals are the same; the project's gate runs once
+	// at the end. Off by default.
+	Direct bool `yaml:"direct"`
 	// SubtaskRetries is how many times a subtask that failed is tried again, told why the last
 	// attempt failed, before the parent gives up on the rest of its subtasks. Zero turns it off.
 	SubtaskRetries int `yaml:"subtask_retries"`

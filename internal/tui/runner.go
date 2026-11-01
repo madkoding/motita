@@ -528,6 +528,14 @@ func (r *AppRunner) SetAutoApplySuggestions(on bool) {
 	r.cfgMu.Unlock()
 }
 
+// SetDirect says whether a task runs in direct mode, one conversation with native tools
+// (agent.direct). The next turn follows it.
+func (r *AppRunner) SetDirect(on bool) {
+	r.cfgMu.Lock()
+	r.Cfg.Agent.Direct = on
+	r.cfgMu.Unlock()
+}
+
 // SetApproveAllCommands says whether every command the policy asks about runs without asking
 // (agent.approve_all_commands). The next command follows it.
 func (r *AppRunner) SetApproveAllCommands(on bool) {

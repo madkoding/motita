@@ -49,12 +49,14 @@ const (
 
 // Agent orchestrates the three layers.
 type Agent struct {
-	cfg     config.Config
-	log     *logx.Logger
-	engine  *llm.Client
-	sandbox *sandbox.Sandbox
-	source  task.Source
-	http    *http.Client
+	cfg    config.Config
+	log    *logx.Logger
+	engine *llm.Client
+	// toolEngine is what direct mode streams tool calls from; nil is engine. See direct.go.
+	toolEngine toolStreamer
+	sandbox    *sandbox.Sandbox
+	source     task.Source
+	http       *http.Client
 
 	// Progress, if set, receives human-readable updates such as "analysing..." or
 	// "running: git status". It is used by the TUI to keep the user informed.

@@ -64,6 +64,12 @@ func (a *Agent) loop(ctx context.Context, t task.Task, depth int) TaskResult {
 	a.log.Info(r.prefix+"task received", "origin", t.Origin, "depth", depth,
 		"description", truncate(t.Description, 200))
 
+	// Direct mode is one conversation with native tools, as a coding agent works: no analysis, no
+	// JSON rounds, no synthesis. A background agent keeps the phased loop it was briefed for.
+	if a.cfg.Agent.Direct && depth == 0 && !a.isChild {
+		return a.direct(ctx, t)
+	}
+
 	// [2] Extract context and success criteria: the statement of the validation
 	// rules shown to the LLM is built here, so it knows what it will be measured
 	// against.

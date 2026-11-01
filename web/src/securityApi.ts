@@ -39,6 +39,9 @@ export interface SecurityView {
   // gateway older than the setting.
   desktop_control?: boolean;
   desktop_reason?: string;
+  // Whether a task runs in direct mode: one conversation with native tools instead of the phased
+  // loop. Missing from a gateway older than the setting.
+  direct?: boolean;
   // Whether the gateway itself runs with NO_NEW_PRIVS (a systemd unit with NoNewPrivileges=yes, a
   // container with no-new-privileges), which every command inherits: sudo cannot work, approved or
   // not. Missing where it does not, and from an older gateway.
@@ -149,6 +152,17 @@ export async function setDesktopControl(
     method: "PUT",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ desktop_control: on, confirm: on }),
+  });
+  return view(res);
+}
+
+// setDirect saves whether a task runs in direct mode. It changes how the agent works, not what it
+// may do, so it needs no confirm.
+export async function setDirect(api: Api, on: boolean): Promise<SecurityView> {
+  const res = await api(SECURITY_PATH, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ direct: on }),
   });
   return view(res);
 }
