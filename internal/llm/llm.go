@@ -252,6 +252,7 @@ func (c *Client) CompleteStream(
 // Complete sends the conversation and returns the model's text, retrying with
 // exponential backoff on transient failures.
 func (c *Client) Complete(ctx context.Context, messages []Message) (string, error) {
+	defer c.keepWarm()
 	retry := c.newRetry()
 	for {
 		text, err := c.call(ctx, messages)
@@ -303,6 +304,7 @@ func (c *Client) CompleteToolsStream(ctx context.Context, messages []Message, to
 	out := make(chan StreamChunk, 8)
 	go func() {
 		defer close(out)
+		defer c.keepWarm()
 		retry := c.newRetry()
 		for {
 			chunkCh, err := c.openStreamOr()(ctx, messages, tools)
@@ -356,6 +358,7 @@ func forwardStream(chunkCh <-chan StreamChunk, out chan<- StreamChunk) error {
 }
 
 func (c *Client) completeWithTool(ctx context.Context, messages []Message, tools []Tool) (Reply, error) {
+	defer c.keepWarm()
 	retry := c.newRetry()
 	var empty Reply
 	for {

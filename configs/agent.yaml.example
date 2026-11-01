@@ -109,6 +109,7 @@ llm:
   transient_budget: 5m   # time one call may wait out network failures / overload (408, 425, 429, 502-504, 529) without spending max_attempts; 0 = they spend it
   retry_after_max: 2m    # longest Retry-After wait honoured; 0 = ignore the header
   jitter: 0.25           # share of each backoff cut off at random (0-1); 0 = none
+  keep_alive: 30m        # self-hosted Ollama only: how long the model stays loaded after each call; 0 = server default (5m)
 
 # ---------------------------------------------------------------------------
 # Prompt templates. Available variables:

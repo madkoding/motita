@@ -135,6 +135,7 @@ func durationBindings(c *Config) []binding[time.Duration] {
 		{"MOTITA_LLM_BACKOFF_MAX", &c.LLM.BackoffMax},
 		{"MOTITA_LLM_TRANSIENT_BUDGET", &c.LLM.TransientBudget},
 		{"MOTITA_LLM_RETRY_AFTER_MAX", &c.LLM.RetryAfterMax},
+		{"MOTITA_LLM_KEEP_ALIVE", &c.LLM.KeepAlive},
 		{"MOTITA_REVIEW_TIMEOUT", &c.Review.Timeout},
 		{"MOTITA_SCHEDULE_TICK", &c.Schedule.Tick},
 		{"MOTITA_SCHEDULE_MIN_EVERY", &c.Schedule.MinEvery},

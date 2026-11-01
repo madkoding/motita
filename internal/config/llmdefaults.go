@@ -15,6 +15,7 @@ func defaultLLM() LLM {
 		BackoffMax:      60 * time.Second,
 		TransientBudget: 5 * time.Minute,
 		RetryAfterMax:   2 * time.Minute,
+		KeepAlive:       30 * time.Minute,
 		Jitter:          0.25,
 		Reasoning: Reasoning{
 			Enabled: false,
