@@ -43,7 +43,7 @@ func TestEveryTranslationKeepsItsVerbs(t *testing.T) {
 // English among Spanish ones.
 func TestTheGoalMessagesAreTranslated(t *testing.T) {
 	for _, key := range []string{
-		"usage: /goal <what you want>",
+		"usage: /goal [--all] <what you want>",
 	} {
 		if T(ES, key) == key {
 			t.Errorf("%q has no Spanish translation", key)

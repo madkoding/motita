@@ -14,7 +14,7 @@ import (
 )
 
 func TestRunMessageSaysWhatTheRunNeeds(t *testing.T) {
-	for _, kind := range []string{"approval", "done", "error"} {
+	for _, kind := range []string{"approval", "done", "error", "goal-done", "goal-error"} {
 		for _, lang := range []i18n.Lang{i18n.EN, i18n.ES} {
 			m := runMessage(lang, kind, "make test", "Login page", "s 1")
 			wrongHead := !strings.HasSuffix(m.Title, " — Login page") || m.Body == ""
@@ -148,5 +148,34 @@ func TestTheApprovalTimeoutIsSavedFromTheSettings(t *testing.T) {
 	v = decodeSecurity(t, sendNetwork(t, srv, http.MethodPut, "/v1/security", `{"approval_timeout_minutes":0}`))
 	if v.ApprovalTimeoutMinutes != 0 {
 		t.Fatalf("back to waiting: %+v", v)
+	}
+}
+
+// A goal reaches the phone even with a page attached, and says it is the goal that ended.
+func TestAWatchedGoalStillReachesThePhone(t *testing.T) {
+	srv, tr, _ := newPushServer(t)
+	_ = pushCall(t, srv, http.MethodPost, "/v1/push/subscriptions", subscriptionJSON(t, testEndpoint, "es"))
+	c := newConversation("s1", &fakeService{})
+	rn := newRun("r1", srv.baseCtx, func() {}, "")
+	rn.goal = true
+	sub := rn.subscribe()
+	defer rn.unsubscribe(sub)
+	srv.pushUnwatched(c, rn, "done", "")
+	srv.pushUnwatched(c, rn, "approval", "make test")
+	srv.pushWG.Wait()
+	if tr.count() != 2 {
+		t.Fatalf("a watched goal sent %d, want 2", tr.count())
+	}
+	if m := runMessage(i18n.ES, "goal-done", "", "", "s"); m.Title != "Tu objetivo está listo" {
+		t.Errorf("es goal-done = %+v", m)
+	}
+}
+
+func TestIsGoalTask(t *testing.T) {
+	for task, want := range map[string]bool{"/goal ship it": true, "  /goal --all ship": true, "/goal": false,
+		"/goalpost": false, "ship it": false} {
+		if got := isGoalTask(task); got != want {
+			t.Errorf("isGoalTask(%q) = %v, want %v", task, got, want)
+		}
 	}
 }
