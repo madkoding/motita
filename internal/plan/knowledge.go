@@ -47,7 +47,8 @@ func knowledgeTools() []llm.Tool {
 			"of work (the steps, the pitfalls and why, never a diary); in project a fact about this project. "+
 			"Never secrets.",
 			llm.ObjectSchema(map[string]any{
-				"entry":   llm.StringProperty("The memory entry's title or path, or the procedure's name (lowercase, hyphenated)."),
+				"entry": llm.StringProperty("The memory entry's title or path (left out, its first line names it), " +
+					"or the procedure's name (lowercase, hyphenated)."),
 				"content": llm.StringProperty("The Markdown to keep."),
 				"in":      placeProperty(),
 			}, "content")),
