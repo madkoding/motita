@@ -14,6 +14,7 @@ import {
   canTypeKey,
   cancelLogin,
   forgetProvider,
+  PROVIDERS_CHANGED_EVENT,
   isConnected,
   loadLLM,
   loginStatus,
@@ -124,6 +125,11 @@ export function ProviderSettings({ api, onNotice }: ProviderSettingsProps) {
       .catch((e) => setErr(failureText(e)));
   }, [api]);
   useEffect(reload, [reload]);
+  // A change reads the list again and tells the usage panel, which shows connected providers only.
+  const changed = useCallback(() => {
+    reload();
+    window.dispatchEvent(new CustomEvent(PROVIDERS_CHANGED_EVENT));
+  }, [reload]);
   const onToggle = useCallback(
     (id: string) => setOpen((o) => choose(o === id, "", id)),
     [],
@@ -180,7 +186,7 @@ export function ProviderSettings({ api, onNotice }: ProviderSettingsProps) {
                 writable={view.writable}
                 open={open === p.id}
                 onToggle={onToggle}
-                onChanged={reload}
+                onChanged={changed}
                 onNotice={onNotice}
               />
             ))}
@@ -274,12 +280,12 @@ function explanation(p: LLMProvider): string {
 }
 
 // forgettable says whether a provider holds something here that Disconnect can remove: a saved
-// key, a sign-in, or an endpoint of its own.
+// key, the configuration's own key (the default provider's), a sign-in, or an endpoint of its own.
 function forgettable(p: LLMProvider, writable: boolean): boolean {
   if (!writable) {
     return false;
   }
-  if (p.key === "stored" || p.key === "login") {
+  if (p.key === "stored" || p.key === "login" || p.key === "config") {
     return true;
   }
   return !!p.ask_base_url && !!p.base_url && p.base_url !== p.default_base_url;

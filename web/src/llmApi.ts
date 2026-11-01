@@ -179,6 +179,10 @@ export function saveProvider(
   });
 }
 
+// PROVIDERS_CHANGED_EVENT is announced on window when a provider is saved, signed in or
+// disconnected, so the usage panel reads again at once instead of on its next tick.
+export const PROVIDERS_CHANGED_EVENT = "motita:providers-changed";
+
 export function forgetProvider(api: Api, id: string): Promise<LLMProvider> {
   return send<LLMProvider>(api, providerPath(id), { method: "DELETE" });
 }
