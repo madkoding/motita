@@ -77,6 +77,8 @@ type Agent struct {
 	//
 	// Both are better than refusing, which is what the agent used to do in either case.
 	Interactive bool
+	// goal is the /goal the outermost task is working on, nil for any other task. See goal.go.
+	goal *goalState
 	// approveAllNow, when set, is where agent.approve_all_commands is read at each command: see
 	// SetApproveAllSource.
 	approveAllNow func() bool
@@ -785,6 +787,7 @@ func (a *Agent) processTask(ctx context.Context, t task.Task, depth int) TaskRes
 		a.saveLessons(r.Report)
 	}
 	if depth == 0 {
+		a.endGoal()
 		// Whatever way the loop ended, nothing it started keeps running behind it.
 		a.endFleet(r)
 		r.Timings = a.turnTimings(started)
@@ -811,17 +814,6 @@ func (a *Agent) processTask(ctx context.Context, t task.Task, depth int) TaskRes
 	return r
 }
 
-// prepareGoal is the task as the outermost run works on it: a goal becomes autonomous.
-func (a *Agent) prepareGoal(t task.Task) task.Task {
-	run := t
-	if goal, ok := goalOf(t.Description); ok {
-		// A goal is autonomous: nobody is asked, the stated assumption is the answer.
-		a.Interactive = false
-		run.Description = goal + goalDirective
-	}
-	return run
-}
-
 // noteOutcome records the outcome of a task that ran in the conversation.
 func (a *Agent) noteOutcome(t task.Task, r TaskResult) {
 	outcome := taskOutcome(r)
@@ -834,24 +826,6 @@ func (a *Agent) noteOutcome(t task.Task, r TaskResult) {
 		}
 	}
 	a.note(t, outcome, KindTask)
-}
-
-// goalPrefix is what the user types to hand over a goal: "/goal <what they want>".
-const goalPrefix = "/goal"
-
-// goalDirective is appended to a goal's description. A goal is the user saying "decide for me",
-// so the agent picks the option it would recommend and goes on without asking.
-const goalDirective = "\n\nThis is a GOAL: the user delegated every decision. Do NOT ask questions " +
-	"and do NOT offer alternatives. Where a choice is needed, take the option you would recommend " +
-	"and continue."
-
-// goalOf reports whether a task is a goal and returns it without the prefix.
-func goalOf(description string) (string, bool) {
-	d := strings.TrimSpace(description)
-	if d == goalPrefix || !strings.HasPrefix(d, goalPrefix+" ") {
-		return description, false
-	}
-	return strings.TrimSpace(d[len(goalPrefix):]), true
 }
 
 // taskOutcome is the one line a finished task leaves in the conversation.

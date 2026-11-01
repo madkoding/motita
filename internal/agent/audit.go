@@ -64,10 +64,10 @@ func auditChallenge(unmet []auditCriterion) string {
 
 // auditDue says the audit is still to be spent on this run.
 func (r *taskRun) auditDue() bool {
-	if !r.a.cfg.Agent.CriteriaAudit || r.auditPassed || r.auditChallenges >= maxAuditChallenges {
+	if !r.a.cfg.Agent.CriteriaAudit || r.auditPassed || r.auditChallenges >= r.a.auditLimit() {
 		return false
 	}
-	return len(r.analysis.SuccessCrit) >= auditMinCriteria && r.ctx.Err() == nil
+	return len(r.analysis.SuccessCrit) >= r.a.auditMin() && r.ctx.Err() == nil
 }
 
 // auditClaim reads a claim of "done" against the success criteria and reports whether it was sent
@@ -95,17 +95,18 @@ func (r *taskRun) auditClaim(action Action) bool {
 	}
 	if err != nil {
 		a.log.Warn(r.prefix+"the criteria audit could not be read; taking the claim as it is", "error", err)
-		r.auditPassed = true
+		r.auditPassed, r.unmet = true, nil
 		return false
 	}
 	unmet := reply.unmet()
 	if len(unmet) == 0 {
-		r.auditPassed = true
+		r.auditPassed, r.unmet = true, nil
 		return false
 	}
 	r.auditChallenges++
+	r.unmet = unmet
 	a.report(criteriaPrefix+"%d criteria not shown; sending the run back (%d/%d)",
-		len(unmet), r.auditChallenges, maxAuditChallenges)
+		len(unmet), r.auditChallenges, a.auditLimit())
 	a.log.Warn(r.prefix+"done claimed over unmet criteria", "round", r.round,
 		"unmet", truncate(unmet[0].Criterion, 160), "challenge", r.auditChallenges)
 	r.journal = append(r.journal, roundRecord{
