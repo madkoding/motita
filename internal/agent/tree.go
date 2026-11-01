@@ -66,29 +66,46 @@ var lockFiles = map[string]bool{
 // content: cheap enough to take every round on a large project. sourcesOnly leaves out what a
 // build or an install writes on its own (see above).
 func treeFingerprint(dir string, sourcesOnly bool) (string, bool) {
-	if strings.TrimSpace(dir) == "" {
-		return "", false
+	all, sources, ok := treeFingerprints(dir)
+	if sourcesOnly {
+		return sources, ok
 	}
-	if st, err := os.Stat(dir); err != nil || !st.IsDir() {
-		return "", false
-	}
-	w := &treeWalk{dir: dir, sourcesOnly: sourcesOnly}
-	err := filepath.WalkDir(dir, w.visit)
-	if err != nil || w.tooMany {
-		return "", false
-	}
-	sort.Strings(w.lines)
-	sum := sha256.Sum256([]byte(strings.Join(w.lines, "\n")))
-	return hex.EncodeToString(sum[:]), true
+	return all, ok
 }
 
-// treeWalk is one walk of treeFingerprint: a line per file it counts, and whether there were
-// too many to count.
+// treeFingerprints takes both fingerprints of dir in ONE walk: every file (the kept reads' answer)
+// and the sources only (the work's). A round used to walk the tree once for each, and the walk is
+// what a fingerprint costs.
+func treeFingerprints(dir string) (all, sources string, ok bool) {
+	if strings.TrimSpace(dir) == "" {
+		return "", "", false
+	}
+	if st, err := os.Stat(dir); err != nil || !st.IsDir() {
+		return "", "", false
+	}
+	w := &treeWalk{dir: dir}
+	err := filepath.WalkDir(dir, w.visit)
+	if err != nil || w.tooMany {
+		return "", "", false
+	}
+	return digest(w.lines), digest(w.sources), true
+}
+
+// digest is the fingerprint of a walk's lines.
+func digest(lines []string) string {
+	sort.Strings(lines)
+	sum := sha256.Sum256([]byte(strings.Join(lines, "\n")))
+	return hex.EncodeToString(sum[:])
+}
+
+// treeWalk is one walk of treeFingerprints: a line per file it counts, the lines of the files that
+// are sources, the output directories it went into, and whether there were too many to count.
 type treeWalk struct {
-	dir         string
-	sourcesOnly bool
-	lines       []string
-	tooMany     bool
+	dir     string
+	lines   []string
+	sources []string
+	outputs []string
+	tooMany bool
 }
 
 // visit is the WalkDir callback of the walk.
@@ -101,25 +118,42 @@ func (w *treeWalk) visit(p string, d fs.DirEntry, err error) error {
 	if d.IsDir() {
 		return w.enterDir(p, name)
 	}
-	if w.sourcesOnly && lockFiles[name] {
-		return nil
-	}
 	// A file that cannot be stat'ed (it vanished between the listing and now) simply is not
 	// part of the fingerprint.
 	if info, ierr := d.Info(); ierr == nil {
 		rel, _ := filepath.Rel(w.dir, p)
-		w.lines = append(w.lines, rel+"\x00"+strconv.FormatInt(info.Size(), 10)+"\x00"+
-			strconv.FormatInt(info.ModTime().UnixNano(), 10))
+		line := rel + "\x00" + strconv.FormatInt(info.Size(), 10) + "\x00" +
+			strconv.FormatInt(info.ModTime().UnixNano(), 10)
+		w.lines = append(w.lines, line)
+		if !lockFiles[name] && !w.inOutput(p) {
+			w.sources = append(w.sources, line)
+		}
 	}
 	return w.limit()
 }
 
-// enterDir says whether the walk goes into a directory.
+// enterDir says whether the walk goes into a directory, and notes the output directories.
 func (w *treeWalk) enterDir(p, name string) error {
-	if p != w.dir && (alwaysSkipDirs[name] || (w.sourcesOnly && outputDirs[name])) {
+	if p == w.dir {
+		return nil
+	}
+	if alwaysSkipDirs[name] {
 		return fs.SkipDir
 	}
+	if outputDirs[name] {
+		w.outputs = append(w.outputs, p+string(filepath.Separator))
+	}
 	return nil
+}
+
+// inOutput says a file is inside an output directory, whose files are not sources.
+func (w *treeWalk) inOutput(p string) bool {
+	for _, o := range w.outputs {
+		if strings.HasPrefix(p, o) {
+			return true
+		}
+	}
+	return false
 }
 
 // limit stops the walk once it has counted more files than a fingerprint takes.

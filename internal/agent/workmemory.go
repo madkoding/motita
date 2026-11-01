@@ -62,6 +62,10 @@ type workMemory struct {
 	// depend on.
 	fp   string
 	fpOK bool
+	// src is the sources-only fingerprint the same walk took (see treeFingerprints), and unsynced
+	// says an action that may have written ran after that walk, so src is no longer the tree's.
+	src      string
+	unsynced bool
 	// verif is the last run of every check the run executed itself (see verify.go).
 	verif map[string]verifRecord
 	// installs is the last run of every dependency install by package manager (see unrunnable.go).
@@ -163,13 +167,22 @@ func (m *workMemory) forget(key string) {
 // and `git status` all look like writes, run in every long task, and changed none of the files
 // the model had read - and each one cost the run its whole evidence, which it then re-read.
 func (m *workMemory) sync(dir string) bool {
-	cur, ok := treeFingerprint(dir, false)
+	cur, src, ok := treeFingerprints(dir)
 	changed := !ok || !m.fpOK || cur != m.fp
-	m.fp, m.fpOK = cur, ok
+	m.fp, m.fpOK, m.src, m.unsynced = cur, ok, src, false
 	if changed {
 		m.invalidate()
 	}
 	return changed
+}
+
+// sources is the sources-only fingerprint of dir: the one the last sync took when nothing may have
+// written since, so a round that already walked the tree does not walk it again; else a new walk.
+func (m *workMemory) sources(dir string) (string, bool) {
+	if m.fpOK && !m.unsynced {
+		return m.src, true
+	}
+	return treeFingerprint(dir, true)
 }
 
 // invalidate drops every kept read: something was written, so none of them can be trusted.

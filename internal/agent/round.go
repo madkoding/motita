@@ -60,6 +60,11 @@ func (rr *roundRun) run(i int, action Command) {
 	// planner exposes as tools, reachable from here too.
 	if kind := strings.ToLower(strings.TrimSpace(action.Kind)); kind != "" && kind != "command" {
 		rr.told = false
+		if rr.mem != nil {
+			// An agent, a box or the desktop may change the tree with no sync after it; a file
+			// action syncs, which takes this back.
+			rr.mem.unsynced = true
+		}
 		if rr.kindAction(i, kind, action) {
 			if !rr.told {
 				// A read answered from the library, the memory or the session announces no
