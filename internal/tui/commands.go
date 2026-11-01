@@ -101,7 +101,7 @@ var commandActions = map[string]func(t *TUI, ctx context.Context, arg string) bo
 	// gateway and the agent need no new field to know the run is autonomous.
 	"/goal": func(t *TUI, ctx context.Context, arg string) bool {
 		if strings.TrimSpace(arg) == "" {
-			t.addMessage(AuthorSystem, t.tr("usage: /goal <what you want>"))
+			t.addMessage(AuthorSystem, t.tr("usage: /goal [--all] <what you want>"))
 			t.drawFrame()
 			return false
 		}

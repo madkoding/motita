@@ -90,6 +90,9 @@ type run struct {
 	onDenied func(command string)
 	// quiet keeps the run off the phones: it is a scheduled run, which reports on its own.
 	quiet bool
+	// goal says the run is a /goal: the person handed it over and usually left, so its end and its
+	// questions reach the phones even with a page still open.
+	goal bool
 
 	mu      sync.Mutex
 	seq     uint64

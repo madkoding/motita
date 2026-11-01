@@ -101,9 +101,11 @@ func (r *taskRun) auditClaim(action Action) bool {
 	unmet := reply.unmet()
 	if len(unmet) == 0 {
 		r.auditPassed, r.unmet = true, nil
+		r.noteCriteriaState(nil)
 		return false
 	}
 	r.auditChallenges++
+	r.noteCriteriaState(unmet)
 	r.unmet = unmet
 	a.report(criteriaPrefix+"%d criteria not shown; sending the run back (%d/%d)",
 		len(unmet), r.auditChallenges, a.auditLimit())

@@ -245,6 +245,7 @@ func (s *Server) launchRun(
 	resumed := rn.turn < len(turns)
 	rn.onLine = func(text string) { c.recordStep(rn.turn, text) }
 	rn.note = note
+	rn.goal = isGoalTask(task)
 	// The last run's agents are not this one's: the list starts over with the run.
 	c.setAgents(nil)
 	rn.onAgents = c.setAgents

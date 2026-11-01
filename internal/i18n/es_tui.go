@@ -79,7 +79,7 @@ var esTUI = map[string]string{
 	"goal":                                              "objetivo",
 	"write an AGENTS.md for this project, which later sessions load": "escribe un AGENTS.md para este proyecto, " +
 		"que cargan las sesiones siguientes",
-	"usage: /goal <what you want>":             "uso: /goal <lo que quieres>",
+	"usage: /goal [--all] <what you want>":     "uso: /goal [--all] <lo que quieres>",
 	"context used, and what was carried over":  "contexto usado, y lo que se conservó",
 	"list the conversations the gateway holds": "lista las conversaciones que tiene el gateway",
 	"switch to another conversation":           "cambia a otra conversación",
