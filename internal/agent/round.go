@@ -40,8 +40,14 @@ func (a *Agent) runRound(
 		mem.sync(a.cfg.Agent.WorkspaceDir)
 	}
 
-	for i, action := range actions {
-		rr.run(i, action)
+	for i := 0; i < len(actions); {
+		if n := rr.readBatch(actions[i:]); n > 1 {
+			rr.runReads(i, actions[i:i+n])
+			i += n
+			continue
+		}
+		rr.run(i, actions[i])
+		i++
 	}
 	return rr.sb.String(), rr.lastErr
 }
@@ -293,7 +299,7 @@ func (rr *roundRun) shell(i int, action Command) {
 	output = withSudoHint(action.Command, output, exit)
 	rr.record(action, output, truncated, exit, err)
 	if err != nil {
-		rr.lastErr = fmt.Errorf("action %d (%s) could not run: %w", i+1, action.Command, err)
+		rr.lastErr = errRun(i, action.Command, err)
 	}
 }
 
@@ -385,4 +391,9 @@ func (rr *roundRun) remember(action Command, output string, truncated bool, exit
 	default:
 		// Neither a write nor a clean read: nothing to keep.
 	}
+}
+
+// errRun is the error of the i-th action of a round, which could not run.
+func errRun(i int, command string, err error) error {
+	return fmt.Errorf("action %d (%s) could not run: %w", i+1, command, err)
 }
