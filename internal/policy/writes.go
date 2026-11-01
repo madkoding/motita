@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"path/filepath"
 	"strings"
+
+	"github.com/madkoding/motita/internal/readonly"
 )
 
 // ---------------------------------------------------------------------------
@@ -41,6 +43,11 @@ func writingForm(command string, args []string, dir string) (Decision, bool) {
 func writeTargets(name string, args []string) []string {
 	operands := rmTargets(args)
 	switch name {
+	case "sed":
+		// An in-place edit whose script only substitutes, deletes or prints rewrites its files
+		// and nothing else (see readonly.SedInPlace); any other sed is left to the question.
+		files, _ := readonly.SedInPlace(args)
+		return files
 	case "chmod", "chown", "chgrp":
 		// The first operand is a mode or an owner, not a path: reading `chmod 644` as
 		// "writes to the file 644" is how a policy invents a target and then reports it

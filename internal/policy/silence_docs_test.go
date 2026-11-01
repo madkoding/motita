@@ -53,9 +53,10 @@ func TestTheDocumentedSilenceTableHolds(t *testing.T) {
 		// "your own ./scripts/* — silent"
 		{"./scripts/deploy.sh", Allow, "docs: a workspace program named directly is silent"},
 
-		// The asymmetry the docs now spell out: naming the interpreter hides the script from
-		// the classifier, so the same file becomes a question.
-		{"sh scripts/deploy.sh", Ask, "docs: handed to a shell, the same script is asked about"},
+		// A shell handed a FILE runs what naming the file runs; handed a LINE, it is opaque.
+		{"sh scripts/deploy.sh", Allow, "docs: handed to a shell, the same script is silent"},
+		{"bash -eu scripts/test.sh", Allow, "docs: and so with the options that stop on errors"},
+		{"sh -c 'ls'", Ask, "docs: a shell handed a line is asked about"},
 
 		// "pip install x, git push — asked": it reaches the network.
 		{"pip install x", Ask, "docs: a network write is asked about"},
@@ -82,7 +83,9 @@ func TestTheDocumentedSilenceTableHolds(t *testing.T) {
 		// sed) or a redirection in the script (in awk), and the docs name both.
 		{`sed -n '1,300p' file`, Allow, "docs: sed in its printing form is silent"},
 		{`awk '{print $1}' file`, Allow, "docs: and so is awk"},
-		{`sed -i 's/a/b/' file`, Ask, "docs: sed in place is asked about"},
+		{`sed -i 's/a/b/' file`, Allow, "docs: sed in place on a workspace file is silent"},
+		{`sed -i 's/a/b/w out' file`, Ask, "docs: sed in place that writes another file is asked about"},
+		{"git fetch", Allow, "docs: git fetch is silent, as in plan mode"},
 		{`awk '{print > "f"}' file`, Ask, "docs: an awk redirection is asked about"},
 
 		// "a reader whose second operand is an output file" — the mirror defect, where the

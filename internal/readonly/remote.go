@@ -3,9 +3,11 @@ package readonly
 // Reads that only plan mode allows: `git fetch` and the GitHub CLI's reporting verbs, which reach
 // another machine, and a runtime asked for its version. They are judged here, and only by Check,
 // not by Classify: the wider policy of the mode where writing is the point keeps its own answer
-// for them (it asks about the network, and decides a runtime by the script it is given), while a
-// plan that cannot look at a remote or a version cannot be checked against it. The sandbox's
-// network setting still decides whether a connection can open at all.
+// for most of them (it asks about the network, and decides a runtime by the script it is given),
+// while a plan that cannot look at a remote or a version cannot be checked against it. `git fetch`
+// is the exception: that policy reads it here too (policy.gitFetchDecision), since the stricter
+// mode running it was the looser one asking about it. The sandbox's network setting still
+// decides whether a connection can open at all.
 
 import (
 	"fmt"

@@ -191,6 +191,9 @@ func (m Mode) decisionFor(command string, args []string, dir string) Decision {
 	if d, hit := projectToolDecision(name, args); hit {
 		return d
 	}
+	if d, hit := gitFetchDecision(name, args); hit {
+		return d
+	}
 	switch kind {
 	case readonly.KindReader:
 		return Decision{Allow, reason, "reader", false}
@@ -201,6 +204,9 @@ func (m Mode) decisionFor(command string, args []string, dir string) Decision {
 		// until it is interpreted, and `sh -c 'ls'` and `sh -c 'rm -rf /'` have the same
 		// shape. It is offered to the user rather than refused, because they can read the
 		// line and decide — but it is never run unreviewed.
+		if d, hit := shellScriptDecision(name, args, dir); hit {
+			return d
+		}
 		return Decision{Ask, reason + ": a shell line has to be approved as a whole", "shell", false}
 	case readonly.KindWriter:
 		return m.writerDecision(command, name, args, dir)

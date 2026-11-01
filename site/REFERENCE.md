@@ -2147,14 +2147,16 @@ The boundary cases are deliberate, and each one is a test:
 | --------------------------------------------------------------------- | --------- | ----------------------------------------------------------------------------------------------------------------- |
 | `python3 build.py` (inside the workspace)                             | silent    | a script that belongs to the project                                                                              |
 | `./scripts/deploy.sh`                                                 | silent    | the same, when you name it directly                                                                               |
-| `sh scripts/deploy.sh`                                                | **asked** | a shell interpreter is opaque by construction — see below                                                         |
+| `sh scripts/deploy.sh`, `bash -eu scripts/test.sh`                   | silent    | the same file handed to a shell by name: the policy sees the script is inside the workspace — see below           |
 | `cd /elsewhere`, `pushd`, `git -C /elsewhere`, `make -C /elsewhere`   | asked     | the task works in its own directory; a line that walks out of it runs the rest against another tree               |
 | a program that is not installed (not on the sandbox `PATH`)           | asked     | the question says it is missing and offers the way forward: approve the install, or install it yourself and retry |
 | `python3 /opt/other/build.py`                                         | asked     | a script from outside — the policy cannot read it as yours                                                        |
 | `python3 -c '...'`                                                    | asked     | inline code is as opaque as a shell line                                                                          |
 | `make`, `go build`, `npm test`                                        | silent    | the local toolchain                                                                                               |
 | `sed -n '1,300p' file`, `awk '{print $1}' file`                       | silent    | the line editors in their printing form, which is how a file gets read                                            |
-| `sed -i 's/a/b/' file`, `awk '{print > "f"}'`                         | **asked** | the same programs in their writing form: a flag, or a redirection in the script                                   |
+| `sed -i 's/a/b/' file` (file inside the workspace)                   | silent    | an in-place edit whose script only substitutes, deletes or prints: a write inside the workspace                   |
+| `sed -i 's/a/b/w out' file`, `awk '{print > "f"}'`                   | **asked** | the same programs writing or running something besides the file: a `w`/`e` in the script, or a redirection        |
+| `git fetch`                                                           | silent    | it only updates the remote-tracking references, as in plan mode; the sandbox still decides about the network      |
 | `sort -o out.txt in.txt`, `uniq in.txt out.txt`, `xxd in.bin out.hex` | **asked** | a reader whose second operand is an output file                                                                   |
 | `pip install x`, `git push`                                           | asked     | it reaches the network                                                                                            |
 | `htop`, an unknown binary                                             | asked     | nobody can classify it; with `strict` on, refused                                                                 |
@@ -2181,16 +2183,15 @@ unquoted redirection target, which reads exactly like the comparison `$1 > out`)
 as known gaps in `internal/readonly/argument_rules_test.go` rather than papered over with a
 rule that guesses.
 
-There is one asymmetry in that table worth naming, because it is the row an
-operator is most likely to trip over: **`./scripts/deploy.sh` runs silently but
-`sh scripts/deploy.sh` is asked about.** An interpreter is opaque by
-construction — `sh -c 'ls'` and `sh -c 'rm -rf /'` have the same shape, and the
-policy cannot read the script it is handed as data. Naming the program directly
-is different: the policy can see that the path resolves inside the workspace, so
-the project's own tooling is recognised as the project's own tooling. Handing the
-same file to a shell hides that from the classifier, and the cautious answer is
-to ask. This is deliberate, and it is the same judgement that makes inline code a
-question.
+A shell is opaque when it is handed a LINE — `sh -c 'ls'` and `sh -c 'rm -rf /'`
+have the same shape, and the policy cannot read code it is given as data. Handed a
+FILE, it is not: `sh scripts/deploy.sh` runs exactly what `./scripts/deploy.sh`
+runs, and the policy can see that the path resolves inside the workspace, so both
+are the project's own tooling. Only the options that trace or stop on errors
+(`-e`, `-u`, `-x`, `-v`, `-n`) are read past; `-c`, `-s`, `-o`, a shell reading
+its standard input and a script outside the workspace are still asked about. The
+asymmetry this table once documented (the same file silent named directly and a
+question handed to a shell) was the same program behind a second question.
 
 Inline flags are read per interpreter, because `-c` does not mean the same thing
 to `python3` and to `gcc`: treating them alike would either silence a real
