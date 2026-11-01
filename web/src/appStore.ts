@@ -37,6 +37,25 @@ import { useVoice } from "./useVoice";
 import { useSpeech } from "./useSpeech";
 import { useVoiceConversation } from "./useVoiceConversation";
 
+// useSessionSync keeps the page in step with what other pages do: the session list follows the
+// gateway's feed, and when another page moved the conversation on screen it is read again, softly,
+// and a turn still in flight there is followed from here too.
+function useSessionSync(
+  api: Api,
+  rs: ReturnType<typeof useRunState>,
+  lists: ReturnType<typeof useSessionList>,
+  conv: ReturnType<typeof useConversation>,
+  authed: boolean,
+) {
+  useSessionFeed(api, lists.fetchSessions, authed);
+  useOnScreenSync(
+    lists.sessions,
+    rs.sessionId,
+    () => rs.runningRef.current,
+    (id) => void conv.switchSessionRef.current?.(id, "none", true),
+  );
+}
+
 // machine is the computer the page is pointed at ("" for this one), for what cannot go through api:
 // the terminal's WebSocket.
 export function useAppStore(api: Api, machine = "") {
@@ -99,14 +118,6 @@ export function useAppStore(api: Api, machine = "") {
     setToast,
   });
   const stream = useStream({ api, rs, lists, conv, setState, setToast });
-  // Another page moved the conversation on screen: it is read again, softly, and a turn still in
-  // flight there is followed from here too.
-  useOnScreenSync(
-    lists.sessions,
-    rs.sessionId,
-    () => rs.runningRef.current,
-    (id) => void conv.switchSessionRef.current?.(id, "none", true),
-  );
   const { answerSuggestions, answerQuestions } = useSuggestions(
     api,
     rs,
@@ -146,7 +157,7 @@ export function useAppStore(api: Api, machine = "") {
   const updates = useUpdates(api, setToast, auth.authState === "ok");
   useRemoteChanges(lists, setToast, auth.authState === "ok");
   useProjectFeed(api, lists.fetchProjects, auth.authState === "ok");
-  useSessionFeed(api, lists.fetchSessions, auth.authState === "ok");
+  useSessionSync(api, rs, lists, conv, auth.authState === "ok");
   const voice = useVoice({
     api,
     authed: auth.authState === "ok",

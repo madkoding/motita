@@ -1187,22 +1187,9 @@ func (c Config) Deprecations() []string {
 	return notes
 }
 
-// DefaultPlanLoops is how many rounds of tool calls a chat turn may make when agent.plan_loops is
-// not set: enough to read a codebase the way a coding agent does, with a ceiling that still ends a
-// model that loops.
-const DefaultPlanLoops = 40
-
-// PlanToolRounds is how many rounds of tool calls a chat turn may make.
-func (a Agent) PlanToolRounds() int {
-	if a.PlanLoops > 0 {
-		return a.PlanLoops
-	}
-	return DefaultPlanLoops
-}
-
 func (c *Config) validateAgent() error {
-	if c.Agent.PlanLoops < 0 {
-		return fmt.Errorf("agent.plan_loops cannot be negative")
+	if err := c.Agent.validateLoops(); err != nil {
+		return err
 	}
 	if c.Agent.MaxRetries < 0 {
 		return fmt.Errorf("agent.max_retries cannot be negative")
