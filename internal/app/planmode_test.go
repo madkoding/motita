@@ -248,16 +248,12 @@ func TestPlanDefaultTimeoutAndLoops(t *testing.T) {
 	if planDefaultTimeout(cfg) != 120*time.Second {
 		t.Error("default timeout wrong")
 	}
-	cfg.Agent.MaxRetries = 0
-	if planDefaultLoops(cfg) != 5 {
+	cfg.Agent.MaxRetries = 3
+	if planDefaultLoops(cfg) != config.DefaultPlanLoops {
 		t.Errorf("default loops = %d", planDefaultLoops(cfg))
 	}
-	cfg.Agent.MaxRetries = 3
-	if planDefaultLoops(cfg) != 3 {
-		t.Errorf("loops = %d", planDefaultLoops(cfg))
-	}
-	cfg.Agent.MaxRetries = 20
-	if planDefaultLoops(cfg) != 5 {
+	cfg.Agent.PlanLoops = 12
+	if planDefaultLoops(cfg) != 12 {
 		t.Errorf("loops = %d", planDefaultLoops(cfg))
 	}
 }

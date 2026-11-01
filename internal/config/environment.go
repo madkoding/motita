@@ -165,6 +165,7 @@ func integerBindings(c *Config) []binding[int] {
 		{"MOTITA_LLM_SESSION_KEEP_RECENT", &c.LLM.Session.KeepRecent},
 		{"MOTITA_LLM_MAX_ATTEMPTS", &c.LLM.MaxAttempts},
 		{"MOTITA_AGENT_MAX_RETRIES", &c.Agent.MaxRetries},
+		{"MOTITA_AGENT_PLAN_LOOPS", &c.Agent.PlanLoops},
 		{"MOTITA_AGENT_SUBTASK_DEPTH", &c.Agent.SubtaskDepth},
 		{"MOTITA_AGENT_SUBTASK_RETRIES", &c.Agent.SubtaskRetries},
 		{"MOTITA_AGENT_MAX_TASKS", &c.Agent.MaxTasks},

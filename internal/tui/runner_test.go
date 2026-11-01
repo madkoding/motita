@@ -344,17 +344,17 @@ func TestPlanDefaultTimeout(t *testing.T) {
 
 func TestPlanDefaultLoops(t *testing.T) {
 	cfg := config.Default()
-	cfg.Agent.MaxRetries = 0
-	if planDefaultLoops(cfg) != 5 {
+	if planDefaultLoops(cfg) != config.DefaultPlanLoops {
 		t.Error("default loops wrong")
 	}
+	// max_retries bounds rejected task rounds; it no longer caps a chat turn's tool rounds.
 	cfg.Agent.MaxRetries = 3
-	if planDefaultLoops(cfg) != 3 {
-		t.Error("configured loops ignored")
+	if planDefaultLoops(cfg) != config.DefaultPlanLoops {
+		t.Error("max_retries still caps the chat turn")
 	}
-	cfg.Agent.MaxRetries = 20
-	if planDefaultLoops(cfg) != 5 {
-		t.Error("out-of-range loops not clamped")
+	cfg.Agent.PlanLoops = 60
+	if planDefaultLoops(cfg) != 60 {
+		t.Error("configured loops ignored")
 	}
 }
 

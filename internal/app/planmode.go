@@ -91,12 +91,7 @@ func planDefaultTimeout(cfg config.Config) time.Duration {
 	return 120 * time.Second
 }
 
-func planDefaultLoops(cfg config.Config) int {
-	if cfg.Agent.MaxRetries > 0 && cfg.Agent.MaxRetries <= 10 {
-		return cfg.Agent.MaxRetries
-	}
-	return 5
-}
+func planDefaultLoops(cfg config.Config) int { return cfg.Agent.PlanToolRounds() }
 
 // buildSkillRunner is the RunnerBuilder for the background review fork and the
 // curator's LLM consolidation pass. It creates a *plan.Planner with only the
