@@ -130,6 +130,10 @@ type directRun struct {
 	before   *runBaseline
 	used     bool
 	gateTry  int
+	// goalChecks counts the times a goal was asked to check its work before stopping, and
+	// workedSinceCheck says it called tools after the last one. See goalCheck.
+	goalChecks       int
+	workedSinceCheck bool
 }
 
 // direct runs a task in direct mode.
@@ -186,7 +190,7 @@ func (r *directRun) step() bool {
 	}
 	r.msgs = append(r.msgs, llm.Message{Role: "assistant", Content: reply.Content, ToolCalls: reply.Calls})
 	if reply.WantsTools() {
-		r.used = true
+		r.used, r.workedSinceCheck = true, true
 		for _, tc := range reply.Calls {
 			r.msgs = append(r.msgs, llm.Message{Role: "tool", Content: r.a.directRun(r.ctx, tc), ToolCallID: tc.ID})
 		}
@@ -198,6 +202,9 @@ func (r *directRun) step() bool {
 // answer closes the run on the model's answer: a reply when nothing changed, the gate otherwise.
 func (r *directRun) answer(text string) bool {
 	a := r.a
+	if r.goalCheck() {
+		return false
+	}
 	if cur, ok := treeFingerprint(a.cfg.Agent.WorkspaceDir, true); !ok || cur == r.baseline {
 		r.res.Kind, r.res.Pass, r.res.Reply, r.res.Summary = KindChat, true, text, text
 		r.res.Reason = "answered; no file changed"
@@ -207,13 +214,13 @@ func (r *directRun) answer(text string) bool {
 	a.report("validating with anchor...")
 	v := a.validateClaim(r.ctx, r.before)
 	r.res.Validation, r.res.Summary = &v, text
-	if v.Pass || r.gateTry >= directGateRetries {
+	if v.Pass || r.gateTry >= a.directGateLimit() {
 		r.res.Pass, r.res.Reason = v.Pass, v.Reason
 		a.report("task finished: %s", v.Reason)
 		return true
 	}
 	r.gateTry++
-	a.report(directGatePrefix+" (%d/%d)", r.gateTry, directGateRetries)
+	a.report(directGatePrefix+" (%d/%d)", r.gateTry, a.directGateLimit())
 	r.msgs = append(r.msgs, llm.Message{Role: "user", Content: gateFeedback(v)})
 	return false
 }
