@@ -161,29 +161,35 @@ func TestAGoalIsAuditedHarder(t *testing.T) {
 	}
 }
 
+// subtaskGoalServer splits a goal in two subtasks; failing makes the first one fail.
+func subtaskGoalServer(failing bool) *scriptServer {
+	return &scriptServer{
+		plan: func(p string) string {
+			if strings.Contains(p, "subtask 1 of") || strings.Contains(p, "subtask 2 of") {
+				return `{"plan":[{"step":1,"action":"do it"}],"subtasks":[]}`
+			}
+			return `{"plan":[],"subtasks":["write a.txt","write b.txt"]}`
+		},
+		execute: func(_ int, p string) string {
+			first := strings.Contains(p, "[THIS ONE] write a.txt")
+			switch {
+			case strings.Contains(p, "This GOAL was split"):
+				return step(true, "touch whole.txt")
+			case first && failing:
+				return `not json`
+			case first:
+				return step(true, "touch a.txt")
+			default:
+				return step(true, "touch b.txt")
+			}
+		},
+	}
+}
+
 // A goal split into subtasks is checked whole afterwards, even when a subtask failed.
 func TestAGoalIsClosedAfterItsSubtasks(t *testing.T) {
 	for _, failing := range []bool{false, true} {
-		s := &scriptServer{
-			plan: func(p string) string {
-				if strings.Contains(p, "subtask 1 of") || strings.Contains(p, "subtask 2 of") {
-					return `{"plan":[{"step":1,"action":"do it"}],"subtasks":[]}`
-				}
-				return `{"plan":[],"subtasks":["write a.txt","write b.txt"]}`
-			},
-			execute: func(_ int, p string) string {
-				switch {
-				case strings.Contains(p, "This GOAL was split"):
-					return step(true, "touch whole.txt")
-				case failing && strings.Contains(p, "[THIS ONE] write a.txt"):
-					return `not json`
-				case strings.Contains(p, "[THIS ONE] write a.txt"):
-					return step(true, "touch a.txt")
-				default:
-					return step(true, "touch b.txt")
-				}
-			},
-		}
+		s := subtaskGoalServer(failing)
 		if !failing {
 			// An answer with nothing to say: the goal keeps what its subtasks said.
 			s.synthReply = `{"summary":""}`
@@ -197,8 +203,7 @@ func TestAGoalIsClosedAfterItsSubtasks(t *testing.T) {
 		if _, err := os.Stat(filepath.Join(e.dir, "whole.txt")); err != nil {
 			t.Errorf("failing=%v: the closing round never ran: %v", failing, err)
 		}
-		last := s.executes[len(s.executes)-1]
-		if !strings.Contains(last, "This GOAL was split") {
+		if last := s.executes[len(s.executes)-1]; !strings.Contains(last, "This GOAL was split") {
 			t.Errorf("failing=%v: the closing round must see the subtasks", failing)
 		}
 		if !failing && !strings.Contains(r.Summary, "write b.txt") {

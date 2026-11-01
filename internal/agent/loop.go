@@ -96,7 +96,7 @@ func (a *Agent) loop(ctx context.Context, t task.Task, depth int) TaskResult {
 	// the plan it carries is the plan: see followedPlan below.
 	_, following := FollowedPlan(t.Description)
 	// A GOAL is work by the same token: the person handed it over to be done, not discussed.
-	if depth > 0 || IsApplyingTurn(t.Description) || following || (depth == 0 && a.isGoal()) {
+	if depth > 0 || following || r.workByRequest() {
 		r.workAsSubtask()
 	}
 

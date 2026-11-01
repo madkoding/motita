@@ -150,6 +150,12 @@ func (a *Agent) directGateLimit() int {
 	return directGateRetries
 }
 
+// workByRequest reports a turn whose request is work by itself, whatever the analysis read: the
+// turn that applies accepted suggestions, and a goal.
+func (r *taskRun) workByRequest() bool {
+	return IsApplyingTurn(r.t.Description) || (r.depth == 0 && r.a.isGoal())
+}
+
 // goalCheck reports whether a goal in direct mode is sent back to check its work before it stops,
 // and adds the request to the conversation when it is.
 func (r *directRun) goalCheck() bool {
