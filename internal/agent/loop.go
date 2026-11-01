@@ -46,15 +46,19 @@ type taskRun struct {
 	verifyChallenges  int
 	auditChallenges   int
 	auditPassed       bool
-	toolingRetries    int
-	trail             []string
-	workLog           workLog
-	rejected          int
-	unusable          int
-	repeats           int
-	lastSignature     string
-	maxSteps          int
-	round             int
+	// unmet is what the last criteria audit found missing, while no later audit passed.
+	unmet []auditCriterion
+	// seed is a record the execution journal starts with: what a goal's subtasks did.
+	seed           *roundRecord
+	toolingRetries int
+	trail          []string
+	workLog        workLog
+	rejected       int
+	unusable       int
+	repeats        int
+	lastSignature  string
+	maxSteps       int
+	round          int
 }
 
 // loop is the 9-step loop itself.
@@ -91,7 +95,8 @@ func (a *Agent) loop(ctx context.Context, t task.Task, depth int) TaskResult {
 	// The turn that carries out a plan the person just approved is work by the same token, and
 	// the plan it carries is the plan: see followedPlan below.
 	_, following := FollowedPlan(t.Description)
-	if depth > 0 || IsApplyingTurn(t.Description) || following {
+	// A GOAL is work by the same token: the person handed it over to be done, not discussed.
+	if depth > 0 || following || r.workByRequest() {
 		r.workAsSubtask()
 	}
 
@@ -139,9 +144,9 @@ func (a *Agent) loop(ctx context.Context, t task.Task, depth int) TaskResult {
 		case depth >= a.cfg.Agent.SubtaskDepth:
 			// The limit is reached: the warning below, then the task runs as one.
 		case a.parallelSubtasks(ctx, r.plan, subs):
-			return a.runSubtasksParallel(ctx, t, r.analysis, subs, depth, r.start, r.prefix)
+			return r.closeGoal(a.runSubtasksParallel(ctx, t, r.analysis, subs, depth, r.start, r.prefix), subs)
 		default:
-			return a.runSubtasks(ctx, t, r.analysis, subs, depth, r.start, r.prefix)
+			return r.closeGoal(a.runSubtasks(ctx, t, r.analysis, subs, depth, r.start, r.prefix), subs)
 		}
 		a.log.Warn(r.prefix+"subtask splitting reached the configured limit; continuing as a single task",
 			"depth", depth, "limit", a.cfg.Agent.SubtaskDepth,
@@ -435,6 +440,9 @@ func (r *taskRun) execute() TaskResult {
 	}
 	defer r.logRoundSummary()
 	r.resume()
+	if r.seed != nil {
+		r.journal = append(r.journal, *r.seed)
+	}
 	// workLog is what every round ran and printed, for the final answer: the synthesis used
 	// to see only the LAST round, which on a long task is a final `git status` and nothing
 	// of the work.
@@ -531,7 +539,7 @@ func (r *taskRun) nextRound() bool {
 	a := r.a
 	if rounded := r.round / r.maxSteps; rounded > 0 && r.round%r.maxSteps == 0 {
 		// One full budget has been spent. Ask before spending another.
-		cont, err := a.continueBudget(r.ctx, r.round, r.maxSteps, r.prefix)
+		cont, err := a.keepGoing(r.ctx, r.round, r.maxSteps, r.prefix)
 		if err != nil || !cont {
 			r.res.Reason = fmt.Sprintf(
 				"the task is not finished: %d rounds were used and the model still reports work left. "+
@@ -839,6 +847,11 @@ func (r *taskRun) finish(action Action, validation anchor.Result) (res TaskResul
 	if blocked := r.mem.blockedChecks(); len(blocked) > 0 {
 		r.res.Reason += "; NOT VALIDATED: `" + collapse(truncate(blocked[0].command, 80)) + "` could not run (" +
 			blockedCause(blocked[0]) + ")"
+	}
+	if len(r.unmet) > 0 {
+		// The audit's last word was "not shown" and it ran out of challenges: the run is
+		// finished, but the answer must not read as if every criterion had been met.
+		r.res.Reason += "; NOT SHOWN: " + collapse(truncate(r.unmet[0].Criterion, 120))
 	}
 	r.res.DurationMS = time.Since(r.start).Milliseconds()
 	a.report("task complete: %s", validation.Reason)
