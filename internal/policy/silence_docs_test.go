@@ -86,6 +86,9 @@ func TestTheDocumentedSilenceTableHolds(t *testing.T) {
 		{`sed -i 's/a/b/' file`, Allow, "docs: sed in place on a workspace file is silent"},
 		{`sed -i 's/a/b/w out' file`, Ask, "docs: sed in place that writes another file is asked about"},
 		{"git fetch", Allow, "docs: git fetch is silent, as in plan mode"},
+		{"find . -name '*.go' | xargs grep TODO", Allow, "docs: xargs into a reader is silent"},
+		{"export CI=1 && go test ./...", Allow, "docs: an export is silent"},
+		{"export PATH=/tmp/bin", Ask, "docs: an export of PATH is asked about"},
 		{`awk '{print > "f"}' file`, Ask, "docs: an awk redirection is asked about"},
 
 		// "a reader whose second operand is an output file" — the mirror defect, where the

@@ -27,6 +27,19 @@ func TestFewerQuestionsForWhatIsAlreadyAllowed(t *testing.T) {
 		{"git fetch origin main:main", Ask, categoryExternalEffect},
 		{"git fetch --upload-pack=x origin", Ask, categoryExternalEffect},
 		{"git pull", Ask, categoryExternalEffect},
+		{"xargs -0 -n 5 -P4 grep -l TODO", Allow, "xargs-reader"},
+		{"xargs -r wc -l", Allow, "xargs-reader"},
+		{"xargs rm", Ask, "unclassified"},
+		{"xargs sort", Ask, "unclassified"},
+		{"xargs --max-args=2 grep x", Ask, "unclassified"},
+		{"xargs -r", Ask, "unclassified"},
+		{"xargs -n", Ask, "unclassified"},
+		{"xargs grep -r x .", Allow, "xargs-reader"},
+		{"export CI=1 GOFLAGS", Allow, "export"},
+		{"export PATH=/tmp/bin", Ask, "unclassified"},
+		{"export LD_PRELOAD=x.so", Ask, "unclassified"},
+		{"export DYLD_INSERT_LIBRARIES=x", Ask, "unclassified"},
+		{"export -n X", Ask, "unclassified"},
 	}
 	for _, c := range cases {
 		d := testMode().DecideLine(c.line, dir)

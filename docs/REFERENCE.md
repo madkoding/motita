@@ -2156,6 +2156,8 @@ The boundary cases are deliberate, and each one is a test:
 | `sed -n '1,300p' file`, `awk '{print $1}' file`                       | silent    | the line editors in their printing form, which is how a file gets read                                            |
 | `sed -i 's/a/b/' file` (file inside the workspace)                   | silent    | an in-place edit whose script only substitutes, deletes or prints: a write inside the workspace                   |
 | `sed -i 's/a/b/w out' file`, `awk '{print > "f"}'`                   | **asked** | the same programs writing or running something besides the file: a `w`/`e` in the script, or a redirection        |
+| `find . -name '*.go' \| xargs grep TODO`                              | silent    | xargs handing its input to a reader whose arguments can only name what it reads (grep, cat, head, wc, ls...)     |
+| `export CI=1 && go test ./...`                                        | silent    | export sets a variable, as `CI=1 go test` does; `PATH`, `LD_*`, `DYLD_*` and the shell's start-up files are asked |
 | `git fetch`                                                           | silent    | it only updates the remote-tracking references, as in plan mode; the sandbox still decides about the network      |
 | `sort -o out.txt in.txt`, `uniq in.txt out.txt`, `xxd in.bin out.hex` | **asked** | a reader whose second operand is an output file                                                                   |
 | `pip install x`, `git push`                                           | asked     | it reaches the network                                                                                            |

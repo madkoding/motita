@@ -194,6 +194,12 @@ func (m Mode) decisionFor(command string, args []string, dir string) Decision {
 	if d, hit := gitFetchDecision(name, args); hit {
 		return d
 	}
+	if d, hit := xargsDecision(name, args); hit {
+		return d
+	}
+	if d, hit := exportDecision(name, args); hit {
+		return d
+	}
 	switch kind {
 	case readonly.KindReader:
 		return Decision{Allow, reason, "reader", false}
