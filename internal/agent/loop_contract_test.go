@@ -296,7 +296,7 @@ func TestARunThatRepeatsItselfIsWarnedThenStopped(t *testing.T) {
 	}
 	warned := false
 	for _, p := range s.executes {
-		if strings.Contains(p, "repeated the previous one exactly") {
+		if strings.Contains(p, "repeated an earlier one exactly") {
 			warned = true
 		}
 	}
