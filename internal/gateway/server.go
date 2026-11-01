@@ -271,8 +271,10 @@ type Options struct {
 
 // Server is the HTTP face of the conversations this process holds.
 type Server struct {
-	opts     Options
-	listener net.Listener
+	opts Options
+	// approvalWait is agent.approval_timeout as the configuration file last said it.
+	approvalWait fileTimeout
+	listener     net.Listener
 	// tlsListener is the https listener, nil when Options.TLSListen is empty.
 	tlsListener net.Listener
 	server      *http.Server

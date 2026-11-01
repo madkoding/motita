@@ -7,8 +7,10 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"os"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/madkoding/motita/internal/agent"
@@ -766,11 +768,40 @@ func (r *run) deny(req agent.ApprovalRequest, err error) {
 // follows the change at its next question.
 func (s *Server) approvalTimeout(c *conversation) time.Duration {
 	if s.opts.ConfigPath != "" {
-		if cfg, err := loadConfig(s.opts.ConfigPath); err == nil {
-			return cfg.Agent.ApprovalTimeout
+		if wait, ok := s.approvalWait.read(s.opts.ConfigPath); ok {
+			return wait
 		}
 	}
 	return c.svc.Config().Agent.ApprovalTimeout
+}
+
+// fileTimeout is agent.approval_timeout as the configuration file last said it, kept with the
+// file's size and modification time: a question asked while the file is unchanged does not parse
+// it again, and a change made in the settings is read at the next question as before.
+type fileTimeout struct {
+	mu    sync.Mutex
+	stamp string
+	wait  time.Duration
+}
+
+// read is the timeout path holds, and false when the file cannot be read.
+func (f *fileTimeout) read(path string) (time.Duration, bool) {
+	st, err := os.Stat(path)
+	if err != nil {
+		return 0, false
+	}
+	stamp := fmt.Sprint(st.Size(), st.ModTime().UnixNano())
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if stamp == f.stamp {
+		return f.wait, true
+	}
+	cfg, err := loadConfig(path)
+	if err != nil {
+		return 0, false
+	}
+	f.stamp, f.wait = stamp, cfg.Agent.ApprovalTimeout
+	return f.wait, true
 }
 
 // handleApproval answers the question of the run in progress IN THIS conversation.
