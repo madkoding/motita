@@ -7,7 +7,9 @@ import {
   type EvalHistory,
   type EvalRun,
   type EvalVerdict,
+  type EvalVersus,
   type EvalView,
+  compareModes,
   costText,
   loadEvals,
   runEvals,
@@ -45,6 +47,13 @@ const STALE: Record<string, string> = {
     "The tasks were updated since the last check, so it cannot be compared. Run it again.",
 };
 
+// How direct mode did against the phased loop.
+const VERSUS: Record<string, string> = {
+  better: "Direct mode did better than phased",
+  same: "Direct and phased did about the same",
+  worse: "Direct mode did worse than phased",
+};
+
 const HEADLINE: Record<string, string> = {
   first: "First check done. The next one will be compared with this one.",
   better: "Better than last time",
@@ -61,7 +70,8 @@ export function EvalSettings({
   watch,
 }: ProviderSettingsProps & { watch: string }) {
   const [view, setView] = useState<EvalView | null>(null);
-  const [asking, setAsking] = useState(false);
+  // asking is the confirmation shown: "" none, "one" a check, "both" a check in both modes.
+  const [asking, setAsking] = useState("");
   const [err, setErr] = useState("");
   const reload = useCallback(
     () =>
@@ -84,7 +94,7 @@ export function EvalSettings({
   const act = useCallback(
     async (fn: (api: Api) => Promise<unknown>, done?: string) => {
       setErr("");
-      setAsking(false);
+      setAsking("");
       try {
         await fn(api);
         if (done) {
@@ -143,6 +153,7 @@ export function EvalSettings({
             {failure}
           </p>
         )}
+        {view.versus && <Versus vs={view.versus} />}
         {view.last && view.verdict && (
           <Result last={view.last} v={view.verdict} history={view.history} />
         )}
@@ -174,15 +185,17 @@ function Controls({
   act,
 }: {
   view: EvalView;
-  asking: boolean;
-  setAsking: (v: boolean) => void;
+  asking: string;
+  setAsking: (v: string) => void;
   act: (fn: (api: Api) => Promise<unknown>, done?: string) => Promise<void>;
 }) {
   const p = view.progress;
   const stop = () => act(stopEvals);
-  const start = () => act(runEvals, t("Check started"));
-  const ask = () => setAsking(true);
-  const dismiss = () => setAsking(false);
+  const start = () =>
+    act(choose(asking === "both", compareModes, runEvals), t("Check started"));
+  const ask = () => setAsking("one");
+  const askBoth = () => setAsking("both");
+  const dismiss = () => setAsking("");
   if (p.running) {
     return (
       <div class="settings-add llm-actions" data-testid="eval-running">
@@ -202,9 +215,16 @@ function Controls({
     return (
       <div class="settings-add llm-actions" data-testid="eval-confirm">
         <p class="text-xs text-[#e8e8ea] flex-1 min-w-0">
-          {tf(
-            "This runs {n} small tasks on {model} and uses part of your quota. Run it?",
-            { n: view.cases.length, model: view.model },
+          {choose(
+            asking === "both",
+            tf(
+              "This runs {n} small tasks on {model} twice, phased and direct, and uses part of your quota. Run it?",
+              { n: view.cases.length, model: view.model },
+            ),
+            tf(
+              "This runs {n} small tasks on {model} and uses part of your quota. Run it?",
+              { n: view.cases.length, model: view.model },
+            ),
           )}
         </p>
         <button type="button" class={primaryBtn} onClick={start}>
@@ -226,6 +246,40 @@ function Controls({
       >
         {t("Run check")}
       </button>
+      {view.mode && (
+        <button
+          type="button"
+          class={smallBtn}
+          data-testid="eval-compare"
+          onClick={askBoth}
+        >
+          {t("Compare phased and direct")}
+        </button>
+      )}
+    </div>
+  );
+}
+
+// Versus is the newest direct run weighed against the newest phased one on the same model.
+function Versus({ vs }: { vs: EvalVersus }) {
+  const line = (label: string, s: EvalVersus["phased"]) =>
+    tf("{mode}: {passed} of {total} tasks, {steps} steps", {
+      mode: t(label),
+      passed: s.passed,
+      total: s.total,
+      steps: s.steps,
+    });
+  return (
+    <div
+      class="settings-add eval-result"
+      data-testid="eval-versus"
+      data-status={vs.verdict.status}
+    >
+      <output class={"eval-headline eval-" + vs.verdict.status}>
+        {t(VERSUS[vs.verdict.status] || VERSUS.same)}
+      </output>
+      <p class="text-xs text-[#7a7a8c]">{line("In phases", vs.phased)}</p>
+      <p class="text-xs text-[#7a7a8c]">{line("Direct", vs.direct)}</p>
     </div>
   );
 }

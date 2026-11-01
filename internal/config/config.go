@@ -314,6 +314,16 @@ type OnFailure struct {
 type Agent struct {
 	MaxRetries   int `yaml:"max_retries"`
 	SubtaskDepth int `yaml:"subtask_depth"`
+	// PlanLoops is how many rounds of tool calls a chat (plan) turn may make before it is told to
+	// answer with what it has. It used to borrow max_retries, clamped to 10, so a turn that read a
+	// codebase stopped after eight looks and answered half-informed, and the person asked again.
+	// Zero is the default (DefaultPlanLoops).
+	PlanLoops int `yaml:"plan_loops"`
+	// Direct runs a task as one conversation with native tool calls (a shell, write and edit a
+	// file, recall, remember), the way a coding agent works, instead of the phased loop of JSON
+	// rounds. The sandbox, the policy and the approvals are the same; the project's gate runs once
+	// at the end. Off by default.
+	Direct bool `yaml:"direct"`
 	// SubtaskRetries is how many times a subtask that failed is tried again, told why the last
 	// attempt failed, before the parent gives up on the rest of its subtasks. Zero turns it off.
 	SubtaskRetries int `yaml:"subtask_retries"`
@@ -1178,6 +1188,9 @@ func (c Config) Deprecations() []string {
 }
 
 func (c *Config) validateAgent() error {
+	if err := c.Agent.validateLoops(); err != nil {
+		return err
+	}
 	if c.Agent.MaxRetries < 0 {
 		return fmt.Errorf("agent.max_retries cannot be negative")
 	}

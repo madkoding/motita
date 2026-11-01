@@ -400,3 +400,48 @@ test("in Spanish", async () => {
     await setLang("en");
   }
 });
+
+test("comparing the modes asks first, runs both, and shows direct against phased", async () => {
+  let view = { ...VIEW, mode: "phased" };
+  const f = fakeApi({
+    "GET /v1/evals": () => json(200, view),
+    "POST /v1/evals/run": () => json(202, idle),
+  });
+  const m = await mount(h(EvalSettings, props(f.api)));
+  click(m.root.querySelector("[data-testid=eval-compare]"));
+  await settle();
+  assert.match(text(m.root), /twice, phased and direct/);
+  click(btn(m.root, "Run the check"));
+  await settle();
+  const sent = f.calls.find((c) => c.path === "/v1/evals/run");
+  assert.deepEqual(sent.body, { confirm: true, mode: "both" });
+  for (const [status, headline] of [
+    ["better", /Direct mode did better than phased/],
+    ["worse", /Direct mode did worse than phased/],
+    ["first", /about the same/],
+  ]) {
+    view = {
+      ...VIEW,
+      mode: "direct",
+      versus: {
+        phased: summary(4, 20),
+        direct: summary(5, 8),
+        verdict: verdict({ status }),
+      },
+    };
+    await m.rerender(h(EvalSettings, props(f.api, { watch: status })));
+    const vs = m.root.querySelector("[data-testid=eval-versus]");
+    assert.match(text(vs), headline);
+    assert.match(text(vs), /In phases: 4 of 5 tasks, 20 steps/);
+    assert.match(text(vs), /Direct: 5 of 5 tasks, 8 steps/);
+  }
+  await m.unmount();
+});
+
+test("an older gateway with no modes offers no comparison", async () => {
+  const f = fakeApi({ "GET /v1/evals": json(200, VIEW) });
+  const m = await mount(h(EvalSettings, props(f.api)));
+  assert.equal(m.root.querySelector("[data-testid=eval-compare]"), null);
+  assert.equal(m.root.querySelector("[data-testid=eval-versus]"), null);
+  await m.unmount();
+});

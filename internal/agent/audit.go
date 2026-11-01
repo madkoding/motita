@@ -104,7 +104,7 @@ func (r *taskRun) auditClaim(action Action) bool {
 		return false
 	}
 	r.auditChallenges++
-	a.report("done claimed with %d criteria not shown; sending the run back (%d/%d)",
+	a.report(criteriaPrefix+"%d criteria not shown; sending the run back (%d/%d)",
 		len(unmet), r.auditChallenges, maxAuditChallenges)
 	a.log.Warn(r.prefix+"done claimed over unmet criteria", "round", r.round,
 		"unmet", truncate(unmet[0].Criterion, 160), "challenge", r.auditChallenges)

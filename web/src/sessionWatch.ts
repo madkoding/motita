@@ -59,6 +59,60 @@ export function useFinishedElsewhere(
   }, [sessions]);
 }
 
+// Seen is what the tab last saw of the session on screen: its id, its rev, and whether a turn of
+// it was being followed by this tab since then (its own, or one it attached to).
+export interface Seen {
+  id: string;
+  rev?: number;
+  mine: boolean;
+}
+
+// onScreenMoved compares the session on screen with what the tab last saw of it, and says whether
+// the conversation has to be read again: a turn started or ended there that this tab did not
+// follow - one asked from another browser or computer, a scheduled one, a reset. The end of a turn
+// the tab followed is already on screen, so it is not read again.
+export function onScreenMoved(
+  seen: Seen,
+  s: SessionInfo | undefined,
+  following: boolean,
+): { seen: Seen; reread: boolean } {
+  if (!s) {
+    return { seen, reread: false };
+  }
+  if (following) {
+    return { seen: { id: s.id, rev: s.rev, mine: true }, reread: false };
+  }
+  if (seen.id !== s.id || s.rev == null || seen.rev === s.rev) {
+    const mine = seen.id === s.id && seen.mine;
+    return { seen: { id: s.id, rev: s.rev, mine }, reread: false };
+  }
+  // The rev moved. The run this tab followed letting go of its slot is the one move it has seen.
+  const reread = !(seen.mine && !s.running);
+  return { seen: { id: s.id, rev: s.rev, mine: false }, reread };
+}
+
+// useOnScreenSync reads the conversation on screen again when another page moved it, so a session
+// open on two machines shows the same turns on both, and a turn started elsewhere is followed live.
+export function useOnScreenSync(
+  sessions: SessionInfo[],
+  onScreen: string,
+  following: () => boolean,
+  reread: (id: string) => void,
+) {
+  const seen = useRef<Seen>({ id: "", mine: false });
+  useEffect(() => {
+    const next = onScreenMoved(
+      seen.current,
+      sessions.find((s) => s.id === onScreen),
+      following(),
+    );
+    seen.current = next.seen;
+    if (next.reread) {
+      reread(onScreen);
+    }
+  }, [sessions, onScreen]);
+}
+
 // modelChangeToast is the warning a model switch earns in this session, or null when it earns
 // none. The model belongs to the session, so switching it is allowed; what deserves a word is
 // switching it in a conversation that already talked, or while a turn is running.

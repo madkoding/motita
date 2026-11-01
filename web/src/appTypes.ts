@@ -70,6 +70,9 @@ export interface SessionInfo {
   created: string;
   last_used: string;
   running: boolean;
+  // rev moves when a turn starts or ends in the session, from this page or any other. Older
+  // gateways do not send it.
+  rev?: number;
   // agents_running counts the background agents the session's run started that are still
   // working. Older gateways do not send it.
   agents_running?: number;

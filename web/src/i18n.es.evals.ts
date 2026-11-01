@@ -27,6 +27,17 @@ const evals: Record<string, string> = {
     "Esto ejecuta {n} tareas pequeñas con {model} y gasta parte de tu cuota. ¿Lo hago?",
   "Run the check": "Hacer la revisión",
   "Run check": "Revisar ahora",
+  "Compare phased and direct": "Comparar por fases y directo",
+  "This runs {n} small tasks on {model} twice, phased and direct, and uses part of your quota. Run it?":
+    "Esto ejecuta {n} tareas pequeñas con {model} dos veces, por fases y directo, y gasta parte de tu cuota. ¿Lo hago?",
+  "Direct mode did better than phased":
+    "El modo directo rindió mejor que por fases",
+  "Direct and phased did about the same":
+    "Directo y por fases rindieron más o menos igual",
+  "Direct mode did worse than phased":
+    "El modo directo rindió peor que por fases",
+  "{mode}: {passed} of {total} tasks, {steps} steps":
+    "{mode}: {passed} de {total} tareas, {steps} pasos",
   "Check started": "Revisión iniciada",
   "{model} · {passed} of {total} tasks passed":
     "{model} · {passed} de {total} tareas superadas",

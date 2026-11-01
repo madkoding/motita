@@ -483,10 +483,13 @@ export function useStream({ api, rs, lists, conv, setState, setToast }: Deps) {
         return;
       }
       // Stream ended normally. If finish() was already called by the done/error
-      // event, runningRef is false and this is a no-op. If the server closed
-      // the connection without a terminal event, we must still finish.
+      // event, runningRef is false and this is a no-op. A stream that closed
+      // without a terminal event was cut on the way (a proxy, a sleeping phone, a
+      // network change), not ended: the run goes on in the gateway, so it is
+      // followed again from the last event, and the gateway says whether it is over.
       if (live(link) && runningRef.current) {
-        finish();
+        setState("reconnecting", true);
+        reconnectTimer.current = setTimeout(followReconnect, RECONNECT_MS);
       }
     },
     [finish, readStream, followReconnect],

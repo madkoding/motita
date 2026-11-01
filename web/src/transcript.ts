@@ -132,10 +132,12 @@ export function transcriptMessages(
     const cp = byTurn.get(i);
     out.push(...agentMessages(m.Agent, cp?.outcome, nextId, cp));
   }
-  // A run that failed before it left a turn still has its checkpoint: the input and why it
-  // stopped are what the reader saw, so they are drawn after the turns.
+  // An input the transcript does not hold yet still has its checkpoint: a turn still running (the
+  // transcript gets its turn when it ends, so a page opened mid-run, or another browser following
+  // it, would show the steps under no question) or a run that failed before it left a turn. The
+  // input, and how it ended when it did, are drawn after the turns.
   const last = cps.find((cp) => cp.turn === turns.length);
-  if (last?.outcome?.error && last.task) {
+  if (last?.task && (!last.outcome || last.outcome.error)) {
     out.push(
       { id: nextId(), role: "user", text: last.task, turn: last.turn },
       ...agentMessages(undefined, last.outcome, nextId),

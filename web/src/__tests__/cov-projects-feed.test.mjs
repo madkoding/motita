@@ -1,5 +1,7 @@
-// The project feed: the page re-reads the projects when the gateway says they changed, when the
-// feed (re)connects and when the tab is shown again, and stops with the page or without a login.
+// The change feed: the page re-reads the projects or the sessions when the gateway says they
+// changed, both when the feed (re)connects and when the tab is shown again, falls back to the
+// projects' own stream on a gateway without the combined one, and stops with the page or without
+// a login.
 // Run with: node --test web/src/__tests__/cov-projects-feed.test.mjs
 import test from "node:test";
 import assert from "node:assert/strict";
@@ -7,7 +9,7 @@ import { installDom, load, settle } from "./cov-settings-helpers.mjs";
 
 installDom("http://localhost/");
 
-const { useProjectFeed } = await load("useProjectFeed.ts");
+const { useChangeFeed } = await load("useProjectFeed.ts");
 const { h, render } = await import("preact");
 
 // feedResponse is a stream whose frames the test pushes one by one.
@@ -26,9 +28,14 @@ function feedResponse() {
   };
 }
 
-function mount(api, fetchProjects, authOk = true) {
+function mount(
+  api,
+  fetchProjects,
+  authOk = true,
+  fetchSessions = async () => {},
+) {
   function Harness() {
-    useProjectFeed(api, fetchProjects, authOk);
+    useChangeFeed(api, fetchProjects, fetchSessions, authOk);
     return null;
   }
   const root = document.createElement("div");
@@ -56,7 +63,7 @@ test("an event re-reads the projects, a comment does not", async () => {
     },
   );
   await later();
-  assert.deepEqual(asked[0], ["/v1/projects/events", true]);
+  assert.deepEqual(asked[0], ["/v1/events", true]);
   assert.equal(reads, 1, "connecting reads once");
   feed.push(": keepalive\n\n");
   await later();
@@ -123,4 +130,46 @@ test("a dropped feed is listened to again, a refused one too, and none while sig
   await settle();
   assert.equal(calls, 3, "no feed without a login");
   await signedOut();
+});
+
+test("the sessions are read on their own event only, and both on connecting", async () => {
+  const feed = feedResponse();
+  let projects = 0;
+  let sessions = 0;
+  const off = mount(
+    async () => feed.res,
+    async () => {
+      projects++;
+    },
+    true,
+    async () => {
+      sessions++;
+    },
+  );
+  await later();
+  assert.deepEqual([projects, sessions], [1, 1], "connecting reads both");
+  feed.push('id: 0\nevent: sessions\ndata: {"changed":true}\n\n');
+  await later();
+  assert.deepEqual([projects, sessions], [1, 2]);
+  feed.push('id: 0\nevent: projects\ndata: {"changed":true}\n\n');
+  await later();
+  assert.deepEqual([projects, sessions], [2, 2]);
+  await off();
+});
+
+test("a gateway without the combined stream is followed on the projects' own", async (t) => {
+  t.mock.timers.enable({ apis: ["setTimeout"] });
+  const asked = [];
+  const off = mount(
+    async (path) => {
+      asked.push(path);
+      return { ok: false, status: 404, body: null };
+    },
+    async () => {},
+  );
+  await settle();
+  t.mock.timers.tick(5000);
+  await settle();
+  assert.deepEqual(asked, ["/v1/events", "/v1/projects/events"]);
+  await off();
 });

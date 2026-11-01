@@ -528,6 +528,14 @@ func (r *AppRunner) SetAutoApplySuggestions(on bool) {
 	r.cfgMu.Unlock()
 }
 
+// SetDirect says whether a task runs in direct mode, one conversation with native tools
+// (agent.direct). The next turn follows it.
+func (r *AppRunner) SetDirect(on bool) {
+	r.cfgMu.Lock()
+	r.Cfg.Agent.Direct = on
+	r.cfgMu.Unlock()
+}
+
 // SetApproveAllCommands says whether every command the policy asks about runs without asking
 // (agent.approve_all_commands). The next command follows it.
 func (r *AppRunner) SetApproveAllCommands(on bool) {
@@ -933,12 +941,7 @@ func planDefaultTimeout(cfg config.Config) time.Duration {
 	return 120 * time.Second
 }
 
-func planDefaultLoops(cfg config.Config) int {
-	if cfg.Agent.MaxRetries > 0 && cfg.Agent.MaxRetries <= 10 {
-		return cfg.Agent.MaxRetries
-	}
-	return 5
-}
+func planDefaultLoops(cfg config.Config) int { return cfg.Agent.PlanToolRounds() }
 
 // taskObserver is the interface the runner installs on the agent it builds: the
 // agent reports its result back through these two hooks.

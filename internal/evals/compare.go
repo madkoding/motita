@@ -32,14 +32,16 @@ type Summary struct {
 
 // Run is one pass over the fixed tasks with one model.
 type Run struct {
-	ID         string       `json:"id"`
-	At         time.Time    `json:"at"`
-	Provider   string       `json:"provider"`
-	Model      string       `json:"model"`
-	PromptHash string       `json:"prompt_hash"`
-	CasesHash  string       `json:"cases_hash"`
-	Results    []CaseResult `json:"results"`
-	Summary    Summary      `json:"summary"`
+	ID         string    `json:"id"`
+	At         time.Time `json:"at"`
+	Provider   string    `json:"provider"`
+	Model      string    `json:"model"`
+	PromptHash string    `json:"prompt_hash"`
+	CasesHash  string    `json:"cases_hash"`
+	// Mode is how the agent ran the tasks: ModePhased or ModeDirect; empty in older runs (phased).
+	Mode    string       `json:"mode,omitempty"`
+	Results []CaseResult `json:"results"`
+	Summary Summary      `json:"summary"`
 }
 
 // Verdict statuses.

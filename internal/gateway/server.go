@@ -284,6 +284,8 @@ type Server struct {
 	// remoteWatch is what the periodic look at origin found; remoteWG tracks that goroutine. See remotewatch.go.
 	remoteWatch remoteWatchState
 	remoteWG    sync.WaitGroup
+	// sessionFeed tells open pages a session changed (sessionfeed.go).
+	sessionFeed projectFeed
 
 	// intentGate rests auto mode's model call after it fails: one slow turn, not all. See runs.go.
 	intentGate modelGate
@@ -467,6 +469,7 @@ func Start(opts Options) (*Server, error) {
 		baseCtx: baseCtx, baseCancel: baseCancel, evalStore: evals.OpenStore(opts.EvalsFile),
 		heartbeat: resolveHeartbeat(opts.Heartbeat),
 	}
+	s.sessionFeed.sign, s.sessionFeed.every = sessionsSignature, &sessionFeedInterval
 	// The first conversation is as bound to its archive as any other: a served gateway must
 	// find it again after a restart.
 	s.bindContext(first)

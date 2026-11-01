@@ -325,3 +325,34 @@ func TestSummaryText(t *testing.T) {
 		t.Errorf("empty sections were drawn:\n%s", only)
 	}
 }
+
+// The retries are counted by the layer that sent the step back, most first, ties in name order; a
+// layer the summary has no words for keeps its name, and a retry without one is not in the line.
+func TestSummaryLayers(t *testing.T) {
+	entries := []Entry{
+		{At: epoch, Kind: KindRetry, Why: "gate", Text: "attempt failed: a"},
+		{At: epoch, Kind: KindRetry, Why: "gate", Text: "attempt failed: b"},
+		{At: epoch, Kind: KindRetry, Why: "failing-check", Text: "done claimed"},
+		{At: epoch, Kind: KindRetry, Why: "criteria", Text: "done claimed with"},
+		{At: epoch, Kind: KindRetry, Why: "new-layer", Text: "x"},
+		{At: epoch, Kind: KindRetry, Text: "old line"},
+		{At: epoch, Kind: KindDenied, Why: WhyPerson, Text: "rm"},
+	}
+	s := Summarize(entries, epoch, WeekDays)
+	if s.Layers["gate"] != 2 || s.Layers["failing-check"] != 1 || len(s.Layers) != 4 {
+		t.Fatalf("layers = %v", s.Layers)
+	}
+	en := s.Text(i18n.EN)
+	want := "Sent back by: the project's checks 2, done with criteria not shown 1, " +
+		"done over a failing check 1, new-layer 1"
+	if !strings.Contains(en, want) {
+		t.Errorf("English summary lacks %q:\n%s", want, en)
+	}
+	if es := s.Text(i18n.ES); !strings.Contains(es, "Devueltos por: los checks del proyecto 2") {
+		t.Errorf("Spanish summary lacks the layers:\n%s", es)
+	}
+	quiet := Summarize([]Entry{{At: epoch, Kind: KindRetry, Text: "x"}}, epoch, WeekDays).Text(i18n.EN)
+	if strings.Contains(quiet, "Sent back by") {
+		t.Errorf("retries with no layer drew the line:\n%s", quiet)
+	}
+}

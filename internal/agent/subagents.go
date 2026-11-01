@@ -666,7 +666,7 @@ func (a *Agent) holdForChildren(round int, commands string, journal *[]roundReco
 		return false
 	}
 	if first {
-		a.report("done claimed while %d background agent(s) are still running; asking the model first", len(running))
+		a.report(childrenPrefix+"%d background agent(s) are still running; asking the model first", len(running))
 		*journal = append(*journal, roundRecord{
 			round: round, kind: roundProgress, commands: commands,
 			detail: fmt.Sprintf("You reported \"done\": true, but %d background agent(s) you started are still "+

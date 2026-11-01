@@ -67,6 +67,9 @@ type securityView struct {
 	// desktop for it here ("" when there is one).
 	DesktopControl bool   `json:"desktop_control"`
 	DesktopReason  string `json:"desktop_reason,omitempty"`
+	// Direct says a task runs as one conversation with native tools, like a coding agent
+	// (agent.direct), instead of the phased loop.
+	Direct bool `json:"direct"`
 	// NoNewPrivs says the gateway itself runs with NO_NEW_PRIVS, which every command inherits: sudo
 	// cannot work, approved or not. NoNewPrivsHint is the exact fix.
 	NoNewPrivs     bool   `json:"no_new_privs,omitempty"`
@@ -91,7 +94,10 @@ type securityChange struct {
 	ApprovalTimeoutMinutes *int `json:"approval_timeout_minutes"`
 	// DesktopControl turns on the agent's control of this computer's desktop.
 	DesktopControl *bool `json:"desktop_control"`
-	Confirm        bool  `json:"confirm"`
+	// Direct turns direct mode on or off. It changes how the agent works, not what it may do, so
+	// it needs no confirm.
+	Direct  *bool `json:"direct"`
+	Confirm bool  `json:"confirm"`
 }
 
 // widens says whether the change turns off asking or the network isolation, or turns on applying
@@ -130,7 +136,8 @@ func (c securityChange) refusal(mode string) string {
 	switch {
 	case c.empty(mode):
 		return "send disk_access (workspace or full), ask_unconfined_runs, isolate_network, " +
-			"auto_apply_suggestions, approve_all_commands, approval_timeout_minutes, desktop_control, or several"
+			"auto_apply_suggestions, approve_all_commands, approval_timeout_minutes, desktop_control, direct, " +
+			"or several"
 	case c.badApprovalTimeout():
 		return fmt.Sprintf("approval_timeout_minutes must be between 0 and %d", maxApprovalMinutes)
 	case mode != "" && !config.ValidDiskAccess(mode):
@@ -173,6 +180,11 @@ type desktopControlSetter interface {
 	SetDesktopControl(on bool)
 }
 
+// directSetter is a service that can take the direct-mode choice for its next turn.
+type directSetter interface {
+	SetDirect(on bool)
+}
+
 // diskAccessSetter is a service that can take a new disk access for its next command.
 type diskAccessSetter interface {
 	SetDiskAccess(mode string)
@@ -188,6 +200,7 @@ var (
 	setApproveAll        = config.Tx.SetApproveAllCommands
 	setApprovalTimeout   = config.Tx.SetApprovalTimeout
 	setDesktopControl    = config.Tx.SetDesktopControl
+	setDirect            = config.Tx.SetDirect
 	desktopProbe         = probeDesktop
 	confinementAvailable = sandbox.ConfinementAvailable
 	networkAvailable     = sandbox.NetworkIsolationAvailable
@@ -245,6 +258,7 @@ func (s *Server) writeSecurity(w http.ResponseWriter) {
 		view.NoNewPrivs, view.NoNewPrivsHint = true, noNewPrivsHint
 	}
 	view.DesktopControl = cfg.Agent.DesktopControl
+	view.Direct = cfg.Agent.Direct
 	if err := desktopProbe(); err != nil {
 		view.DesktopReason = err.Error()
 	}
@@ -329,6 +343,7 @@ func (c securityChange) toggles() []toggle {
 			"running every command without asking", "approve_all_commands"},
 		{c.DesktopControl, setDesktopControl, applyDesktopControl,
 			"the agent's control of this computer's desktop", "desktop_control"},
+		{c.Direct, setDirect, applyDirect, "direct mode", "direct"},
 	}
 }
 
@@ -367,6 +382,14 @@ func (s *Server) startingDiskAccess(svc Service) {
 		applyAutoApply(svc, cfg.Agent.AutoApplySuggestions)
 		applyApproveAll(svc, cfg.Agent.ApproveAllCommands)
 		applyDesktopControl(svc, cfg.Agent.DesktopControl)
+		applyDirect(svc, cfg.Agent.Direct)
+	}
+}
+
+// applyDirect gives svc the direct-mode choice, when it can take one.
+func applyDirect(svc Service, on bool) {
+	if ds, ok := svc.(directSetter); ok {
+		ds.SetDirect(on)
 	}
 }
 

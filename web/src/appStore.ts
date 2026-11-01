@@ -27,15 +27,34 @@ import { useCheckpoints } from "./useCheckpoints";
 import { useAuth, useLanguage } from "./useAuth";
 import { usePrefsSync } from "./usePrefsSync";
 import { useRemoteChanges } from "./useRemoteChanges";
-import { useProjectFeed } from "./useProjectFeed";
+import { useChangeFeed } from "./useProjectFeed";
 import { useUpdates } from "./useUpdates";
 import { useRowMenus } from "./useRowMenus";
 import { useRepoGit } from "./useRepoGit";
-import { useFinishedElsewhere } from "./sessionWatch";
+import { useFinishedElsewhere, useOnScreenSync } from "./sessionWatch";
 import type { Api } from "./prApi";
 import { useVoice } from "./useVoice";
 import { useSpeech } from "./useSpeech";
 import { useVoiceConversation } from "./useVoiceConversation";
+
+// useSessionSync keeps the page in step with what other pages do: the projects and the session
+// list follow the gateway's change stream, and when another page moved the conversation on screen
+// it is read again, softly, and a turn still in flight there is followed from here too.
+function useSessionSync(
+  api: Api,
+  rs: ReturnType<typeof useRunState>,
+  lists: ReturnType<typeof useSessionList>,
+  conv: ReturnType<typeof useConversation>,
+  authed: boolean,
+) {
+  useChangeFeed(api, lists.fetchProjects, lists.fetchSessions, authed);
+  useOnScreenSync(
+    lists.sessions,
+    rs.sessionId,
+    () => rs.runningRef.current,
+    (id) => void conv.switchSessionRef.current?.(id, "none", true),
+  );
+}
 
 // machine is the computer the page is pointed at ("" for this one), for what cannot go through api:
 // the terminal's WebSocket.
@@ -137,7 +156,7 @@ export function useAppStore(api: Api, machine = "") {
   });
   const updates = useUpdates(api, setToast, auth.authState === "ok");
   useRemoteChanges(lists, setToast, auth.authState === "ok");
-  useProjectFeed(api, lists.fetchProjects, auth.authState === "ok");
+  useSessionSync(api, rs, lists, conv, auth.authState === "ok");
   const voice = useVoice({
     api,
     authed: auth.authState === "ok",

@@ -80,3 +80,15 @@ func TestApproveAllReachesTheAgentOfARunningTurn(t *testing.T) {
 		t.Errorf("after the change the same agent runs it unasked: asked %d, err %v", asked, err)
 	}
 }
+
+// The next turn's agent is built from the configuration, so the direct-mode choice reaches it there.
+func TestSetDirectReachesTheConfiguration(t *testing.T) {
+	r := NewAppRunner(&bytes.Buffer{}, &bytes.Buffer{}, config.Default(), &llm.Client{}, nil, logx.Global())
+	if r.Config().Agent.Direct {
+		t.Fatal("off is the default")
+	}
+	r.SetDirect(true)
+	if !r.Config().Agent.Direct {
+		t.Error("the change must reach the configuration")
+	}
+}

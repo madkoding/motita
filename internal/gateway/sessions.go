@@ -71,6 +71,10 @@ type conversation struct {
 	created  time.Time
 	lastUsed time.Time
 	running  bool
+	// rev counts the times the run slot was taken or let go: it moves whenever a turn starts or
+	// ends (and with a reset or a restore), and never on a read. lastUsed moves on every request,
+	// reads included, so it cannot tell a page that the conversation changed. See sessionfeed.go.
+	rev uint64
 	// terminal is the terminal holding the run slot, nil when none is open (see terminal.go).
 	terminal *terminalHold
 	// titling is set while a title is being generated for this conversation (see autoTitle).
@@ -256,6 +260,7 @@ func (c *conversation) takeRunSlot() bool {
 		return false
 	}
 	c.running = true
+	c.rev++
 	return true
 }
 
@@ -265,6 +270,7 @@ func (c *conversation) releaseRunSlot() {
 	c.stateMu.Lock()
 	defer c.stateMu.Unlock()
 	c.running = false
+	c.rev++
 }
 
 // isRunning reports whether a run is in flight here.
@@ -425,6 +431,9 @@ type SessionStatus struct {
 	Created  time.Time `json:"created"`
 	LastUsed time.Time `json:"last_used"`
 	Running  bool      `json:"running"`
+	// Rev moves when a turn starts or ends in the session (see conversation.rev): a page that
+	// shows the session and did not start that turn reads the conversation again when it moves.
+	Rev uint64 `json:"rev"`
 	// Terminal reports a person's terminal open in the session: it holds the run slot, so the agent
 	// waits for it, but it is not the agent working.
 	Terminal bool `json:"terminal,omitempty"`
@@ -517,7 +526,7 @@ func (c *conversation) status() SessionStatus {
 	c.stateMu.Lock()
 	defer c.stateMu.Unlock()
 	st := SessionStatus{ID: c.id, Title: c.title, ProjectID: c.projectID, ParentID: c.parentID,
-		Created: c.created, LastUsed: c.lastUsed, Running: c.running && c.terminal == nil,
+		Created: c.created, LastUsed: c.lastUsed, Running: c.running && c.terminal == nil, Rev: c.rev,
 		Terminal: c.terminal != nil, AutoApprove: c.autoApprove, AgentsRunning: runningSubagents(c.agents),
 		AwaitingApproval: c.pending != nil}
 	st.Workspace = c.workspace

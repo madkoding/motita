@@ -55,6 +55,9 @@ func TestARetryLineIsJournaledAndStillStreamed(t *testing.T) {
 	if got[0].Turn != 0 {
 		t.Errorf("turn = %d", got[0].Turn)
 	}
+	if got[0].Why != "gate" {
+		t.Errorf("the layer = %q, want gate", got[0].Why)
+	}
 	steps := checkpointsOf(t, srv)[0].Steps
 	if len(steps) < 2 || !strings.Contains(steps[0].Text, "attempt failed") {
 		t.Errorf("the retry line did not reach the turn's steps: %+v", steps)

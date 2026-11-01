@@ -16,6 +16,7 @@ import { InlineConfirm } from "./NetworkSettings";
 import { UnconfinedRunsSetting } from "./UnconfinedRunsSetting";
 import { NetworkIsolationSetting } from "./NetworkIsolationSetting";
 import { AutoApplySetting } from "./AutoApplySetting";
+import { DirectSetting } from "./DirectSetting";
 import { ApproveAllSetting } from "./ApproveAllSetting";
 import { ApprovalTimeoutSetting } from "./ApprovalTimeoutSetting";
 import { DesktopSetting } from "./DesktopSetting";
@@ -279,6 +280,9 @@ function CommandSettings({
       )}
       {view.auto_apply_suggestions !== undefined && (
         <AutoApplySetting api={api} view={view} onView={onView} />
+      )}
+      {view.direct !== undefined && (
+        <DirectSetting api={api} view={view} onView={onView} />
       )}
       {view.isolate_network !== undefined && (
         <NetworkIsolationSetting api={api} view={view} onView={onView} />

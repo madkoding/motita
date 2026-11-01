@@ -127,6 +127,12 @@ func (t Tx) SetDesktopControl(on bool) error {
 		func(cfg Config) bool { return cfg.Agent.DesktopControl == on })
 }
 
+// SetDirect is agent.direct inside a transaction, with the same checks as SetDiskAccess.
+func (t Tx) SetDirect(on bool) error {
+	return setBlockKey(t.path, "agent", "direct", strconv.FormatBool(on),
+		func(cfg Config) bool { return cfg.Agent.Direct == on })
+}
+
 // setSandboxKey sets sandbox.key; see setBlockKey.
 func setSandboxKey(path, key, value string, applied func(Config) bool) error {
 	return setBlockKey(path, "sandbox", key, value, applied)

@@ -33,3 +33,27 @@ func TestOneShotSettings(t *testing.T) {
 		t.Errorf("a negative count must be refused: %v", err)
 	}
 }
+
+// A chat turn's tool rounds have their own knob, apart from max_retries: 40 by default, set from
+// the file or the environment, and never negative.
+func TestPlanLoopsSetting(t *testing.T) {
+	t.Setenv("MOTITA_AGENT_PLAN_LOOPS", "")
+	cfg, err := LoadWithoutKey(diskFile(t, "agent:\n  max_retries: 2\n"))
+	if err != nil || cfg.Agent.PlanToolRounds() != DefaultPlanLoops {
+		t.Fatalf("default: %d, %v", cfg.Agent.PlanToolRounds(), err)
+	}
+	cfg, err = LoadWithoutKey(diskFile(t, "agent:\n  plan_loops: 15\n"))
+	if err != nil || cfg.Agent.PlanToolRounds() != 15 {
+		t.Fatalf("file: %d, %v", cfg.Agent.PlanToolRounds(), err)
+	}
+	t.Setenv("MOTITA_AGENT_PLAN_LOOPS", "25")
+	cfg, err = LoadWithoutKey(diskFile(t, "agent:\n  plan_loops: 15\n"))
+	if err != nil || cfg.Agent.PlanToolRounds() != 25 {
+		t.Fatalf("environment: %d, %v", cfg.Agent.PlanToolRounds(), err)
+	}
+	t.Setenv("MOTITA_AGENT_PLAN_LOOPS", "")
+	if _, err = LoadWithoutKey(diskFile(t, "agent:\n  plan_loops: -1\n")); err == nil ||
+		!strings.Contains(err.Error(), "agent.plan_loops") {
+		t.Errorf("a negative count must be refused: %v", err)
+	}
+}

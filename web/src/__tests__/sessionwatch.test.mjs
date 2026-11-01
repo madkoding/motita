@@ -78,3 +78,29 @@ test("a model switch warns only when the session already talked or is running", 
   assert.match(W.switchWarning(true, true, false), /messages/);
   assert.match(W.switchWarning(true, true, true), /running/);
 });
+
+test("the session on screen is read again when another page moved it, not when this tab did", () => {
+  const s = (rev, running = false) => row("A", running, { rev });
+  let seen = { id: "", mine: false };
+  const step = (row, following = false) => {
+    const next = W.onScreenMoved(seen, row, following);
+    seen = next.seen;
+    return next.reread;
+  };
+  assert.equal(step(undefined), false, "no session on screen");
+  assert.equal(step(s(4)), false, "the first look only records");
+  assert.equal(step(s(4)), false, "nothing moved");
+  assert.equal(step(s(5, true)), true, "a turn started elsewhere");
+  // This tab now follows it, and the end of what it followed is already on screen.
+  assert.equal(step(s(5, true), true), false);
+  assert.equal(step(s(6)), false, "the end of the followed turn");
+  assert.equal(step(s(7, true)), true, "the next turn from elsewhere");
+  assert.equal(step(s(8)), true, "it ended without this tab following it");
+  assert.equal(step(row("A", false)), false, "an older gateway sends no rev");
+  assert.equal(
+    step(row("B", false, { rev: 9 })),
+    false,
+    "another session only records",
+  );
+  assert.deepEqual(seen, { id: "B", rev: 9, mine: false });
+});
