@@ -239,7 +239,12 @@ func (b Base) Remember(in, entry, content string) string {
 		if b.Memory == nil {
 			return "Error: there is no memory in this session."
 		}
-		return oldNames.Replace(b.Memory.AppendText(strings.TrimSpace(entry), content))
+		// remember needs only the content, and a model often leaves the entry out: the fact is kept
+		// under a title taken from it rather than refused, which the model rarely acted on.
+		if entry = strings.TrimSpace(entry); entry == "" {
+			entry = memory.NameFor(content)
+		}
+		return oldNames.Replace(b.Memory.AppendText(entry, content))
 	}
 }
 
