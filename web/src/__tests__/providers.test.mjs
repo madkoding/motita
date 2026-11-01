@@ -21,6 +21,7 @@ for (const k of [
   "KeyboardEvent",
   "MouseEvent",
   "Event",
+  "CustomEvent",
   "HTMLElement",
   "Node",
   "localStorage",
@@ -538,6 +539,25 @@ test("a saved key can be disconnected after a confirmation", async () => {
   await settle();
   assert.equal(gw.calls.filter((c) => c.method === "DELETE").length, 1);
   assert.deepEqual(notices.at(-1), ["Disconnected from OpenAI", false]);
+  await done();
+});
+
+test("disconnecting tells the usage panel, and the configuration's own key can be disconnected", async () => {
+  const view = VIEW();
+  view.providers[0].key = "config";
+  const gw = fakeGateway(view);
+  const { root, done } = await open(gw);
+  let told = 0;
+  const tell = () => told++;
+  window.addEventListener("motita:providers-changed", tell);
+  await act(() => button(row(root, "openai"), "Manage").click());
+  const form = row(root, "openai").querySelector(LLM_FORM);
+  await act(() => button(form, "Disconnect").click());
+  await act(() => button(form, "Confirm").click());
+  await settle();
+  window.removeEventListener("motita:providers-changed", tell);
+  assert.equal(gw.calls.filter((c) => c.method === "DELETE").length, 1);
+  assert.equal(told, 1);
   await done();
 });
 

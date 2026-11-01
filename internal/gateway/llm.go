@@ -126,6 +126,9 @@ var (
 	setTaskThink  = config.SetTaskThinking
 	setCustom     = config.SetCustomModel
 	deleteLogin   = oauth.DeleteCredential
+	clearYAMLKey  = config.ClearLLMAPIKey
+	forgetStored  = config.ForgetStoredValue
+	forgetUsage   = llm.ForgetProviderUsage
 )
 
 // genericKey is the variable that belongs to whichever provider the configuration names.
@@ -565,6 +568,9 @@ func (s *Server) handleLLMForget(w http.ResponseWriter, r *http.Request) {
 	cfg := s.configuredLLM()
 	setKey := config.ProviderNeedsKey(p.ID)
 	err := s.saveProvider(cfg, p, setKey, "", canChangeBase(p), "")
+	if err == nil && setKey {
+		err = s.forgetEverywhere(cfg, p)
+	}
 	if err == nil && config.SupportsLogin(p.ID) {
 		// Disconnecting a provider signed in from the browser or the setup forgets the login too.
 		err = deleteLogin(config.AuthDir(), p.ID)
@@ -573,8 +579,28 @@ func (s *Server) handleLLMForget(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
+	// What it consumed goes too, so the usage panel stops showing a provider that is gone.
+	forgetUsage(p.ID)
+	s.quotaCache.forget(p.ID)
 	s.refreshSessions(p.ID)
 	writeJSON(w, http.StatusOK, s.providerView(s.configuredLLM(), p))
+}
+
+// forgetEverywhere removes the rest of a provider's key: the copy in the motita home's credentials
+// file (read on a switch after the gateway's own) and, for the configured provider, the YAML's
+// llm.api_key and the generic variable, which both belong to it. Left behind, either kept the
+// provider connected after Disconnect.
+func (s *Server) forgetEverywhere(cfg config.LLM, p onboard.Provider) error {
+	if err := forgetStored(config.ProviderStoreVariable(p.ID)); err != nil {
+		return err
+	}
+	if !strings.EqualFold(cfg.Provider, p.ID) {
+		return nil
+	}
+	if err := setCredential(s.opts.ConfigPath, genericKey, ""); err != nil {
+		return err
+	}
+	return clearYAMLKey(s.opts.ConfigPath)
 }
 
 // testResult is what a connection test answers: the models the provider listed, or why not.
