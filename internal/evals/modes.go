@@ -40,10 +40,13 @@ func CompareModes(runs []Run) *Versus {
 	var phased, direct *Run
 	for i := len(runs) - 1; i >= 0 && (phased == nil || direct == nil); i-- {
 		r := &runs[i]
-		if ModeOf(*r) == ModeDirect && direct == nil {
+		switch {
+		case ModeOf(*r) == ModeDirect && direct == nil:
 			direct = r
-		} else if ModeOf(*r) == ModePhased && phased == nil {
+		case ModeOf(*r) == ModePhased && phased == nil:
 			phased = r
+		default:
+			// A newer run of this mode was already taken.
 		}
 	}
 	if phased == nil || direct == nil || phased.CasesHash != direct.CasesHash || phased.Model != direct.Model {

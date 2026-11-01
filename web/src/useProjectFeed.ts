@@ -17,6 +17,16 @@ import type { Api } from "./prApi";
 
 export const EVENTS_URL = "/v1/events";
 export const PROJECT_EVENTS_URL = "/v1/projects/events";
+const HTTP_NOT_FOUND = 404;
+
+// nextUrl is where to listen after an answer that was not a stream: a gateway without the
+// combined one (404) is followed on the projects' own.
+function nextUrl(status: number, url: string): string {
+  if (status === HTTP_NOT_FOUND) {
+    return PROJECT_EVENTS_URL;
+  }
+  return url;
+}
 
 type Refresh = () => Promise<unknown>;
 
@@ -53,8 +63,8 @@ export function useChangeFeed(
         if (res.ok && res.body) {
           both();
           await readFrames(res.body.getReader(), onFrame);
-        } else if (res.status === 404) {
-          url = PROJECT_EVENTS_URL;
+        } else {
+          url = nextUrl(res.status, url);
         }
       } catch {
         /* dropped: listen again below */

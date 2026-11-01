@@ -281,10 +281,13 @@ func TestEvalsCompareTheModes(t *testing.T) {
 	if v.Versus.Verdict.Status != evals.StatusWorse {
 		t.Errorf("direct now does worse than phased: %+v", v.Versus.Verdict)
 	}
+}
 
-	// A run without a result stops "both" before the second mode.
-	r.err = errors.New("down")
-	w = llmCall(t, srv, http.MethodPost, "/v1/evals/run", `{"confirm":true,"mode":"phased"}`)
+// A named mode that has no result says why.
+func TestEvalsInANamedModeWithoutAResult(t *testing.T) {
+	r := &evalRunner{err: errors.New("down")}
+	srv := evalServer(t, r)
+	w := llmCall(t, srv, http.MethodPost, "/v1/evals/run", `{"confirm":true,"mode":"phased"}`)
 	if w.Code != http.StatusAccepted {
 		t.Fatalf("phased: %d", w.Code)
 	}

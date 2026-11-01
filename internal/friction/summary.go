@@ -59,11 +59,7 @@ func Summarize(entries []Entry, now time.Time, days int) Summary {
 		if e.At.Before(s.Since) || e.At.After(now) {
 			continue
 		}
-		s.Total++
-		s.Counts[e.Kind]++
-		if e.Kind == KindRetry && e.Why != "" {
-			s.Layers[e.Why]++
-		}
+		s.count(e)
 		if e.Kind == KindFlagged {
 			s.Flagged = append(s.Flagged, e)
 			continue
@@ -91,6 +87,15 @@ func Summarize(entries []Entry, now time.Time, days int) Summary {
 		s.Flagged = s.Flagged[:maxFlagged]
 	}
 	return s
+}
+
+// count adds one entry to the totals, and a retry to its layer.
+func (s *Summary) count(e Entry) {
+	s.Total++
+	s.Counts[e.Kind]++
+	if e.Kind == KindRetry && e.Why != "" {
+		s.Layers[e.Why]++
+	}
 }
 
 // shape is a text with what changes between two occurrences of the same thing taken out: case
