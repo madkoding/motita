@@ -52,6 +52,7 @@ export function DirectSetting({
     },
     [api, onView, current],
   );
+  const onPick = useCallback((c: RunChoice) => void pick(c), [pick]);
   return (
     <>
       <Row
@@ -64,7 +65,7 @@ export function DirectSetting({
           name="settings-direct"
           labelledBy="settings-direct"
           value={current}
-          onChange={(c) => void pick(c)}
+          onChange={onPick}
           disabled={!view.can_save || busy}
           options={[
             { value: "phased", label: t("In phases") },

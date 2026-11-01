@@ -27,7 +27,9 @@ type scriptedTools struct {
 	onAsked func(int)
 }
 
-func (s *scriptedTools) CompleteToolsStream(_ context.Context, msgs []llm.Message, tools []llm.Tool) <-chan llm.StreamChunk {
+func (s *scriptedTools) CompleteToolsStream(
+	_ context.Context, msgs []llm.Message, tools []llm.Tool,
+) <-chan llm.StreamChunk {
 	s.mu.Lock()
 	n := len(s.sent)
 	s.sent = append(s.sent, append([]llm.Message(nil), msgs...))
