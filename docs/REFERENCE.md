@@ -1313,6 +1313,7 @@ four seconds is worse than telling it four seconds are gone.
 | `GET /v1/sessions/{id}/agents`         | The agents of the run in flight, or of the last run: `{"agents":[...]}`, `[]` when there were none.                                         |
 | `POST /v1/sessions/{id}/cancel`        | Stop the run in this conversation.                                                                                                          |
 | `POST /v1/sessions/{id}/runs/approval` | Answer the pending question, by `id`.                                                                                                       |
+| `GET /v1/events`                       | What other pages changed: `event: sessions` (a turn started or ended, a session renamed or created) and `event: projects`; read them again. |
 
 **The run's agents.** A run can start agents of its own in the background. Their list
 travels as `event: agents`, `data: {"agents":[...]}`, every time it changes. Like
@@ -1576,8 +1577,8 @@ nothing starts it on its own. It needs a shell (`sh`) on the machine.
 
 | Endpoint                | What it does                                                                                                                                                                              |
 | ----------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `GET /v1/evals`         | The tasks, the model a check would run on, `stale` (`never`, `model`, `prompt`, `cases` or empty: why the last run no longer answers "is it still fine?"), the last run, its `verdict` and `history` |
-| `POST /v1/evals/run`    | `{"confirm":true}` starts a check in the background (`202`); `400` without the confirmation, `409` while one runs, with no key or without a shell                                           |
+| `GET /v1/evals`         | The tasks, the model a check would run on, `stale` (`never`, `model`, `prompt`, `cases` or empty: why the last run no longer answers "is it still fine?"), the last run, its `verdict` (against the run before it in the same mode) and `history`, the agent `mode` a check runs in now (`phased` or `direct`), and `versus`: the newest direct run weighed against the newest phased one |
+| `POST /v1/evals/run`    | `{"confirm":true}` starts a check in the background (`202`); `"mode"` is `phased`, `direct` or `both` (phased, then direct), the current mode when left out; `400` without the confirmation, `409` while one runs, with no key or without a shell                                           |
 | `POST /v1/evals/stop`   | Stops the running check; it leaves no result. `409` when none runs                                                                                                                         |
 
 Results are kept in `~/.motita/evals.json` (the last 20 runs).

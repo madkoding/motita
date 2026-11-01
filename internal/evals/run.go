@@ -26,6 +26,8 @@ type Runner interface {
 // Options say what a run is of and how to follow it.
 type Options struct {
 	Provider, Model, PromptHash string
+	// Mode is the agent mode the run is made in (ModePhased, ModeDirect), kept with the run.
+	Mode string
 	// Progress is told before each task starts: how many are done, of how many, and which comes next.
 	Progress func(done, total int, next string)
 	// Now is the clock, replaceable in a test.
@@ -43,6 +45,7 @@ func Execute(ctx context.Context, r Runner, cases []Case, op Options) (Run, erro
 	run := Run{
 		ID: now().UTC().Format("20060102T150405Z"), At: now().UTC(),
 		Provider: op.Provider, Model: op.Model, PromptHash: op.PromptHash, CasesHash: CasesHash(),
+		Mode: op.Mode,
 	}
 	broken := 0
 	for i, c := range cases {

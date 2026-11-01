@@ -238,3 +238,58 @@ func TestEvalRunnerIsTheRealAgent(t *testing.T) {
 		t.Errorf("runner = %T", r)
 	}
 }
+
+// "both" runs the tasks in the phased loop, then in direct mode, keeps both runs, weighs direct
+// against phased, and judges each later run only against the one before it in its own mode.
+func TestEvalsCompareTheModes(t *testing.T) {
+	r := &evalRunner{pass: allPass()}
+	srv := evalServer(t, r)
+	bad := llmCall(t, srv, http.MethodPost, "/v1/evals/run", `{"confirm":true,"mode":"sideways"}`)
+	if w := bad; w.Code != http.StatusBadRequest {
+		t.Fatalf("an unknown mode: %d", w.Code)
+	}
+	if v := viewOfEvals(t, srv); v.Mode != evals.ModePhased || v.Versus != nil {
+		t.Fatalf("before: mode %q versus %+v", v.Mode, v.Versus)
+	}
+	w := llmCall(t, srv, http.MethodPost, "/v1/evals/run", `{"confirm":true,"mode":"both"}`)
+	if w.Code != http.StatusAccepted || srv.evalJob.get().Total != 10 {
+		t.Fatalf("both: %d %+v", w.Code, srv.evalJob.get())
+	}
+	srv.evalJob.wg.Wait()
+	if !r.cfg.Agent.Direct {
+		t.Error("the second run was not in direct mode")
+	}
+	v := viewOfEvals(t, srv)
+	if v.Versus == nil || v.Versus.Direct.Passed != 5 || v.Versus.Verdict.Status != evals.StatusSame {
+		t.Fatalf("versus = %+v", v.Versus)
+	}
+	if len(v.History) != 2 || v.History[0].Mode != evals.ModeDirect || v.History[1].Mode != evals.ModePhased {
+		t.Fatalf("history = %+v", v.History)
+	}
+	if v.Verdict.Status != evals.StatusFirst {
+		t.Errorf("the first direct run was weighed against a phased one: %+v", v.Verdict)
+	}
+
+	// The sessions in direct mode: a check that names no mode runs in it.
+	srv.opts.Service.(*modelsService).cfg.Agent.Direct = true
+	r.pass["fix-typo"] = false
+	runEval(t, srv)
+	v = viewOfEvals(t, srv)
+	if v.Mode != evals.ModeDirect || v.Last.Mode != evals.ModeDirect || v.Verdict.Status != evals.StatusWorse {
+		t.Fatalf("current mode %q, last %q, verdict %+v", v.Mode, v.Last.Mode, v.Verdict)
+	}
+	if v.Versus.Verdict.Status != evals.StatusWorse {
+		t.Errorf("direct now does worse than phased: %+v", v.Versus.Verdict)
+	}
+
+	// A run without a result stops "both" before the second mode.
+	r.err = errors.New("down")
+	w = llmCall(t, srv, http.MethodPost, "/v1/evals/run", `{"confirm":true,"mode":"phased"}`)
+	if w.Code != http.StatusAccepted {
+		t.Fatalf("phased: %d", w.Code)
+	}
+	srv.evalJob.wg.Wait()
+	if p := viewOfEvals(t, srv).Progress; p.Error == "" {
+		t.Errorf("progress = %+v", p)
+	}
+}

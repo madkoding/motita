@@ -94,6 +94,7 @@ type evalHistory struct {
 	At       string        `json:"at"`
 	Provider string        `json:"provider"`
 	Model    string        `json:"model"`
+	Mode     string        `json:"mode"`
 	Summary  evals.Summary `json:"summary"`
 }
 
@@ -112,6 +113,10 @@ type evalView struct {
 	Last     *evals.Run     `json:"last"`
 	Verdict  *evals.Verdict `json:"verdict"`
 	History  []evalHistory  `json:"history"`
+	// Mode is the agent mode a check runs in now (phased, direct); Versus weighs the newest direct
+	// run against the newest phased one, nil until both were run on the same model and tasks.
+	Mode   string        `json:"mode"`
+	Versus *evals.Versus `json:"versus"`
 }
 
 // evalRoutes registers the model check endpoints.
@@ -140,6 +145,7 @@ func (s *Server) evalViewOf() evalView {
 	v := evalView{
 		Supported: evalsSupported(), Provider: provider, Model: model,
 		Progress: s.evalJob.get(), Cases: []evalCase{}, History: []evalHistory{},
+		Mode: s.evalMode(),
 	}
 	for _, c := range evals.Cases() {
 		v.Cases = append(v.Cases, evalCase{ID: c.ID})
@@ -147,16 +153,13 @@ func (s *Server) evalViewOf() evalView {
 	runs := s.evalStore.Runs()
 	if n := len(runs); n > 0 {
 		v.Last = &runs[n-1]
-		var prev *evals.Run
-		if n > 1 {
-			prev = &runs[n-2]
-		}
-		verdict := evals.Compare(prev, runs[n-1])
-		v.Verdict = &verdict
+		verdict := evals.Compare(evals.PreviousOf(runs, n-1), runs[n-1])
+		v.Verdict, v.Versus = &verdict, evals.CompareModes(runs)
 		for i := n - 1; i >= 0 && i >= n-5; i-- {
 			r := runs[i]
 			v.History = append(v.History, evalHistory{
-				ID: r.ID, At: r.At.Format("2006-01-02T15:04:05Z"), Provider: r.Provider, Model: r.Model, Summary: r.Summary,
+				ID: r.ID, At: r.At.Format("2006-01-02T15:04:05Z"), Provider: r.Provider, Model: r.Model,
+				Mode: evals.ModeOf(r), Summary: r.Summary,
 			})
 		}
 	}
@@ -166,6 +169,29 @@ func (s *Server) evalViewOf() evalView {
 
 func (s *Server) handleEvals(w http.ResponseWriter, _ *http.Request) {
 	writeJSON(w, http.StatusOK, s.evalViewOf())
+}
+
+// evalMode is the agent mode the sessions run in now, the one a check runs in when it names none.
+func (s *Server) evalMode() string {
+	if s.opts.Service.Config().Agent.Direct {
+		return evals.ModeDirect
+	}
+	return evals.ModePhased
+}
+
+// evalModes are the modes a check asked for runs in: the current one, one named, or both to
+// compare them ("both": phased first, then direct). Nil for a name that is not a mode.
+func (s *Server) evalModes(asked string) []string {
+	switch asked {
+	case "":
+		return []string{s.evalMode()}
+	case evals.ModePhased, evals.ModeDirect:
+		return []string{asked}
+	case "both":
+		return []string{evals.ModePhased, evals.ModeDirect}
+	default:
+		return nil
+	}
 }
 
 // evalConfig is the configuration a check runs with: the session's, with the model under test and
@@ -187,9 +213,15 @@ func (s *Server) evalConfig(provider, model string) config.Config {
 // person's quota, so a request that does not say it was confirmed starts nothing.
 func (s *Server) handleEvalRun(w http.ResponseWriter, r *http.Request) {
 	var body struct {
-		Confirm bool `json:"confirm"`
+		Confirm bool   `json:"confirm"`
+		Mode    string `json:"mode"`
 	}
 	if !s.decodeBody(w, r, &body) {
+		return
+	}
+	modes := s.evalModes(body.Mode)
+	if modes == nil {
+		writeRefusal(w, http.StatusBadRequest, "bad_mode", "mode is phased, direct, both or empty")
 		return
 	}
 	if !body.Confirm {
@@ -207,32 +239,47 @@ func (s *Server) handleEvalRun(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	ctx, cancel := context.WithCancel(s.baseCtx)
-	if !s.evalJob.start(len(evals.Cases()), cancel) {
+	cases := evals.Cases()
+	if !s.evalJob.start(len(cases)*len(modes), cancel) {
 		cancel()
 		writeRefusal(w, http.StatusConflict, "running", "a check is already running")
 		return
-	}
-	runner := newEvalRunner(s.evalConfig(provider, model), s.opts.Log)
-	op := evals.Options{
-		Provider: provider, Model: model, PromptHash: s.evalPromptHash(),
-		Progress: func(done, total int, next string) {
-			s.evalJob.update(func(p *evalProgress) { p.Done, p.Total, p.Next = done, total, next })
-		},
 	}
 	s.evalJob.wg.Add(1)
 	go func() {
 		defer s.evalJob.wg.Done()
 		defer cancel()
-		s.finishEval(evals.Execute(ctx, runner, evals.Cases(), op))
+		s.finishEval(s.runEvalModes(ctx, provider, model, modes, cases))
 	}()
 	writeJSON(w, http.StatusAccepted, s.evalJob.get())
 }
 
-// finishEval keeps a run and clears the progress, or records why there is no run.
-func (s *Server) finishEval(run evals.Run, err error) {
-	if err == nil {
-		err = s.evalStore.Add(run)
+// runEvalModes runs the tasks once per mode and keeps each run, stopping at the first that has no
+// result.
+func (s *Server) runEvalModes(ctx context.Context, provider, model string, modes []string, cases []evals.Case) error {
+	for i, mode := range modes {
+		cfg := s.evalConfig(provider, model)
+		cfg.Agent.Direct = mode == evals.ModeDirect
+		offset := i * len(cases)
+		op := evals.Options{
+			Provider: provider, Model: model, PromptHash: s.evalPromptHash(), Mode: mode,
+			Progress: func(done, _ int, next string) {
+				s.evalJob.update(func(p *evalProgress) { p.Done, p.Next = offset+done, next })
+			},
+		}
+		run, err := evals.Execute(ctx, newEvalRunner(cfg, s.opts.Log), cases, op)
+		if err == nil {
+			err = s.evalStore.Add(run)
+		}
+		if err != nil {
+			return err
+		}
 	}
+	return nil
+}
+
+// finishEval clears the progress, recording why there is no result when a run had none.
+func (s *Server) finishEval(err error) {
 	s.evalJob.update(func(p *evalProgress) {
 		stopped := p.Stopped
 		*p = evalProgress{Stopped: stopped}

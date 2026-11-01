@@ -27,6 +27,8 @@ export interface EvalRun {
   at: string;
   provider: string;
   model: string;
+  // phased | direct; missing on a run from before the mode was kept (phased).
+  mode?: string;
   results: EvalCaseResult[];
   summary: EvalSummary;
 }
@@ -57,7 +59,15 @@ export interface EvalHistory {
   at: string;
   provider: string;
   model: string;
+  mode?: string;
   summary: EvalSummary;
+}
+
+// EvalVersus weighs the newest direct run against the newest phased one.
+export interface EvalVersus {
+  phased: EvalSummary;
+  direct: EvalSummary;
+  verdict: EvalVerdict;
 }
 
 export interface EvalView {
@@ -71,6 +81,9 @@ export interface EvalView {
   last: EvalRun | null;
   verdict: EvalVerdict | null;
   history: EvalHistory[];
+  // The agent mode a check runs in now; missing on an older gateway.
+  mode?: string;
+  versus?: EvalVersus | null;
 }
 
 const JSON_HEADERS = { "Content-Type": "application/json" };
@@ -93,12 +106,22 @@ export function loadEvals(api: Api): Promise<EvalView> {
 }
 
 // runEvals starts a check. The gateway refuses one that is not confirmed, so the page asks first.
-export function runEvals(api: Api): Promise<EvalProgress> {
+// mode "both" runs the tasks in the phased loop and then in direct mode, to compare them.
+export function runEvals(api: Api, mode = ""): Promise<EvalProgress> {
+  const body: { confirm: boolean; mode?: string } = { confirm: true };
+  if (mode) {
+    body.mode = mode;
+  }
   return send(api, "/v1/evals/run", {
     method: "POST",
     headers: JSON_HEADERS,
-    body: JSON.stringify({ confirm: true }),
+    body: JSON.stringify(body),
   });
+}
+
+// compareModes runs the check in both agent modes.
+export function compareModes(api: Api): Promise<EvalProgress> {
+  return runEvals(api, "both");
 }
 
 export function stopEvals(api: Api): Promise<EvalProgress> {
