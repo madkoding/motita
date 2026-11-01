@@ -18,6 +18,13 @@ var esFriction = map[string]string{
 	"refused action":                                        "acción rechazada",
 	"(no comment)":                                          "(sin comentario)",
 	"%s — about: %s":                                        "%s — sobre: %s",
+	"Sent back by:":                                         "Devueltos por:",
+	"the project's checks":                                  "los checks del proyecto",
+	"a subtask tried again":                                 "una subtarea repetida",
+	"done with no file changed":                             "terminado sin cambiar archivos",
+	"done over a failing check":                             "terminado con un check fallando",
+	"done with criteria not shown":                          "terminado sin mostrar los criterios",
+	"done with background agents running":                   "terminado con agentes en segundo plano",
 }
 
 func init() { Register(ES, esFriction) }

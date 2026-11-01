@@ -65,7 +65,8 @@ type Entry struct {
 	Project string `json:"project,omitempty"`
 	// Turn is the conversation turn it belongs to, when it came from one.
 	Turn int `json:"turn,omitempty"`
-	// Why says who refused an action (WhyPerson, WhyNobody); empty for every other kind.
+	// Why says who refused an action (WhyPerson, WhyNobody), or, for a retry, which layer sent the
+	// step back (the gate, a failing check, the criteria audit...); empty for the other kinds.
 	Why string `json:"why,omitempty"`
 	// Text is what happened, in one line: the error, the step that was retried, the refused command.
 	Text string `json:"text"`

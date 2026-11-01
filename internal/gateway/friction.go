@@ -40,13 +40,15 @@ func (s *Server) recordFriction(e friction.Entry) {
 	}
 }
 
-// watchRetries wraps a turn's progress callback so a line that reports a step being tried again
-// is also written to the journal. The line itself goes on to the stream untouched.
+// watchRetries wraps a turn's progress callback so a line that reports a step being tried again,
+// or a claim of "done" sent back, is also written to the journal, with the layer that did it. The
+// line itself goes on to the stream untouched.
 func (s *Server) watchRetries(c *conversation, rn *run, progress func(string, ...any)) func(string, ...any) {
 	return func(format string, args ...any) {
 		line := fmt.Sprintf(format, args...)
-		if agent.IsRetryLine(line) {
-			s.noteFriction(c, rn.turn, friction.KindRetry, line)
+		if layer := agent.RetryLayer(line); layer != "" {
+			s.recordFriction(friction.Entry{Kind: friction.KindRetry, Why: layer, Session: c.id,
+				Project: c.projectID, Turn: rn.turn, Text: line})
 		}
 		progress("%s", line)
 	}

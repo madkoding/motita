@@ -35,6 +35,9 @@ type Summary struct {
 	Total int       `json:"total"`
 	// Counts is how many entries of each kind: every kind is there, a quiet one as 0.
 	Counts map[string]int `json:"counts"`
+	// Layers is how many retries each layer that sends a step back caused ("gate", "failing-check",
+	// "criteria"...): which one makes the agent try again most. A retry with no layer is "".
+	Layers map[string]int `json:"layers"`
 	// Repeated are the things that came up more than once, most frequent first.
 	Repeated []Repeated `json:"repeated"`
 	// Flagged are the answers the person marked as not good, newest first, with their own words.
@@ -45,7 +48,7 @@ type Summary struct {
 func Summarize(entries []Entry, now time.Time, days int) Summary {
 	s := Summary{
 		Since: now.AddDate(0, 0, -days), Until: now, Days: days,
-		Counts: map[string]int{}, Repeated: []Repeated{}, Flagged: []Entry{},
+		Counts: map[string]int{}, Layers: map[string]int{}, Repeated: []Repeated{}, Flagged: []Entry{},
 	}
 	for _, k := range Kinds {
 		s.Counts[k] = 0
@@ -58,6 +61,9 @@ func Summarize(entries []Entry, now time.Time, days int) Summary {
 		}
 		s.Total++
 		s.Counts[e.Kind]++
+		if e.Kind == KindRetry && e.Why != "" {
+			s.Layers[e.Why]++
+		}
 		if e.Kind == KindFlagged {
 			s.Flagged = append(s.Flagged, e)
 			continue
@@ -110,6 +116,9 @@ func (s Summary) Text(lang i18n.Lang) string {
 	for _, k := range Kinds {
 		if n := s.Counts[k]; n > 0 {
 			fmt.Fprintf(&b, "- %s\n", countLine(lang, k, n))
+		}
+		if k == KindRetry && len(s.Layers) > 0 {
+			fmt.Fprintf(&b, "  %s\n", layersLine(lang, s.Layers))
 		}
 	}
 	if len(s.Repeated) > 0 {
@@ -177,4 +186,38 @@ func flaggedLine(lang i18n.Lang, e Entry) string {
 		return said
 	}
 	return i18n.Tf(lang, "%s — about: %s", said, e.Ask)
+}
+
+// layerWords name the layers that send a step back, as the English text the catalog translates.
+var layerWords = map[string]string{
+	"gate":          "the project's checks",
+	"subtask":       "a subtask tried again",
+	"unchanged":     "done with no file changed",
+	"failing-check": "done over a failing check",
+	"criteria":      "done with criteria not shown",
+	"background":    "done with background agents running",
+}
+
+// layersLine is "Sent back by: the project's checks 3, done over a failing check 1", the layer
+// that sent most first, and two that sent as many in name order.
+func layersLine(lang i18n.Lang, layers map[string]int) string {
+	names := make([]string, 0, len(layers))
+	for n := range layers {
+		names = append(names, n)
+	}
+	sort.Slice(names, func(a, b int) bool {
+		if layers[names[a]] != layers[names[b]] {
+			return layers[names[a]] > layers[names[b]]
+		}
+		return names[a] < names[b]
+	})
+	parts := make([]string, len(names))
+	for i, n := range names {
+		word := n
+		if w, ok := layerWords[n]; ok {
+			word = i18n.T(lang, w)
+		}
+		parts[i] = fmt.Sprintf("%s %d", word, layers[n])
+	}
+	return i18n.T(lang, "Sent back by:") + " " + strings.Join(parts, ", ")
 }

@@ -213,7 +213,7 @@ func (r *directRun) answer(text string) bool {
 		return true
 	}
 	r.gateTry++
-	a.report("the project's checks failed; handing them back (%d/%d)", r.gateTry, directGateRetries)
+	a.report(directGatePrefix+" (%d/%d)", r.gateTry, directGateRetries)
 	r.msgs = append(r.msgs, llm.Message{Role: "user", Content: gateFeedback(v)})
 	return false
 }

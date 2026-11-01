@@ -798,7 +798,7 @@ func (r *taskRun) unbackedClaim() bool {
 // challengeUnchanged sends back a claim of "done" over an unchanged tree.
 func (r *taskRun) challengeUnchanged(action Action) {
 	r.unbackedDone++
-	r.a.report("done claimed but nothing has been changed yet; asking the model to confirm")
+	r.a.report(unchangedPrefix + "; asking the model to confirm")
 	r.a.log.Warn(r.prefix+"done claimed over an unchanged working tree", "round", r.round)
 	r.journal = append(r.journal, roundRecord{
 		round: r.round, kind: roundProgress, commands: proposedCommands(action),
@@ -815,7 +815,7 @@ func (r *taskRun) challengeUnchanged(action Action) {
 // challengeFailing sends back a claim of "done" while a check the run ran is still failing.
 func (r *taskRun) challengeFailing(action Action, open []verifRecord) {
 	r.verifyChallenges++
-	r.a.report("done claimed while a check is still failing; sending the run back to it (%d/%d)",
+	r.a.report(failingCheckPrefix+"; sending the run back to it (%d/%d)",
 		r.verifyChallenges, maxVerifyChallenges)
 	r.a.log.Warn(r.prefix+"done claimed over a failing check", "round", r.round,
 		"check", truncate(open[0].command, 160), "challenge", r.verifyChallenges)
