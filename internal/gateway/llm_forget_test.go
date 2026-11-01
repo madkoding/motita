@@ -22,7 +22,7 @@ func TestTheUsagePanelLeavesOutADisconnectedProviderThatWasCalled(t *testing.T) 
 }
 
 func TestClaudeCodeIsShownWhileNamedOrUsedLately(t *testing.T) {
-	fakeClaudeProbe(t)
+	asked := fakeClaudeProbe(t)
 	srv := usageServer(t)
 	if usageRow(readUsage(t, srv), "claude-code") != nil {
 		t.Error("claude-code is shown though nothing uses it")
@@ -38,6 +38,11 @@ func TestClaudeCodeIsShownWhileNamedOrUsedLately(t *testing.T) {
 	}
 	if usageRow(readUsage(t, srv), "claude-code") == nil {
 		t.Error("a call a moment ago does not show claude-code")
+	}
+	// The panel's first read of a claude in use asks it for its quota in the background: waited
+	// for here, so the test's cleanup does not race the question.
+	if !probed(asked) {
+		t.Error("claude in use was not asked for its quota")
 	}
 	srv.usageTotals = nil
 	srv.opts.Service.(*fakeService).cfg.Models.Review = "claude-code/sonnet"
