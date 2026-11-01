@@ -45,6 +45,10 @@ type Message struct {
 	ToolCalls  []ToolCall // for assistant turns that ask for tool results
 	ToolCallID string     // for tool turns, matching the assistant call
 	Images     []Image    // pictures a user turn shows the model (see image.go)
+	// Stable is how many leading bytes of Content are the same on every call of the run - the
+	// instructions before the task and its history. A provider with an explicit prompt cache
+	// (Anthropic) is told it may keep them; the others cache a repeated prefix on their own.
+	Stable int
 }
 
 // Client talks to the configured provider.
