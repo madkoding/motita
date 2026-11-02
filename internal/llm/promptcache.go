@@ -57,6 +57,23 @@ func (c *Client) sendsCacheKey() bool {
 	return !c.noCache.Load() && isOfficialOpenAI(c.baseURL(DefaultBaseURL(c.cfg.Provider)))
 }
 
+// cachedOpenAIMessages converts a conversation for /chat/completions, with DashScope's cache
+// marks when the target has the explicit cache.
+func (c *Client) cachedOpenAIMessages(messages []Message) []openAIMessage {
+	out := toOpenAIMessages(messages)
+	if c.explicitQwenCache() {
+		markQwenCache(out, messages)
+	}
+	return out
+}
+
+// addCacheKey adds the routing key to a /chat/completions body for OpenAI's own API.
+func (c *Client) addCacheKey(body map[string]any, messages []Message) {
+	if key := promptCacheKey(c.cfg.Model, messages); key != "" && c.sendsCacheKey() {
+		body["prompt_cache_key"] = key
+	}
+}
+
 // qwenExplicitModels are the DashScope model families with an explicit cache. A family matches
 // its dated and suffixed ids too ("qwen-plus-2025-07-28", "qwen3-coder-plus-latest").
 var qwenExplicitModels = []string{

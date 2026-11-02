@@ -40,17 +40,11 @@ func isOfficialOpenAI(base string) bool {
 // is a 400 ("Unsupported parameter"), which used to make every o-series and
 // gpt-5 model unusable through the openai provider.
 func (c *Client) openAIBody(messages []Message, tools []Tool) map[string]any {
-	converted := toOpenAIMessages(messages)
-	if c.explicitQwenCache() {
-		markQwenCache(converted, messages)
-	}
 	body := map[string]any{
 		"model":    c.cfg.Model,
-		"messages": converted,
+		"messages": c.cachedOpenAIMessages(messages),
 	}
-	if key := promptCacheKey(c.cfg.Model, messages); key != "" && c.sendsCacheKey() {
-		body["prompt_cache_key"] = key
-	}
+	c.addCacheKey(body, messages)
 	if len(tools) > 0 {
 		body["tools"] = tools
 	}
