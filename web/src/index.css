@@ -5554,3 +5554,36 @@ html .project-bar button.project-new-session {
   color: var(--t3);
   font-variant-numeric: tabular-nums;
 }
+
+/* A pull request row of a project box (ProjectPullRequests.tsx): the CI state sits in the gutter the
+ * session rows keep for their spinner. A dot once the CI has said something, a turning ring while it
+ * runs (rotation only while running, like .session-spinner). */
+.pr-ci-mark {
+  position: absolute;
+  left: 8px;
+  top: 50%;
+  margin-top: -4px;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: #9a9aaa;
+}
+.pr-ci-mark.is-good {
+  background: #40f0a0;
+}
+.pr-ci-mark.is-bad {
+  background: var(--color-danger);
+}
+.pr-ci-mark.is-wait {
+  left: 6px;
+  margin-top: -6px;
+  width: 12px;
+  height: 12px;
+  background: none;
+  border: 2px solid rgb(255 176 32 / 0.25);
+  border-top-color: var(--color-warning);
+  animation: spin 0.8s linear infinite;
+}
+.pr-thread-row {
+  text-decoration: none;
+}

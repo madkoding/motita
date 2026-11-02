@@ -278,7 +278,7 @@ test("while it is open the modal reads the list again every half minute", async 
 });
 
 test("the badge counts the failing pull requests, now and a minute later", async (t) => {
-  t.mock.timers.enable({ apis: ["setInterval"] });
+  t.mock.timers.enable({ apis: ["setTimeout"] });
   let failing = 1;
   const api = fakeApi({
     "GET /v1/pull-requests": () => res(200, { pull_requests: [], failing }),
