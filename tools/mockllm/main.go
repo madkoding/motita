@@ -16,7 +16,6 @@ package main
 import (
 	"encoding/binary"
 	"encoding/json"
-	"errors"
 	"flag"
 	"fmt"
 	"io"
@@ -27,6 +26,8 @@ import (
 	"strings"
 	"sync/atomic"
 	"time"
+
+	"github.com/madkoding/motita/tools/mockserve"
 )
 
 var (
@@ -386,29 +387,14 @@ func scriptedReply(text string) string {
 	return ""
 }
 
-// listenAndServe is replaceable so the bootstrap can be tested: the real one
-// blocks until the server is stopped, which cannot be observed from a test. The
-// environment marker lets a test make the bind fail on purpose.
-var listenAndServe = func(srv *http.Server) error {
-	if os.Getenv("MOCKLLM_FORCE_LISTEN_FAILURE") == "1" {
-		return errors.New("forced listen failure for the test")
-	}
-	return srv.ListenAndServe()
-}
+// listenAndServe is replaceable so the bootstrap can be tested; the shared
+// bootstrap lives in tools/mockserve.
+var listenAndServe = mockserve.Listen("MOCKLLM_FORCE_LISTEN_FAILURE")
 
 // mainBody is the real bootstrap, separated so a test can call it with the server
 // replaced (the real one blocks until stopped).
 func mainBody(port *int, host *string, exit func(int)) {
-	srv := &http.Server{
-		Addr:              fmt.Sprintf("%s:%d", *host, *port),
-		Handler:           http.HandlerFunc(handle),
-		ReadHeaderTimeout: 10 * time.Second,
-	}
-	fmt.Fprintf(os.Stderr, "mockllm listening on http://%s:%d/v1\n", *host, *port)
-	if err := listenAndServe(srv); err != nil {
-		fmt.Fprintln(os.Stderr, "error:", err)
-		exit(1)
-	}
+	mockserve.Run("mockllm", *host, *port, http.HandlerFunc(handle), listenAndServe, exit)
 }
 
 func main() {

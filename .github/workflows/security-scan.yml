@@ -353,12 +353,19 @@ jobs:
             if (mine) await github.rest.issues.updateComment({ owner, repo, comment_id: mine.id, body });
             else await github.rest.issues.createComment({ owner, repo, issue_number, body });
 
+      # Deleting needs Administer on the project, which an analysis token never has: the optional
+      # SONAR_ADMIN_TOKEN (a user token) is used when set. A refusal is a warning, not silence, and
+      # the daily sweep in cleanup-artifacts.yml picks up whatever is left.
       - name: Delete the temporary SonarQube project
         if: always() && github.event_name == 'pull_request' && env.SONAR_TOKEN != '' && env.SONAR_HOST_URL != ''
         continue-on-error: true
+        env:
+          SONAR_ADMIN_TOKEN: ${{ secrets.SONAR_ADMIN_TOKEN || secrets.SONAR_TOKEN }}
         run: |
           KEY="${GITHUB_REPOSITORY//\//_}-pr-${PR_NUMBER}"
-          curl -s -u "$SONAR_TOKEN:" -X POST "${SONAR_HOST_URL%/}/api/projects/delete" -d "project=$KEY" -o /dev/null -w "temporary project deleted: %{http_code}\n"
+          code="$(curl -s -u "$SONAR_ADMIN_TOKEN:" -X POST "${SONAR_HOST_URL%/}/api/projects/delete" -d "project=$KEY" -o /dev/null -w '%{http_code}')"
+          echo "temporary project deleted: $code"
+          [ "$code" = 204 ] || echo "::warning::could not delete the SonarQube project $KEY (HTTP $code); set SONAR_ADMIN_TOKEN to a user token"
 
       - name: Result (blocks the PR if there are blocking findings)
         if: always() && github.event_name == 'pull_request'
