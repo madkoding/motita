@@ -362,12 +362,14 @@ export function SessionRow({ s }: { s: SessionInfo }) {
   // goroutine has not returned, so the flag is still true for a moment. See
   // answeredRef.
   const busy = s.running === true && !lists.answeredHere(s.id);
+  // A thread keeps the `session-thread` class but no indent: every row of a project starts at the
+  // same edge, as mad asked (the 16px step left only the main session aligned).
   return (
     <div
       ref={rowRef}
       class={`session-row group flex items-center gap-2 px-3 py-2 rounded-lg cursor-pointer transition-colors mb-0.5${choose(
         s.parent_id,
-        " session-thread ml-4",
+        " session-thread",
         "",
       )} ${choose(
         s.id === rs.sessionId,
