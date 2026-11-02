@@ -174,7 +174,7 @@ test("the menu edits the project and asks before deleting it", async () => {
   await m.unmount();
 });
 
-test("threads are listed under their main session, indented", async () => {
+test("threads are listed under their main session, aligned with it", async () => {
   const s = store({
     sessions: [
       { id: "t1", project_id: "p1", parent_id: "m", created: "2024-02" },
@@ -188,6 +188,13 @@ test("threads are listed under their main session, indented", async () => {
   assert.equal(rows.length, 3);
   assert.deepEqual(
     rows.map((r) => r.classList.contains("session-thread")),
+    [false, true, true],
+  );
+  // No row is indented: the threads start at the same edge as the main session.
+  assert.ok(rows.every((r) => !r.classList.contains("ml-4")));
+  // The threads, and only they, carry the branch mark before their title.
+  assert.deepEqual(
+    rows.map((r) => !!r.querySelector(".session-thread-mark")),
     [false, true, true],
   );
   await m.unmount();
