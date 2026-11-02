@@ -24,7 +24,8 @@ func TestRunAnnouncesAndExitsOnAFailedBind(t *testing.T) {
 	if code != 1 {
 		t.Fatalf("exit code %d, want 1", code)
 	}
-	if s := out.String(); !strings.Contains(s, "mockx listening on http://127.0.0.1:1234/v1") || !strings.Contains(s, "error: boom") {
+	s := out.String()
+	if !strings.Contains(s, "mockx listening on http://127.0.0.1:1234/v1") || !strings.Contains(s, "error: boom") {
 		t.Fatalf("output %q", s)
 	}
 }

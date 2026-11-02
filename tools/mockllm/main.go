@@ -170,7 +170,7 @@ func evalCommand(text string) string {
 
 func respond(w http.ResponseWriter, dialect, content string) {
 	w.Header().Set(headerContentType, "application/json")
-	json.NewEncoder(w).Encode(replyBody(dialect, content))
+	_ = json.NewEncoder(w).Encode(replyBody(dialect, content))
 }
 
 // replyBody wraps content in the response shape of the dialect (openai unless named).
@@ -218,7 +218,7 @@ func handle(w http.ResponseWriter, r *http.Request) {
 	if strings.HasSuffix(r.URL.Path, "/audio/speech") {
 		// The speech API: a short silence, enough for the browser to play something.
 		w.Header().Set(headerContentType, "audio/wav")
-		_, _ = w.Write(silence(300))
+		_, _ = w.Write(silence())
 		return
 	}
 
@@ -273,10 +273,11 @@ func handle(w http.ResponseWriter, r *http.Request) {
 	respond(w, dialect, content)
 }
 
-// silence is a WAV of ms milliseconds of silence: 8 kHz, 8-bit mono, the smallest a browser plays.
-func silence(ms int) []byte {
+// silence is a WAV of 300 ms of silence: 8 kHz, 8-bit mono, the smallest a browser plays.
+// The sizes are constants, so the header fields need no runtime conversion.
+func silence() []byte {
 	const rate = 8000
-	n := rate * ms / 1000
+	const n = rate * 300 / 1000
 	out := make([]byte, 44+n)
 	copy(out, "RIFF")
 	binary.LittleEndian.PutUint32(out[4:], uint32(36+n))
