@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"github.com/madkoding/motita/internal/config"
@@ -26,42 +27,170 @@ func cacheMarks(t *testing.T, body map[string]any) []string {
 	return marks
 }
 
-// TestAnthropicKeepsTheStableStartAndTheConversation: a turn with a stable start is sent as two
-// blocks, the first marked to be kept; a conversation with tools has its last block marked.
-func TestAnthropicKeepsTheStableStartAndTheConversation(t *testing.T) {
-	var body map[string]any
+// long is text past every model's cache minimum, so its marks are kept.
+var long = strings.Repeat("instructions that repeat on every call. ", 400)
+
+// captureAnthropic is a Messages API stand-in that keeps the last request body.
+func captureAnthropic(t *testing.T, model string) (*Client, *map[string]any) {
+	t.Helper()
+	body := map[string]any{}
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		body = map[string]any{}
 		_ = json.NewDecoder(r.Body).Decode(&body)
 		fmt.Fprint(w, `{"content":[{"type":"text","text":"ok"}]}`)
 	}))
-	defer srv.Close()
-	c, _ := New(config.LLM{Provider: "anthropic", Model: "claude-sonnet-5-5", APIKey: "k", BaseURL: srv.URL},
-		logx.Global())
+	t.Cleanup(srv.Close)
+	c, _ := New(config.LLM{Provider: "anthropic", Model: model, APIKey: "k", BaseURL: srv.URL}, logx.Global())
+	return c, &body
+}
 
-	turn := Message{Role: "user", Content: "INSTRUCTIONS\n## TASK\nround 3", Stable: len("INSTRUCTIONS\n")}
+var shellTool = []Tool{{Type: "function", Function: FunctionDef{Name: "shell", Description: "run"}}}
+
+// TestAnthropicKeepsTheStableStartAndTheConversation: a turn with a stable start is sent as two
+// blocks, the first marked to be kept; a conversation with tools has its last block marked.
+func TestAnthropicKeepsTheStableStartAndTheConversation(t *testing.T) {
+	c, got := captureAnthropic(t, "claude-sonnet-5-5")
+	turn := Message{Role: "user", Content: long + "## TASK\nround 3", Stable: len(long)}
 	if _, err := c.Complete(context.Background(), []Message{turn}); err != nil {
 		t.Fatal(err)
 	}
+	body := *got
 	blocks := body["messages"].([]any)[0].(map[string]any)["content"].([]any)
-	if len(blocks) != 2 || blocks[0].(map[string]any)["text"] != "INSTRUCTIONS\n" {
+	if len(blocks) != 2 || blocks[0].(map[string]any)["text"] != long {
 		t.Fatalf("the stable start must be its own block: %v", blocks)
 	}
-	if got := cacheMarks(t, body); len(got) != 1 || got[0] != "m0b0" {
-		t.Errorf("only the stable start may be marked in a text call: %v", got)
+	if marks := cacheMarks(t, body); len(marks) != 1 || marks[0] != "m0b0" {
+		t.Errorf("only the stable start may be marked in a text call: %v", marks)
 	}
 
 	conv := []Message{
 		{Role: "user", Content: "do it"},
 		{Role: "assistant", Content: "ok"},
-		{Role: "user", Content: "more"},
+		{Role: "user", Content: long},
 	}
-	if _, err := c.CompleteTools(context.Background(), conv, []Tool{{Type: "function",
-		Function: FunctionDef{Name: "shell", Description: "run"}}}); err != nil {
+	if _, err := c.CompleteTools(context.Background(), conv, shellTool); err != nil {
 		t.Fatal(err)
 	}
-	if got := cacheMarks(t, body); len(got) != 1 || got[0] != "m2b0" {
-		t.Errorf("the last block of a conversation with tools must be marked: %v", got)
+	if marks := cacheMarks(t, *got); len(marks) != 1 || marks[0] != "m2b0" {
+		t.Errorf("the last block of a conversation with tools must be marked: %v", marks)
+	}
+}
+
+// TestAnthropicAnchorsTheFirstSystemMessage: the first system message is sent as its own block,
+// marked, so tools and instructions are read from the cache even when what follows changes; the
+// turn's other system messages follow it unmarked.
+func TestAnthropicAnchorsTheFirstSystemMessage(t *testing.T) {
+	c, got := captureAnthropic(t, "claude-opus-5-5")
+	msgs := []Message{
+		{Role: "system", Content: long},
+		{Role: "system", Content: "recalled this turn"},
+		{Role: "system", Content: "  "},
+		{Role: "user", Content: "hi"},
+	}
+	if _, err := c.CompleteTools(context.Background(), msgs, shellTool); err != nil {
+		t.Fatal(err)
+	}
+	system := (*got)["system"].([]any)
+	if len(system) != 2 {
+		t.Fatalf("the system prompt must be the anchor and the rest: %v", system)
+	}
+	first, second := system[0].(map[string]any), system[1].(map[string]any)
+	if first["text"] != long || first["cache_control"] == nil {
+		t.Errorf("the first system message must be marked: %v", first)
+	}
+	if second["text"] != "recalled this turn" || second["cache_control"] != nil {
+		t.Errorf("the turn's own system message must follow unmarked: %v", second)
+	}
+	if marks := cacheMarks(t, *got); len(marks) != 1 {
+		t.Errorf("the conversation end is still marked: %v", marks)
+	}
+
+	// One system message only: one block, no second one.
+	if _, err := c.Complete(context.Background(), []Message{msgs[0], msgs[3]}); err != nil {
+		t.Fatal(err)
+	}
+	if system := (*got)["system"].([]any); len(system) != 1 {
+		t.Errorf("one system message is one block: %v", system)
+	}
+}
+
+// TestAnthropicAnchorsTheToolsWithoutASystemPrompt: with no system prompt, the last tool carries
+// the anchor when the tool list alone is long enough.
+func TestAnthropicAnchorsTheToolsWithoutASystemPrompt(t *testing.T) {
+	c, got := captureAnthropic(t, "claude-opus-5-5")
+	tools := []Tool{
+		{Type: "function", Function: FunctionDef{Name: "a", Description: long}},
+		{Type: "function", Function: FunctionDef{Name: "b", Description: "short"}},
+	}
+	if _, err := c.CompleteTools(context.Background(), []Message{{Role: "user", Content: "hi"}}, tools); err != nil {
+		t.Fatal(err)
+	}
+	sent := (*got)["tools"].([]any)
+	if sent[0].(map[string]any)["cache_control"] != nil || sent[1].(map[string]any)["cache_control"] == nil {
+		t.Errorf("only the last tool carries the anchor: %v", sent)
+	}
+	if _, has := (*got)["system"]; has {
+		t.Error("no system prompt must be sent")
+	}
+}
+
+// TestAnthropicDropsMarksTooShortToCache: below the model's minimum nothing is marked, and the
+// system prompt stays a plain string.
+func TestAnthropicDropsMarksTooShortToCache(t *testing.T) {
+	c, got := captureAnthropic(t, "claude-haiku-4-5")
+	msgs := []Message{{Role: "system", Content: "short rules"}, {Role: "system", Content: "more"},
+		{Role: "user", Content: "INSTRUCTIONS\n## TASK", Stable: len("INSTRUCTIONS\n")}}
+	if _, err := c.CompleteTools(context.Background(), msgs, shellTool); err != nil {
+		t.Fatal(err)
+	}
+	if (*got)["system"] != "short rules\n\nmore" {
+		t.Errorf("a short system prompt stays one string: %v", (*got)["system"])
+	}
+	if marks := cacheMarks(t, *got); len(marks) != 0 {
+		t.Errorf("no mark may be placed on a prefix too short to cache: %v", marks)
+	}
+	if _, err := c.CompleteTools(context.Background(), msgs[2:], shellTool); err != nil {
+		t.Fatal(err)
+	}
+	if tools := (*got)["tools"].([]any); tools[0].(map[string]any)["cache_control"] != nil {
+		t.Errorf("a short tool list carries no anchor: %v", tools)
+	}
+}
+
+// TestFitMessageMarksKeepsTheLatestWithinTheLimit: past the slots left, the earliest marks go.
+func TestFitMessageMarksKeepsTheLatestWithinTheLimit(t *testing.T) {
+	var conv []map[string]any
+	for range 6 {
+		conv = append(conv, map[string]any{"role": "user", "content": []map[string]any{
+			{"type": "text", "text": long, "cache_control": ephemeral}}})
+	}
+	fitMessageMarks(conv, 0, 10, 3)
+	for i, turn := range conv {
+		_, has := turn["content"].([]map[string]any)[0]["cache_control"]
+		if has != (i >= 3) {
+			t.Errorf("turn %d marked = %v: only the latest three may stay", i, has)
+		}
+	}
+}
+
+// TestCacheMinimumByModel: each family's minimum, through gateway and cloud prefixes.
+func TestCacheMinimumByModel(t *testing.T) {
+	for model, want := range map[string]int{
+		"claude-opus-5-5":                     512,
+		"anthropic/claude-sonnet-5-5":         512,
+		"us.anthropic.claude-haiku-5-5":       512,
+		"claude-fable-5-1":                    512,
+		"claude-sonnet-5":                     1024,
+		"claude-opus-4-8":                     1024,
+		"claude-opus-4-7":                     2048,
+		"claude-opus-4-5@20251101":            4096,
+		"anthropic.claude-haiku-4-5-20251001": 4096,
+		"claude-3-5-haiku-latest":             2048,
+		"some-future-model":                   1024,
+	} {
+		if got := cacheMinimum(model); got != want {
+			t.Errorf("%s: minimum %d, want %d", model, got, want)
+		}
 	}
 }
 
