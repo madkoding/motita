@@ -207,9 +207,10 @@ export function wikiToMarkdown(body: string, links: EntryLink[]): string {
       return all;
     }
     const path = resolved.get(target.toLowerCase());
-    const href = path
-      ? ENTRY_PREFIX + encodeURIComponent(path)
-      : NEW_PREFIX + encodeURIComponent(target);
+    let href = NEW_PREFIX + encodeURIComponent(target);
+    if (path) {
+      href = ENTRY_PREFIX + encodeURIComponent(path);
+    }
     return "[" + text.replace(/[[\]]/g, "") + "](" + href + ")";
   });
 }
@@ -309,7 +310,7 @@ export function layoutGraph(
       const b = at.get(e.to) as PlacedNode;
       const dx = a.x - b.x;
       const dy = a.y - b.y;
-      const pull = Math.sqrt(dx * dx + dy * dy) / k;
+      const pull = Math.hypot(dx, dy) / k;
       const da = move.get(a) as { x: number; y: number };
       const db = move.get(b) as { x: number; y: number };
       da.x -= dx * pull;
@@ -319,7 +320,7 @@ export function layoutGraph(
     }
     for (const p of placed) {
       const m = move.get(p) as { x: number; y: number };
-      const len = Math.max(Math.sqrt(m.x * m.x + m.y * m.y), 0.01);
+      const len = Math.max(Math.hypot(m.x, m.y), 0.01);
       const shift = Math.min(len, MAX_SHIFT * cool + 0.5);
       p.x = Math.min(
         width - MARGIN,

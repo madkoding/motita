@@ -26,4 +26,6 @@ func killGroup(cmd *exec.Cmd) error {
 
 // killLeftovers does nothing outside Unix: once the child exited there is no group left to find
 // what it started.
-func killLeftovers(*exec.Cmd) {}
+func killLeftovers(*exec.Cmd) {
+	// Nothing to do: Windows has no process group to sweep once the child exited.
+}

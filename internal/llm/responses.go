@@ -26,10 +26,20 @@ import (
 func (c *Client) responsesBody(messages []Message, tools []Tool, chatgpt bool) map[string]any {
 	var instructions []string
 	input := make([]map[string]any, 0, len(messages))
+	leading := true
 	for _, m := range messages {
+		leading = leading && m.Role == "system"
 		switch {
-		case m.Role == "system":
+		case leading:
 			instructions = append(instructions, m.Content)
+		case m.Role == "system":
+			// A system message after the conversation began (the turn's context brief) stays where
+			// it is: put in the instructions, it would change the start of every request and no
+			// call would read the conversation from the cache.
+			input = append(input, map[string]any{
+				"type": "message", "role": "developer",
+				"content": []map[string]any{{"type": "input_text", "text": m.Content}},
+			})
 		case m.Role == "tool" || m.ToolCallID != "":
 			input = append(input, map[string]any{
 				"type":    "function_call_output",
@@ -51,6 +61,9 @@ func (c *Client) responsesBody(messages []Message, tools []Tool, chatgpt bool) m
 		"input":        input,
 		"store":        false,
 		"stream":       true,
+	}
+	if key := promptCacheKey(c.cfg.Model, messages); key != "" && !c.noCache.Load() {
+		body["prompt_cache_key"] = key
 	}
 	if len(tools) > 0 {
 		body["tools"] = responsesTools(tools)

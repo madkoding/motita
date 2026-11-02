@@ -705,9 +705,15 @@ func (p *Planner) remembered(input string) string {
 	return block
 }
 
-// withRecall puts the recalled block among the leading system messages, before the
-// conversation. It is never written to the session: it belongs to this turn, and carrying it
-// into the next one would repeat it and make the archive recall itself.
+// withRecall puts the recalled block right before the turn's request: the last user message, or
+// after the leading system messages when there is none. It is never written to the session: it
+// belongs to this turn, and carrying it into the next one would repeat it and make the archive
+// recall itself.
+//
+// It goes AFTER the history because it changes every turn and every provider caches a prompt by
+// its prefix: placed before the conversation, it made each turn re-read the whole history at full
+// price. After it, the system prompt and the history up to this turn are the same prefix as on
+// the turn before.
 func (p *Planner) withRecall(msgs []llm.Message) []llm.Message {
 	if p.turnRecall == "" {
 		return msgs
@@ -715,6 +721,12 @@ func (p *Planner) withRecall(msgs []llm.Message) []llm.Message {
 	at := 0
 	for at < len(msgs) && msgs[at].Role == "system" {
 		at++
+	}
+	for i := len(msgs) - 1; i >= at; i-- {
+		if msgs[i].Role == "user" {
+			at = i
+			break
+		}
 	}
 	out := make([]llm.Message, 0, len(msgs)+1)
 	out = append(out, msgs[:at]...)

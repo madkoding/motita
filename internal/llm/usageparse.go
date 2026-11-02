@@ -8,44 +8,62 @@ package llm
 // and claude report it apart. Usage keeps it apart everywhere, so Input + CacheRead is the whole
 // prompt on every provider and nothing is counted twice.
 
-// openAIUsage is the usage of a /chat/completions response or of its final stream chunk.
+// openAIUsage is the usage of a /chat/completions response or of its final stream chunk. The
+// servers that speak the protocol name the cached part in their own ways, all inside
+// prompt_tokens: OpenAI and Qwen as prompt_tokens_details.cached_tokens, DeepSeek as
+// prompt_cache_hit_tokens; and the part WRITTEN to an explicit cache as
+// prompt_tokens_details.cache_creation_input_tokens (DashScope) or cache_write_tokens (OpenRouter).
 type openAIUsage struct {
-	PromptTokens        int64 `json:"prompt_tokens"`
-	CompletionTokens    int64 `json:"completion_tokens"`
-	PromptTokensDetails *struct {
-		CachedTokens int64 `json:"cached_tokens"`
-	} `json:"prompt_tokens_details"`
+	PromptTokens         int64                `json:"prompt_tokens"`
+	CompletionTokens     int64                `json:"completion_tokens"`
+	PromptCacheHitTokens int64                `json:"prompt_cache_hit_tokens"`
+	PromptTokensDetails  *openAIPromptDetails `json:"prompt_tokens_details"`
+}
+
+// openAIPromptDetails is the prompt_tokens_details of a /chat/completions usage.
+type openAIPromptDetails struct {
+	CachedTokens             int64 `json:"cached_tokens"`
+	CacheCreationInputTokens int64 `json:"cache_creation_input_tokens"`
+	CacheWriteTokens         int64 `json:"cache_write_tokens"`
 }
 
 func (u *openAIUsage) usage() Usage {
 	if u == nil {
 		return Usage{}
 	}
-	var cached int64
-	if u.PromptTokensDetails != nil {
-		cached = u.PromptTokensDetails.CachedTokens
+	cached, written := u.PromptCacheHitTokens, int64(0)
+	if d := u.PromptTokensDetails; d != nil {
+		cached = max(cached, d.CachedTokens)
+		written = max(d.CacheCreationInputTokens, d.CacheWriteTokens)
 	}
-	return Usage{Input: u.PromptTokens - cached, Output: u.CompletionTokens, CacheRead: cached}
+	return Usage{Input: max(u.PromptTokens-cached-written, 0), Output: u.CompletionTokens,
+		CacheRead: cached, CacheWrite: written}
 }
 
-// responsesUsage is the usage of a /responses response.
+// responsesUsage is the usage of a /responses response; cache_write_tokens is the part written
+// to the cache, inside input_tokens like the cached part.
 type responsesUsage struct {
-	InputTokens        int64 `json:"input_tokens"`
-	OutputTokens       int64 `json:"output_tokens"`
-	InputTokensDetails *struct {
-		CachedTokens int64 `json:"cached_tokens"`
-	} `json:"input_tokens_details"`
+	InputTokens        int64                  `json:"input_tokens"`
+	OutputTokens       int64                  `json:"output_tokens"`
+	InputTokensDetails *responsesInputDetails `json:"input_tokens_details"`
+}
+
+// responsesInputDetails is the input_tokens_details of a /responses usage.
+type responsesInputDetails struct {
+	CachedTokens     int64 `json:"cached_tokens"`
+	CacheWriteTokens int64 `json:"cache_write_tokens"`
 }
 
 func (u *responsesUsage) usage() Usage {
 	if u == nil {
 		return Usage{}
 	}
-	var cached int64
-	if u.InputTokensDetails != nil {
-		cached = u.InputTokensDetails.CachedTokens
+	var cached, written int64
+	if d := u.InputTokensDetails; d != nil {
+		cached, written = d.CachedTokens, d.CacheWriteTokens
 	}
-	return Usage{Input: u.InputTokens - cached, Output: u.OutputTokens, CacheRead: cached}
+	return Usage{Input: max(u.InputTokens-cached-written, 0), Output: u.OutputTokens,
+		CacheRead: cached, CacheWrite: written}
 }
 
 // anthropicUsage is the usage of a Messages API response, and of claude's stream-json events,

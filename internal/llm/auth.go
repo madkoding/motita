@@ -276,7 +276,8 @@ func (c *Client) send(ctx context.Context, path string, body any, stream bool) (
 	data = c.clampOutputLimit(data)
 	// renew forces a renewal on the pass right after a 401, and only then: asking again within
 	// the output limit is no reason to spend a rotating refresh token.
-	relearned, renewed, renew, unschemed := false, false, false, false
+	renewed, renew := false, false
+	var fixes refusalFixes
 	for {
 		t, err := c.target(ctx, renew)
 		renew = false
@@ -303,20 +304,36 @@ func (c *Client) send(ctx context.Context, path string, body any, stream bool) (
 			renewed, renew = true, true
 			continue
 		}
-		// Asked for more output than the model allows: the refusal names the limit.
-		// Ask once more within it, and keep it for the next request.
-		if resp.StatusCode == http.StatusBadRequest && !relearned && c.relearnOutputLimit(data, b) {
-			relearned = true
-			data = c.clampOutputLimit(data)
-			continue
-		}
-		if !unschemed && c.refusedSchema(&data, resp.StatusCode) {
-			unschemed = true
+		if fixes.repair(c, &data, resp.StatusCode, b) {
 			continue
 		}
 		return nil, t, &HTTPError{Code: resp.StatusCode, Body: strings.TrimSpace(string(b)),
 			RetryAfter: parseRetryAfter(resp.Header.Get("Retry-After"), time.Now())}
 	}
+}
+
+// refusalFixes are the repairs one request may get after a refusal, each at most once.
+type refusalFixes struct{ relearned, uncached, unschemed bool }
+
+// repair rewrites data after a refusal the request can be asked again without, and reports
+// whether it did: an output limit the refusal names, the prompt-cache fields, the reply schema.
+func (f *refusalFixes) repair(c *Client, data *[]byte, status int, answer []byte) bool {
+	// Asked for more output than the model allows: the refusal names the limit.
+	// Ask once more within it, and keep it for the next request.
+	if status == http.StatusBadRequest && !f.relearned && c.relearnOutputLimit(*data, answer) {
+		f.relearned = true
+		*data = c.clampOutputLimit(*data)
+		return true
+	}
+	if !f.uncached && c.refusedCache(data, status, answer) {
+		f.uncached = true
+		return true
+	}
+	if !f.unschemed && c.refusedSchema(data, status) {
+		f.unschemed = true
+		return true
+	}
+	return false
 }
 
 // do sends req. A plain request is bounded as a whole by llm.timeout. A stream is not: its answer
