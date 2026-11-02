@@ -200,7 +200,10 @@ PR — the bypass is a record, not a shortcut.
 
 ## Designing larger changes (EGM)
 
-The repository enables Google's
+motita ships the Elephant-Goldfish flow as built-in procedures that run on any
+model or provider: `designing-a-change`, `reviewing-a-design`,
+`design-review-lenses` and `checking-design-drift` (see `docs/GUIDE.md`). As an
+optional extra for contributors who use Claude Code, the repository also enables Google's
 [Elephant-Goldfish Model](https://github.com/google/elephant-goldfish-model)
 (EGM, Apache-2.0) for Claude Code in `.claude/settings.json`. When you trust
 the folder, Claude Code offers to install the `egm@egm` plugin; to install it

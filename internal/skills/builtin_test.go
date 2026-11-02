@@ -39,13 +39,17 @@ const (
 	vulnSkill     = "finding-vulnerabilities"
 	notesSkill    = "using-the-memory"
 	reviewSkill   = "reviewing-the-memory"
+	designSkill   = "designing-a-change"
+	goldfishSkill = "reviewing-a-design"
+	lensesSkill   = "design-review-lenses"
+	driftSkill    = "checking-design-drift"
 )
 
 // shippedCore is what a fresh install is expected to carry, in one list: the tests that ask "does
 // a fresh install ship this" and "does the search find it" both read it, so adding a document
 // means adding it here and nowhere else.
 var shippedCore = []string{fileSkill, webSkill, commandsSkill, gitSkill, curlSkill, showSkill, verifySkill, prSkill,
-	auditSkill, vulnSkill, notesSkill, reviewSkill}
+	auditSkill, vulnSkill, notesSkill, reviewSkill, designSkill, goldfishSkill, lensesSkill, driftSkill}
 
 // TestTheShippedProceduresLoad is the base case: a fresh install has something to look up. An
 // embed directive that names a folder the binary does not carry would leave the library empty
@@ -165,6 +169,32 @@ func TestTheShippedProceduresAreFoundByTheWordsOfTheJob(t *testing.T) {
 			"do my memory entries contradict each other",
 			"fact check my memory",
 			"find orphan entries and broken links",
+		}},
+		// The design flow adapted from the Elephant-Goldfish Model: the drafting, the fresh-context
+		// review, the reviewer roles and the drift check. Each is reached by the words of its job,
+		// and none of them by the words of another, or a reviewer would read the drafting steps.
+		{designSkill, []string{
+			"write a design document before the code",
+			"brainstorm a feature idea",
+			"draft a design doc for this feature",
+			"spec the feature first",
+		}},
+		{goldfishSkill, []string{
+			"review this design document",
+			"goldfish review of the spec",
+			"review the design with fresh agents",
+			"resolve the review findings",
+		}},
+		{lensesSkill, []string{
+			"zoom out lens",
+			"comprehension reviewer",
+			"implementation readiness review",
+			"codebase details lens",
+		}},
+		{driftSkill, []string{
+			"does the code still match the design",
+			"detect drift between docs and code",
+			"design drift report",
 		}},
 		{verifySkill, []string{
 			"did it actually work",
