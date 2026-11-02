@@ -40,8 +40,10 @@ type geminiFunctionCall struct {
 func geminiTextContents(messages []Message) (string, []map[string]any) {
 	var system string
 	var contents []map[string]any
+	leading := true
 	for _, m := range messages {
-		if m.Role == "system" {
+		leading = leading && m.Role == "system"
+		if leading {
 			system += m.Content + "\n"
 			continue
 		}
@@ -50,6 +52,12 @@ func geminiTextContents(messages []Message) (string, []map[string]any) {
 			role = "model"
 		}
 		parts := append([]map[string]any{{"text": m.Content}}, geminiImages(m.Images)...)
+		// A later system message is a user part, next to the user turn it precedes: one turn,
+		// since consecutive turns of the same role are not a conversation Gemini accepts everywhere.
+		if n := len(contents); n > 0 && contents[n-1]["role"] == role {
+			contents[n-1]["parts"] = append(contents[n-1]["parts"].([]map[string]any), parts...)
+			continue
+		}
 		contents = append(contents, map[string]any{"role": role, "parts": parts})
 	}
 	return system, contents
@@ -209,8 +217,13 @@ func toGeminiContents(messages []Message) (string, []map[string]any) {
 	var system string
 	var contents []map[string]any
 	names := map[string]string{} // call id -> function name
+	leading := true
 	for _, m := range messages {
-		if m.Role == "system" {
+		// Only the LEADING system messages are the system instruction. A later one (the turn's
+		// context brief) is a user part where it stands: in the instruction it would change the
+		// start of every request, and Gemini's implicit cache would never match the conversation.
+		leading = leading && m.Role == "system"
+		if leading {
 			system += m.Content + "\n"
 			continue
 		}
