@@ -428,9 +428,10 @@ jobs:
           name: web-coverage
           path: web/coverage
       # node --test names files relative to web/, Sonar resolves them from the repository root.
+      # The suite also measures site/lang.js (site-lang.test.mjs), named ../site/ from web/.
       - name: Coverage reports for SonarQube
         run: |
-          sed -i 's#^SF:src/#SF:web/src/#' web/coverage/lcov.info
+          sed -i -e 's#^SF:src/#SF:web/src/#' -e 's#^SF:\.\./site/#SF:site/#' web/coverage/lcov.info
           test -s coverage.out
           test -s web/coverage/lcov.info
 
