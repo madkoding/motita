@@ -65,7 +65,9 @@ func marked(part any) bool {
 }
 
 func TestPromptCacheKey(t *testing.T) {
-	base := []Message{{Role: "system", Content: "rules"}, {Role: "system", Content: "summary"}, {Role: "user", Content: "a"}}
+	base := []Message{
+		{Role: "system", Content: "rules"}, {Role: "system", Content: "summary"}, {Role: "user", Content: "a"},
+	}
 	key := promptCacheKey("gpt-5", base)
 	if !strings.HasPrefix(key, "motita-") || len(key) != len("motita-")+24 {
 		t.Fatalf("key = %q", key)
