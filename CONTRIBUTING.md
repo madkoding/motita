@@ -198,6 +198,31 @@ PR — the bypass is a record, not a shortcut.
   [conventional commits](https://www.conventionalcommits.org/) (`feat:`,
   `fix:`, `docs:`, `test:`, `refactor:`, `chore:`).
 
+## Designing larger changes (EGM)
+
+The repository enables Google's
+[Elephant-Goldfish Model](https://github.com/google/elephant-goldfish-model)
+(EGM, Apache-2.0) for Claude Code in `.claude/settings.json`. When you trust
+the folder, Claude Code offers to install the `egm@egm` plugin; to install it
+by hand:
+
+```sh
+claude plugin marketplace add google/elephant-goldfish-model
+claude plugin install egm@egm
+```
+
+Use it when a feature needs design decisions before code; a small, clear fix
+does not need it. The usual path:
+
+1. `/egm:egm-brainstorm <idea>` writes `concepts_brief.md`.
+2. `/egm:egm-draft` turns the brief into `design_draft.md`.
+3. `/egm:egm-review design_draft.md` has fresh, context-free subagents review
+   the draft; `/egm:egm-resolve` works through their findings.
+4. Save the approved design under `docs/designs/` and link it from the PR.
+
+`/egm:egm-drift-report` compares checked-in design documents with the code.
+Briefs and drafts are scratch files: do not commit them outside `docs/designs/`.
+
 ## Questions?
 
 Open an issue with the `question` label, or start a discussion.
