@@ -78,22 +78,13 @@ func (c *Client) explicitQwenCache() bool {
 	if err != nil || !strings.Contains(strings.ToLower(u.Hostname()), "dashscope") {
 		return false
 	}
-	model := strings.ToLower(unprefixedModel(c.cfg.Model))
+	model := bareModel(c.cfg.Model)
 	for _, family := range qwenExplicitModels {
 		if model == family || strings.HasPrefix(model, family+"-") {
 			return true
 		}
 	}
 	return false
-}
-
-// unprefixedModel is a model id without the gateway's provider prefix ("qwen/qwen-plus").
-func unprefixedModel(model string) string {
-	m := strings.TrimSpace(model)
-	if i := strings.LastIndex(m, "/"); i >= 0 {
-		m = m[i+1:]
-	}
-	return m
 }
 
 // markQwenCache puts the explicit cache marks on a converted conversation (out mirrors in):
