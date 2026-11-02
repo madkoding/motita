@@ -287,7 +287,7 @@ export function ProjectGroup({ p }: { p: ProjectInfo }) {
         class={`project-sessions${choose(isCollapsed, " is-collapsed", "")}`}
       >
         <div class="project-sessions-inner">
-          <div class="px-1.5 pb-1.5 space-y-0.5">
+          <div class="px-1.5 pb-1.5">
             <NestedRepos p={p} />
             {projectSessions.map((s) => (
               <SessionRow key={s.id} s={s} />

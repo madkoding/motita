@@ -3,6 +3,7 @@ package gateway
 import (
 	"context"
 	"net/http"
+	"strings"
 	"sync"
 	"time"
 
@@ -39,6 +40,21 @@ type quotaCache struct {
 	items map[string]quotaEntry
 }
 
+// forget drops every read of a provider's quotas. The quotas of both Ollama entries are kept
+// under "ollama".
+func (c *quotaCache) forget(id string) {
+	if id == "ollama-cloud" {
+		id = "ollama"
+	}
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	for key := range c.items {
+		if strings.HasPrefix(key, id+"|") {
+			delete(c.items, key)
+		}
+	}
+}
+
 // llmUsageRow is what one provider has consumed since the gateway started, as the bottom bars of
 // the page show it. Only what the provider reported in its responses is here: its limits when it
 // sends them (per minute, and a plan's session and weekly quotas), never a guess.
@@ -65,10 +81,13 @@ type llmUsageView struct {
 	Providers []llmUsageRow `json:"providers"`
 }
 
-// handleLLMUsage answers, for each provider with a key or a login (and any other that has been
-// called), the tokens it has consumed since the gateway started.
+// handleLLMUsage answers, for each provider connected now (a key or a login, or for a provider that
+// takes none, one in use), the tokens it has consumed. A provider that was called once and has
+// since been disconnected is left out: the totals are kept in a file, and it would otherwise stay in
+// the panel for good.
 func (s *Server) handleLLMUsage(w http.ResponseWriter, r *http.Request) {
 	cfg := s.configuredLLM()
+	inUse := providersInUse(cfg, s.configuredModels())
 	totals := map[string]llm.ProviderUsage{}
 	for _, u := range s.providerTotals() {
 		totals[u.Provider] = u
@@ -79,7 +98,7 @@ func (s *Server) handleLLMUsage(w http.ResponseWriter, r *http.Request) {
 			continue // a self-hosted Ollama has no quota to follow
 		}
 		u, called := totals[p.ID]
-		if !called && !hasUsageKey(s.opts.ConfigPath, cfg, p.ID) {
+		if !followsUsage(s.opts.ConfigPath, cfg, p.ID, inUse[p.ID], called && recentCall(u.Last)) {
 			continue
 		}
 		row := llmUsageRow{ID: p.ID, Name: shortName(p), Default: p.ID == cfg.Provider,
@@ -97,6 +116,34 @@ func (s *Server) handleLLMUsage(w http.ResponseWriter, r *http.Request) {
 		rows = append(rows, row)
 	}
 	writeJSON(w, http.StatusOK, llmUsageView{Providers: rows})
+}
+
+// keylessRecent is how long after its latest call a provider that takes no key (Claude Code, which
+// signs in with its own CLI) stays in the panel when the configuration no longer names it.
+const keylessRecent = 24 * time.Hour
+
+// recentCall says whether a call that finished at last is recent enough to keep a keyless provider.
+func recentCall(last time.Time) bool { return time.Since(last) < keylessRecent }
+
+// providersInUse is the providers the configuration names: the default one and those of the models
+// block.
+func providersInUse(cfg config.LLM, models config.Models) map[string]bool {
+	out := map[string]bool{cfg.Provider: true}
+	for _, kind := range config.TaskKinds {
+		if c := models.For(kind); c.Provider != "" {
+			out[c.Provider] = true
+		}
+	}
+	return out
+}
+
+// followsUsage says whether the panel shows a provider: one that needs a key while it has one (or
+// a login), one that takes none while the configuration names it or it was called lately.
+func followsUsage(configPath string, cfg config.LLM, id string, inUse, calledLately bool) bool {
+	if !config.ProviderNeedsKey(id) {
+		return inUse || calledLately
+	}
+	return hasUsageKey(configPath, cfg, id)
 }
 
 // hasUsageKey says whether a provider is set up enough to be followed before it has made a call.

@@ -19,6 +19,7 @@ import {
   type Api,
   type ProviderUsage,
   type UsageQuota,
+  PROVIDERS_CHANGED_EVENT,
   getLLMUsage,
   usageTotal,
 } from "./llmApi";
@@ -382,9 +383,12 @@ export function ProviderUsagePanel({
     void load();
     // A run starting or ending changes the figures, so the effect also reads on those.
     const timer = setInterval(load, USAGE_POLL_MS);
+    // A provider saved or disconnected in Settings shows up or leaves at once.
+    window.addEventListener(PROVIDERS_CHANGED_EVENT, load);
     return () => {
       live = false;
       clearInterval(timer);
+      window.removeEventListener(PROVIDERS_CHANGED_EVENT, load);
     };
   }, [api, running]);
   if (rows.length === 0) {

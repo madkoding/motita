@@ -18,3 +18,24 @@ func TestFileNameStripsWhatAFileCannotHold(t *testing.T) {
 		}
 	}
 }
+
+func TestNameForTakesTheFirstLineOfTheText(t *testing.T) {
+	cases := map[string]string{
+		"## Mad prefers Spanish\nmore":                 "Mad prefers Spanish",
+		"\n\n- a/b: c [x] #1":                          "a b c x 1",
+		"one two three four five six seven eight nine": "one two three four five six seven eight",
+		"..hidden start":                               "hidden start",
+		"#  \n***\n":                                   "Notes",
+		"":                                             "Notes",
+	}
+	long := ""
+	for range 20 {
+		long += "abcdefghij"
+	}
+	cases[long] = long[:60]
+	for in, want := range cases {
+		if got := NameFor(in); got != want {
+			t.Errorf("NameFor(%q) = %q, want %q", in, got, want)
+		}
+	}
+}

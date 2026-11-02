@@ -29,3 +29,25 @@ func FileName(folder, title string) string {
 	}
 	return name + ext
 }
+
+// titleWords and titleRunes bound the title NameFor takes from a text.
+const (
+	titleWords = 8
+	titleRunes = 60
+)
+
+// NameFor is the title of an entry the model saved without naming one: the first line of the text,
+// without Markdown marks, cut to a few words. "Notes" when the text gives nothing usable.
+func NameFor(text string) string {
+	for _, line := range strings.Split(text, "\n") {
+		line = strings.TrimLeft(strings.TrimSpace(line), "#>*-+ \t")
+		line = strings.TrimSpace(badNameChars.ReplaceAllString(strings.ReplaceAll(line, "/", " "), ""))
+		words := strings.Fields(strings.TrimLeft(line, "."))
+		if len(words) == 0 {
+			continue
+		}
+		name := []rune(strings.Join(words[:min(len(words), titleWords)], " "))
+		return strings.TrimSpace(string(name[:min(len(name), titleRunes)]))
+	}
+	return "Notes"
+}

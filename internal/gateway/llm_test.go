@@ -621,6 +621,7 @@ func TestLLMUsageShowsTheTokensOfACalledProvider(t *testing.T) {
 func TestLLMUsageListsAProviderThatOnlyReportedARateLimit(t *testing.T) {
 	srv := usageServer(t)
 	srv.usageTotals = usedProviders
+	t.Setenv("GEMINI_API_KEY", "gm-0123456789abcdef")
 	// No call counted, so there is no count to date.
 	g := usageRow(readUsage(t, srv), "gemini")
 	if g == nil || g.Since != nil || g.Last != nil || g.Limits == nil {
@@ -633,6 +634,7 @@ func TestLLMUsageLeavesOutAnOllamaOnTheUsersOwnServer(t *testing.T) {
 	srv.usageTotals = func() []llm.ProviderUsage {
 		return []llm.ProviderUsage{{Provider: "ollama", Calls: 1}, {Provider: "ollama-cloud", Calls: 1}}
 	}
+	t.Setenv("OLLAMA_API_KEY", "ol-key")
 	other := filepath.Join(t.TempDir(), "motita.yaml")
 	ollamaBase := config.ProviderBaseURLVariable("ollama")
 	if err := config.SetCredential(other, ollamaBase, "http://localhost:11434/v1"); err != nil {
@@ -764,8 +766,8 @@ func TestLLMUsageShowsTheOllamaCloudQuotas(t *testing.T) {
 	if r == nil || r.Limits == nil || len(r.Limits.Quotas) != 2 || r.Limits.Quotas[0].Used != 27.5 {
 		t.Fatalf("ollama-cloud row: %+v", r)
 	}
-	if usageRow(v, "ollama") == nil {
-		t.Error("an Ollama with a key keeps its row")
+	if usageRow(v, "ollama") != nil {
+		t.Error("an Ollama entry that is not the configured one has no row, called or not")
 	}
 	readUsage(t, srv)
 	if *calls != 1 {

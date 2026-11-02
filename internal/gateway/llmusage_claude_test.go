@@ -36,7 +36,7 @@ func TestThePanelAsksClaudeForItsQuotaOnceAndAgainWhenItGoesStale(t *testing.T) 
 	srv := usageServer(t)
 	limits := &llm.RateLimits{}
 	srv.usageTotals = func() []llm.ProviderUsage {
-		return []llm.ProviderUsage{{Provider: "claude-code", Calls: 1, Limits: limits}}
+		return []llm.ProviderUsage{{Provider: "claude-code", Calls: 1, Last: time.Now(), Limits: limits}}
 	}
 	readUsage(t, srv)
 	if !probed(asked) {
