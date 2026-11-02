@@ -63,10 +63,7 @@ func anthropicTextConversation(messages []Message) (string, []map[string]any) {
 // is deprecated for this model", so it is only sent to the legacy Claude 2 and 3 families;
 // top_p and top_k are never sent.
 func acceptsTemperature(model string) bool {
-	m := strings.ToLower(strings.TrimSpace(model))
-	if i := strings.LastIndex(m, "/"); i >= 0 {
-		m = m[i+1:] // "anthropic/claude-3-haiku" on a gateway
-	}
+	m := bareModel(model) // "anthropic/claude-3-haiku" on a gateway
 	for _, p := range []string{"claude-2", "claude-3", "claude-instant"} {
 		if strings.HasPrefix(m, p) {
 			return true
@@ -122,6 +119,7 @@ func (c *Client) callAnthropic(ctx context.Context, messages []Message) (string,
 	if system != "" {
 		body["system"] = system
 	}
+	c.placeCacheMarks(body, messages)
 
 	data, err := c.postAnthropic(ctx, body)
 	if err != nil {
@@ -167,6 +165,7 @@ func (c *Client) callAnthropicTools(ctx context.Context, messages []Message, too
 	if system != "" {
 		body["system"] = system
 	}
+	c.placeCacheMarks(body, messages)
 
 	data, err := c.postAnthropic(ctx, body)
 	if err != nil {
@@ -295,47 +294,4 @@ func nonEmpty(s string) string {
 		return "(no output)"
 	}
 	return s
-}
-
-// THE PROMPT CACHE. Anthropic re-reads every prompt from the start unless it is told which part
-// it may keep, and an execution round sends the same ~6000 tokens of instructions every time:
-// paid in full, and waited for in full before the first token of the answer. Two marks say what to
-// keep, never more than two of the four the API allows:
-//
-//   - the stable start of a turn (Message.Stable): the instructions before the task, the same in
-//     every round of a run, so round two onwards reads them from the cache;
-//   - the end of a conversation with tools (cacheConversation): each turn of a direct run repeats
-//     the whole conversation before it, which the next turn then finds already kept.
-//
-// A part too short to be cached is simply not cached: the mark is never an error.
-
-// ephemeral is the cache mark of a content block.
-var ephemeral = map[string]any{"type": "ephemeral"}
-
-// anthropicTextBlocks are a turn's text blocks: one, or two when the turn has a stable start, the
-// first marked to be kept. A turn without text has none.
-func anthropicTextBlocks(m Message) []map[string]any {
-	if strings.TrimSpace(m.Content) == "" {
-		return nil
-	}
-	head, tail := m.Content, ""
-	if m.Stable > 0 && m.Stable < len(m.Content) {
-		head, tail = m.Content[:m.Stable], m.Content[m.Stable:]
-	}
-	if m.Stable <= 0 || strings.TrimSpace(head) == "" || strings.TrimSpace(tail) == "" {
-		// Nothing stable to keep, or a split that would leave a blank block the API refuses.
-		return []map[string]any{{"type": "text", "text": m.Content}}
-	}
-	return []map[string]any{
-		{"type": "text", "text": head, "cache_control": ephemeral},
-		{"type": "text", "text": tail},
-	}
-}
-
-// cacheConversation marks the last block of a conversation with tools to be kept.
-func cacheConversation(conversation []map[string]any) {
-	if n := len(conversation); n > 0 {
-		blocks := conversation[n-1]["content"].([]map[string]any)
-		blocks[len(blocks)-1]["cache_control"] = ephemeral
-	}
 }

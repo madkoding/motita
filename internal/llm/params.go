@@ -42,8 +42,9 @@ func isOfficialOpenAI(base string) bool {
 func (c *Client) openAIBody(messages []Message, tools []Tool) map[string]any {
 	body := map[string]any{
 		"model":    c.cfg.Model,
-		"messages": toOpenAIMessages(messages),
+		"messages": c.cachedOpenAIMessages(messages),
 	}
+	c.addCacheKey(body, messages)
 	if len(tools) > 0 {
 		body["tools"] = tools
 	}

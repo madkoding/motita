@@ -78,6 +78,13 @@ the agent does not know which one is behind it. A key is never sent in clear tex
 a plain `http://` `base_url` is refused when `api_key` is set unless it points at
 this machine or a private network address.
 
+Anthropic requests use the prompt cache: the first system message (tools and base
+instructions, or the tool list when there is no system prompt) is marked as a cache
+anchor, an execution round marks its stable instructions, and a conversation with tools
+marks its last block. A mark whose prefix is below the model's cache minimum (512 to 4096
+tokens by family) is not placed, and never more than four go in one request; the usage
+reports `cache_read` and `cache_write`.
+
 - Reads the context: task, plan, attempt number and **the records of previous
   failures**.
 - Dynamic prompts built from templates with `{{...}}` variables, 100%

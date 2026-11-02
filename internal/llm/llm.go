@@ -72,6 +72,8 @@ type Client struct {
 	// noSchema is set once the provider has refused a request that carried a reply schema (see
 	// schemaFor): the replies are then read by ExtractJSON alone, as before the schema existed.
 	noSchema atomic.Bool
+	// noCache is set once the provider has refused the prompt-cache fields (see refusedCache).
+	noCache atomic.Bool
 }
 
 // New creates the reasoning engine client.
