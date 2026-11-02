@@ -22,7 +22,6 @@ package main
 
 import (
 	"encoding/json"
-	"errors"
 	"flag"
 	"fmt"
 	"io"
@@ -30,7 +29,8 @@ import (
 	"net/http"
 	"os"
 	"strings"
-	"time"
+
+	"github.com/madkoding/motita/tools/mockserve"
 )
 
 type message struct {
@@ -164,7 +164,7 @@ func handle(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(out)
+	_ = json.NewEncoder(w).Encode(out)
 }
 
 // writeSSE renders a completion as the event stream a real provider sends: one
@@ -224,29 +224,14 @@ func writeSSE(w http.ResponseWriter, out map[string]any) {
 	}
 }
 
-// listenAndServe is replaceable so the bootstrap can be tested: the real one
-// blocks until the server is stopped, which cannot be observed from a test. The
-// environment marker lets a test make the bind fail on purpose.
-var listenAndServe = func(srv *http.Server) error {
-	if os.Getenv("MOCKAPI_FORCE_LISTEN_FAILURE") == "1" {
-		return errors.New("forced listen failure for the test")
-	}
-	return srv.ListenAndServe()
-}
+// listenAndServe is replaceable so the bootstrap can be tested; the shared
+// bootstrap lives in tools/mockserve.
+var listenAndServe = mockserve.Listen("MOCKAPI_FORCE_LISTEN_FAILURE")
 
 // mainBody is the real bootstrap, separated so a test can call it with the server
 // replaced (the real one blocks until stopped).
 func mainBody(port *int, host *string, exit func(int)) {
-	srv := &http.Server{
-		Addr:              fmt.Sprintf("%s:%d", *host, *port),
-		Handler:           http.HandlerFunc(handle),
-		ReadHeaderTimeout: 10 * time.Second,
-	}
-	fmt.Fprintf(os.Stderr, "mockapi listening on http://%s:%d/v1\n", *host, *port)
-	if err := listenAndServe(srv); err != nil {
-		fmt.Fprintln(os.Stderr, "error:", err)
-		exit(1)
-	}
+	mockserve.Run("mockapi", *host, *port, http.HandlerFunc(handle), listenAndServe, exit)
 }
 
 func main() {

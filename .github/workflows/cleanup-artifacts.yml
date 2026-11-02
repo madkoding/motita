@@ -4,6 +4,8 @@ name: cleanup-artifacts
 # artifact per built platform on every push, so without a sweep the storage
 # grows by a few GB per day and only gets reclaimed after the 90-day default
 # retention expires.
+# It also deletes the temporary SonarQube projects (<owner>_<repo>-pr-N) of pull
+# requests that are no longer open, in case the scan of the PR could not.
 on:
   schedule:
     # Every day at 04:41 UTC, off the hour to avoid the scheduled-workflow rush.
@@ -96,4 +98,45 @@ jobs:
             echo "- artefactos borrados: ${deleted_artifacts}"
             echo "- caches borradas: ${deleted_caches}"
             echo "- ventana de artefactos: ${MAX_AGE_DAYS}d"
+          } >> "${GITHUB_STEP_SUMMARY}"
+
+  sonar-prs:
+    name: delete SonarQube projects of closed pull requests
+    runs-on: ubuntu-latest
+    permissions:
+      pull-requests: read
+    env:
+      GH_TOKEN: ${{ github.token }}
+      # Deleting needs Administer on the project: a user token, not an analysis token.
+      SONAR_TOKEN: ${{ secrets.SONAR_ADMIN_TOKEN || secrets.SONAR_TOKEN }}
+      SONAR_HOST_URL: ${{ secrets.SONAR_HOST_URL }}
+    steps:
+      - name: Delete the temporary projects of closed or merged pull requests
+        if: env.SONAR_TOKEN != '' && env.SONAR_HOST_URL != ''
+        run: |
+          set -euo pipefail
+          host="${SONAR_HOST_URL%/}"
+          prefix="${GITHUB_REPOSITORY//\//_}-pr-"
+          # The pull requests still open keep their project: the next push scans it again.
+          open="$(gh api "repos/${GITHUB_REPOSITORY}/pulls?state=open&per_page=100" --paginate --jq '.[].number')"
+          keys="$(curl -sSf -u "$SONAR_TOKEN:" "${host}/api/components/search_projects?ps=500&filter=query%3D${prefix}" \
+            | jq -r --arg p "$prefix" '.components[].key | select(startswith($p)) | select(ltrimstr($p) | test("^[0-9]+$"))')"
+          deleted=0; failed=0
+          for key in $keys; do
+            n="${key#"$prefix"}"
+            grep -qx "$n" <<< "$open" && continue
+            code="$(curl -s -u "$SONAR_TOKEN:" -X POST "${host}/api/projects/delete" -d "project=${key}" -o /dev/null -w '%{http_code}')"
+            if [ "$code" = 204 ]; then
+              deleted=$((deleted + 1))
+            else
+              failed=$((failed + 1))
+              echo "::warning::could not delete ${key} (HTTP ${code})"
+            fi
+          done
+          echo "sonar projects deleted: ${deleted}, failed: ${failed}"
+          {
+            echo "### SonarQube projects of closed PRs"
+            echo ""
+            echo "- borrados: ${deleted}"
+            echo "- fallidos: ${failed}"
           } >> "${GITHUB_STEP_SUMMARY}"
