@@ -231,6 +231,21 @@ func ProviderTotals() []ProviderUsage {
 	return out
 }
 
+// ForgetProviderUsage drops what a provider consumed, in memory and in the file: a provider the user
+// disconnected leaves the usage panel instead of coming back with every start.
+func ForgetProviderUsage(provider string) { totals.forget(provider) }
+
+// forget drops one provider's totals.
+func (l *ledger) forget(provider string) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	if _, ok := l.by[provider]; !ok {
+		return
+	}
+	delete(l.by, provider)
+	l.changed()
+}
+
 // PersistUsage keeps the totals in file: it reads what an earlier run left and, from then on,
 // writes the totals a few seconds after they change. Without it they last as long as the process.
 func PersistUsage(file string) { totals.load(file) }

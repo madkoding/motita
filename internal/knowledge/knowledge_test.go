@@ -181,3 +181,16 @@ func TestCutStopsOnARuneBoundary(t *testing.T) {
 		t.Errorf("cut = %q", got)
 	}
 }
+
+// A model often leaves the entry out ("remember" requires only the content). The fact must still
+// reach the memory, under a title taken from it, instead of an error the model does not act on.
+func TestRememberWithoutAnEntryNamesItFromTheContent(t *testing.T) {
+	b, _ := base(t)
+	got := b.Remember("", "", "## Mad prefers answers in Spanish\nand short bullet reports")
+	if !strings.HasPrefix(got, "Added to [[Mad prefers answers in Spanish]]") {
+		t.Fatalf("remember without an entry = %q", got)
+	}
+	if read := b.Memory.ReadText("Mad prefers answers in Spanish"); !strings.Contains(read, "short bullet reports") {
+		t.Errorf("the memory holds %q", read)
+	}
+}

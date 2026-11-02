@@ -387,3 +387,53 @@ func keyIndent(indent string) string {
 	}
 	return indent
 }
+
+// ClearLLMAPIKey empties llm.api_key in the configuration at path, keeping every other line: the
+// key written in the YAML belongs to the configured provider, and disconnecting that provider has
+// to remove it too, or the provider stays connected. A file without one is left untouched.
+func ClearLLMAPIKey(path string) error {
+	if YAMLAPIKey(path) == "" {
+		return nil
+	}
+	configWriteMu.Lock()
+	defer configWriteMu.Unlock()
+	mode, body, err := readConfigForClear(path)
+	if err != nil {
+		return fmt.Errorf("the configuration file cannot be read: %w", err)
+	}
+	updated, err := setBlockValues(string(body), "llm", [][2]string{{"api_key", `""`}})
+	if err != nil {
+		return err
+	}
+	return writeConfigAtomic(path, []byte(updated), mode)
+}
+
+// readConfigForClear reads a configuration file and its mode; a variable so a test can make it fail.
+var readConfigForClear = func(path string) (os.FileMode, []byte, error) {
+	info, err := os.Stat(path)
+	if err != nil {
+		return 0, nil, err
+	}
+	body, err := os.ReadFile(path)
+	return info.Mode().Perm(), body, err
+}
+
+// clearCredential removes one variable from the credentials file beside a configuration; a
+// variable so a test can make it fail.
+var clearCredential = func(configPath, name string) error { return SetCredential(configPath, name, "") }
+
+// ForgetStoredValue removes name from every credentials file a provider switch reads (the
+// gateway's and the motita home's), so a key forgotten from the page does not come back from the
+// other file. A file that does not hold it is not written.
+func ForgetStoredValue(name string) error {
+	for _, path := range credentialFiles() {
+		if _, ok := readCredentials(path)[name]; !ok {
+			continue
+		}
+		// Any extension does: CredentialsPath turns the configuration's name into the file's.
+		if err := clearCredential(strings.TrimSuffix(path, filepath.Ext(path))+".yaml", name); err != nil {
+			return err
+		}
+	}
+	return nil
+}
