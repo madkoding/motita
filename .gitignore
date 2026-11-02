@@ -73,3 +73,9 @@ node_modules/
 
 # Worktrees Claude Code agents create while working on this repository.
 /.claude/worktrees/
+
+# EGM (Elephant-Goldfish Model) scratch files; approved designs go to docs/designs/
+/concepts_brief.md
+/design_draft.md
+/discussion_summary.md
+/*_report.md
