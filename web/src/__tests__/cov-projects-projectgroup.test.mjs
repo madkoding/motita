@@ -192,6 +192,11 @@ test("threads are listed under their main session, aligned with it", async () =>
   );
   // No row is indented: the threads start at the same edge as the main session.
   assert.ok(rows.every((r) => !r.classList.contains("ml-4")));
+  // The threads, and only they, carry the branch mark before their title.
+  assert.deepEqual(
+    rows.map((r) => !!r.querySelector(".session-thread-mark")),
+    [false, true, true],
+  );
   await m.unmount();
 });
 

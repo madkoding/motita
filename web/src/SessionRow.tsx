@@ -15,7 +15,14 @@ import {
   sessionTooltip,
   shortID,
 } from "./appFormat";
-import { IconCheck, IconClose, IconDots, IconEdit, IconTrash } from "./icons";
+import {
+  IconBranch,
+  IconCheck,
+  IconClose,
+  IconDots,
+  IconEdit,
+  IconTrash,
+} from "./icons";
 import type { SessionInfo } from "./appTypes";
 import { SESSIONS_PATH } from "./appConst";
 
@@ -312,6 +319,15 @@ function SessionSummary({ s, busy }: { s: SessionInfo; busy: boolean }) {
       <div
         class={`truncate text-sm leading-tight ${choose(busy, "text-accent", "text-[#e8e8ea]")}`}
       >
+        {/* A thread says so with a branch mark before its title, not with an indent: every row of
+            a project keeps the same left edge. */}
+        {s.parent_id && (
+          <IconBranch
+            size={11}
+            class="session-thread-mark inline-block mr-1 text-[#8a8a9a]"
+            style="vertical-align: -1px"
+          />
+        )}
         {sessionTitle(s)}
       </div>
       {/* When it was last used, on its own line. It was sharing the row
@@ -363,7 +379,8 @@ export function SessionRow({ s }: { s: SessionInfo }) {
   // answeredRef.
   const busy = s.running === true && !lists.answeredHere(s.id);
   // A thread keeps the `session-thread` class but no indent: every row of a project starts at the
-  // same edge, as mad asked (the 16px step left only the main session aligned).
+  // same edge (the 16px step left only the main session aligned); the branch mark in its title
+  // tells it apart. `mb-0.5` is the only gap between rows, here and in the loose list.
   return (
     <div
       ref={rowRef}
