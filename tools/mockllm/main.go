@@ -16,7 +16,6 @@ package main
 import (
 	"encoding/binary"
 	"encoding/json"
-	"errors"
 	"flag"
 	"fmt"
 	"io"
@@ -27,6 +26,8 @@ import (
 	"strings"
 	"sync/atomic"
 	"time"
+
+	"github.com/madkoding/motita/tools/mockserve"
 )
 
 var (
@@ -169,7 +170,7 @@ func evalCommand(text string) string {
 
 func respond(w http.ResponseWriter, dialect, content string) {
 	w.Header().Set(headerContentType, "application/json")
-	json.NewEncoder(w).Encode(replyBody(dialect, content))
+	_ = json.NewEncoder(w).Encode(replyBody(dialect, content))
 }
 
 // replyBody wraps content in the response shape of the dialect (openai unless named).
@@ -217,7 +218,7 @@ func handle(w http.ResponseWriter, r *http.Request) {
 	if strings.HasSuffix(r.URL.Path, "/audio/speech") {
 		// The speech API: a short silence, enough for the browser to play something.
 		w.Header().Set(headerContentType, "audio/wav")
-		_, _ = w.Write(silence(300))
+		_, _ = w.Write(silence())
 		return
 	}
 
@@ -272,10 +273,11 @@ func handle(w http.ResponseWriter, r *http.Request) {
 	respond(w, dialect, content)
 }
 
-// silence is a WAV of ms milliseconds of silence: 8 kHz, 8-bit mono, the smallest a browser plays.
-func silence(ms int) []byte {
+// silence is a WAV of 300 ms of silence: 8 kHz, 8-bit mono, the smallest a browser plays.
+// The sizes are constants, so the header fields need no runtime conversion.
+func silence() []byte {
 	const rate = 8000
-	n := rate * ms / 1000
+	const n = rate * 300 / 1000
 	out := make([]byte, 44+n)
 	copy(out, "RIFF")
 	binary.LittleEndian.PutUint32(out[4:], uint32(36+n))
@@ -386,29 +388,14 @@ func scriptedReply(text string) string {
 	return ""
 }
 
-// listenAndServe is replaceable so the bootstrap can be tested: the real one
-// blocks until the server is stopped, which cannot be observed from a test. The
-// environment marker lets a test make the bind fail on purpose.
-var listenAndServe = func(srv *http.Server) error {
-	if os.Getenv("MOCKLLM_FORCE_LISTEN_FAILURE") == "1" {
-		return errors.New("forced listen failure for the test")
-	}
-	return srv.ListenAndServe()
-}
+// listenAndServe is replaceable so the bootstrap can be tested; the shared
+// bootstrap lives in tools/mockserve.
+var listenAndServe = mockserve.Listen("MOCKLLM_FORCE_LISTEN_FAILURE")
 
 // mainBody is the real bootstrap, separated so a test can call it with the server
 // replaced (the real one blocks until stopped).
 func mainBody(port *int, host *string, exit func(int)) {
-	srv := &http.Server{
-		Addr:              fmt.Sprintf("%s:%d", *host, *port),
-		Handler:           http.HandlerFunc(handle),
-		ReadHeaderTimeout: 10 * time.Second,
-	}
-	fmt.Fprintf(os.Stderr, "mockllm listening on http://%s:%d/v1\n", *host, *port)
-	if err := listenAndServe(srv); err != nil {
-		fmt.Fprintln(os.Stderr, "error:", err)
-		exit(1)
-	}
+	mockserve.Run("mockllm", *host, *port, http.HandlerFunc(handle), listenAndServe, exit)
 }
 
 func main() {
