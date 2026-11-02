@@ -1074,6 +1074,20 @@ because a command that exited `0` is a statement about the program running and n
 about the effect existing. Both apply to nearly every task, so the model searches
 for them the way it searches for the rest of the shelf.
 
+Four more are for a change that needs **design decisions before code**, adapted from
+Google's [Elephant-Goldfish Model](https://github.com/google/elephant-goldfish-model)
+(Apache-2.0, see `third_party/elephant-goldfish-model`). The agent that holds your
+context (the elephant) brainstorms the idea with you and writes the design document
+section by section (`designing-a-change`); then background agents started with
+`"role": "review"`, which begin with **no** conversation, read only the document and
+the code it cites through one lens each (`design-review-lenses`) and report what a
+newcomer would trip over (`reviewing-a-design`). You decide which findings to fix.
+After the code lands, `checking-design-drift` reports where it went another way than
+the design. It runs on whichever model and provider you use, because the fresh
+readers are motita's own background agents; with background agents off
+(`agent.max_parallel: 0`) the review stops and says so instead of reviewing in the
+same context.
+
 No fine-tuning, no API, no extra bill. Just a shelf of Markdown, and a ledger
 beside it that counts how each procedure is used.
 
