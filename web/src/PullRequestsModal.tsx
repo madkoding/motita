@@ -10,6 +10,8 @@ import { errorMessage } from "./errors";
 import type { Api } from "./prApi";
 import { mergeBlockedLabel } from "./appFormat";
 import { ModalBackdrop } from "./ModalBackdrop";
+import { ciWord } from "./ProjectPullRequests";
+import { publishPullRequests } from "./pullRequestsLive";
 import { IconClose, IconPullRequest, IconRefresh, IconSpinner } from "./icons";
 import {
   closePullRequests,
@@ -37,20 +39,6 @@ const TONE: Record<Tone, string> = {
 };
 
 const TAG = "px-2 py-0.5 rounded-full border text-xs whitespace-nowrap";
-
-// ciWord is the CI state in words.
-function ciWord(state: string): string {
-  if (state === "success") {
-    return t("passing");
-  }
-  if (state === "failure") {
-    return t("failing");
-  }
-  if (state === "pending") {
-    return t("running");
-  }
-  return t("no checks");
-}
 
 const itemKey = (i: PRItem) => i.repo + "#" + i.pr.number;
 
@@ -173,7 +161,9 @@ export function PullRequestsModal() {
       }
       setBusy(true);
       try {
-        setList(await fetchPullRequests(api, refresh));
+        const l = await fetchPullRequests(api, refresh);
+        setList(l);
+        publishPullRequests(l);
         setError("");
       } catch (e) {
         setError(errorMessage(e));

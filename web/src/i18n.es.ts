@@ -233,6 +233,8 @@ const first: Record<string, string> = {
   passing: "pasando",
   failing: "fallando",
   "no checks": "sin checks",
+  "Open pull request #{n} on its host":
+    "Abrir el pull request #{n} en su servidor",
   "following: {s}": "siguiendo: {s}",
   "has a session": "tiene una sesión",
   General: "General",

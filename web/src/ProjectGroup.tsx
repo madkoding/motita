@@ -13,6 +13,7 @@ import { IconDots, IconEdit, IconFolder, IconRefresh } from "./icons";
 import type { ProjectInfo } from "./appTypes";
 import { EDIT_PROJECT } from "./appConst";
 import { NestedRepos } from "./NestedRepos";
+import { ProjectPullRequests } from "./ProjectPullRequests";
 
 const ITEM_PLAIN =
   "row-menu-item w-full flex items-center gap-2 px-3 py-2 text-sm text-[#e8e8ea] hover:bg-white/5";
@@ -289,6 +290,7 @@ export function ProjectGroup({ p }: { p: ProjectInfo }) {
         <div class="project-sessions-inner">
           <div class="px-1.5 pb-1.5">
             <NestedRepos p={p} />
+            <ProjectPullRequests projectId={p.id} />
             {projectSessions.map((s) => (
               <SessionRow key={s.id} s={s} />
             ))}
