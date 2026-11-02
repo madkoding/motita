@@ -28,15 +28,23 @@ func TestUsageBlocksOfEveryProvider(t *testing.T) {
 	}{
 		{"openai nil", (*openAIUsage)(nil).usage(), Usage{}},
 		{"openai cached part is not input", (&openAIUsage{PromptTokens: 100, CompletionTokens: 7,
-			PromptTokensDetails: &struct {
-				CachedTokens int64 `json:"cached_tokens"`
-			}{CachedTokens: 60}}).usage(), Usage{Input: 40, Output: 7, CacheRead: 60}},
+			PromptTokensDetails: &openAIPromptDetails{CachedTokens: 60}}).usage(), Usage{Input: 40, Output: 7, CacheRead: 60}},
+		{"deepseek hit tokens are the cached part", (&openAIUsage{PromptTokens: 100, CompletionTokens: 3,
+			PromptCacheHitTokens: 64}).usage(), Usage{Input: 36, Output: 3, CacheRead: 64}},
+		{"dashscope written part is a cache write", (&openAIUsage{PromptTokens: 2000, CompletionTokens: 9,
+			PromptTokensDetails: &openAIPromptDetails{CachedTokens: 1200, CacheCreationInputTokens: 700}}).usage(),
+			Usage{Input: 100, Output: 9, CacheRead: 1200, CacheWrite: 700}},
+		{"openrouter cache_write_tokens", (&openAIUsage{PromptTokens: 50,
+			PromptTokensDetails: &openAIPromptDetails{CacheWriteTokens: 40}}).usage(), Usage{Input: 10, CacheWrite: 40}},
+		{"inconsistent figures never go negative", (&openAIUsage{PromptTokens: 10,
+			PromptTokensDetails: &openAIPromptDetails{CachedTokens: 20}}).usage(), Usage{CacheRead: 20}},
 		{"openai without details", (&openAIUsage{PromptTokens: 5, CompletionTokens: 1}).usage(), Usage{Input: 5, Output: 1}},
 		{"responses nil", (*responsesUsage)(nil).usage(), Usage{}},
 		{"responses cached part is not input", (&responsesUsage{InputTokens: 30, OutputTokens: 2,
-			InputTokensDetails: &struct {
-				CachedTokens int64 `json:"cached_tokens"`
-			}{CachedTokens: 10}}).usage(), Usage{Input: 20, Output: 2, CacheRead: 10}},
+			InputTokensDetails: &responsesInputDetails{CachedTokens: 10}}).usage(), Usage{Input: 20, Output: 2, CacheRead: 10}},
+		{"responses written part is a cache write", (&responsesUsage{InputTokens: 30,
+			InputTokensDetails: &responsesInputDetails{CachedTokens: 10, CacheWriteTokens: 15}}).usage(),
+			Usage{Input: 5, CacheRead: 10, CacheWrite: 15}},
 		{"responses without details", (&responsesUsage{InputTokens: 3, OutputTokens: 4}).usage(), Usage{Input: 3, Output: 4}},
 		{"anthropic nil", (*anthropicUsage)(nil).usage(), Usage{}},
 		{"anthropic", (&anthropicUsage{InputTokens: 2, OutputTokens: 52, CacheReadInputTokens: 9,

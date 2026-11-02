@@ -183,7 +183,7 @@ func TestRecallForCountsTheTurnsStillShown(t *testing.T) {
 	}
 }
 
-func TestWithRecallPlacesTheBlockAfterTheLeadingSystemMessages(t *testing.T) {
+func TestWithRecallPlacesTheBlockBeforeTheTurnsRequest(t *testing.T) {
 	p := &Planner{}
 	msgs := []llm.Message{
 		{Role: "system", Content: "one"},
@@ -205,6 +205,21 @@ func TestWithRecallPlacesTheBlockAfterTheLeadingSystemMessages(t *testing.T) {
 	}
 	if out[3].Content != "question" {
 		t.Errorf("the conversation was displaced: %+v", out)
+	}
+
+	// With history, the block goes before the LAST user message (the turn's request), after the
+	// history and before the rounds of this turn: the prefix before it is the turn before's.
+	history := []llm.Message{
+		{Role: "system", Content: "one"},
+		{Role: "user", Content: "old question"},
+		{Role: "assistant", Content: "old answer"},
+		{Role: "user", Content: "new question"},
+		{Role: "assistant", Content: "calling"},
+		{Role: "tool", Content: "result"},
+	}
+	out = p.withRecall(history)
+	if len(out) != len(history)+1 || out[3].Content != "ARCHIVED" || out[4].Content != "new question" {
+		t.Errorf("the block is not before the turn's request: %+v", out)
 	}
 
 	// A request that is ALL system messages gets the block at the end, after all of them.
