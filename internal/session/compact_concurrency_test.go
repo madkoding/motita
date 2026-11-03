@@ -80,14 +80,21 @@ func TestAnOverlappingCompactionIsDiscarded(t *testing.T) {
 }
 
 // Appends from the goroutine running the turn and a compaction from another, under -race: the
-// history is only ever touched under the lock, and every append survives.
+// history is only ever touched under the lock, and every append made after the compaction read
+// its prefix survives. The appends start once the summariser is called, so they race the
+// install step but never land in the prefix being folded. Before, they started with the
+// compaction and some could land before the prefix was read, legitimately folded into the
+// summary, which made the count flaky.
 func TestCompactionAndAppendsRunConcurrently(t *testing.T) {
+	summarising := make(chan struct{})
 	s := fullSession(funcSummariser(func(context.Context, []llm.Message) (string, error) {
+		close(summarising)
 		return "the account", nil
 	}))
 	const appends = 50
 	var wg sync.WaitGroup
 	wg.Go(func() {
+		<-summarising
 		for i := 0; i < appends; i++ {
 			s.Append(assistant(fmt.Sprintf("late %d", i)))
 		}
