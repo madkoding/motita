@@ -58,7 +58,9 @@ var (
 
 // Store is the folder the entries live in.
 type Store struct {
-	root string
+	root     string
+	cacheDir string // where the index is kept between runs, "" for memory only (see persist.go)
+	project  string // the collection of the project the agent works in (see project.go)
 }
 
 // Open returns the memory at root. The folder is created when the first entry is written.

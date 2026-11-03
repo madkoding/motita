@@ -123,7 +123,9 @@ type holo struct {
 	idf   map[string]float64
 	index map[string]vec // index vectors of the words of the memory
 	rep   map[string]vec // index vector plus context vector, for the words that have one
-	vecs  []vec          // one per child
+	// learned holds the words whose rep carries a context vector; the others are their index vector.
+	learned map[string]bool
+	vecs    []vec // one per child
 }
 
 // weighted is a word with its weight in a passage.
@@ -226,11 +228,13 @@ func (h *holo) learn(words [][]string, df map[string]int) {
 			c.add(h.index[b.term], -float32(b.w))
 		}
 	}
+	h.learned = map[string]bool{}
 	for w, iv := range h.index {
 		r := make(vec, dim)
 		r.add(iv, 1)
 		if c, ok := ctx[w]; ok && c.unit() {
 			r.add(c, 1)
+			h.learned[w] = true
 		}
 		h.rep[w] = r
 	}

@@ -2,6 +2,7 @@ package tui
 
 import (
 	"context"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -9,6 +10,7 @@ import (
 	"github.com/madkoding/motita/internal/config"
 	"github.com/madkoding/motita/internal/llm"
 	"github.com/madkoding/motita/internal/logx"
+	"github.com/madkoding/motita/internal/memory"
 	"github.com/madkoding/motita/internal/sandbox"
 	taskpkg "github.com/madkoding/motita/internal/task"
 )
@@ -79,5 +81,29 @@ func TestShareLastTurnWithNoTurns(t *testing.T) {
 	r.shareLastTurn()
 	if n := len(s.Messages()); n != 1 {
 		t.Errorf("messages = %d, want only the system prompt", n)
+	}
+}
+
+// memoryAgent records the memory the runner installs.
+type memoryAgent struct {
+	transcriptAgent
+	mem *memory.Store
+}
+
+func (a *memoryAgent) SetMemory(m *memory.Store) { a.mem = m }
+
+// A session in a project gets the memory's view of that project, named after its folder; one
+// outside a project gets the memory itself.
+func TestTheAgentGetsTheProjectsViewOfTheMemory(t *testing.T) {
+	r := newContextRunner(t, config.Default())
+	ag := &memoryAgent{}
+	r.equipAgent(ag)
+	if ag.mem == nil || ag.mem.Project() != "" {
+		t.Fatalf("outside a project = %+v", ag.mem)
+	}
+	r.SetProjectScope(filepath.Join(t.TempDir(), "motita"))
+	r.equipAgent(ag)
+	if ag.mem == nil || ag.mem.Project() != "motita" {
+		t.Fatalf("in a project = %+v", ag.mem)
 	}
 }

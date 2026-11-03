@@ -177,6 +177,8 @@ type Options struct {
 	// MemoryDir is the folder of the memory: plain Markdown files, opened as they are by
 	// Obsidian. Empty means there is no memory.
 	MemoryDir string
+	// MemoryCacheDir keeps the memory's search index between runs; empty keeps it in memory only.
+	MemoryCacheDir string
 	// ArtifactDays is how many days an artifact is kept. Zero keeps them for ever.
 	ArtifactDays int
 	// EvalsFile is the file the results of the model checks are kept in. Empty keeps them in memory

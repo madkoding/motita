@@ -816,7 +816,7 @@ func (r *AppRunner) RunPlan(ctx context.Context, prompt string, progress func(st
 		// reviewed at all. Both come from the RUNNER because a planner does not outlive
 		// its turn.
 		WithReview(r.reviewOrNil()).
-		WithMemory(config.OpenMemory()).
+		WithMemory(r.memory()).
 		// The conversation's own archive: the turns a compaction folded away are exactly
 		// what the summary keeps only in outline.
 		WithRecall(r.recallPlan).
