@@ -24,7 +24,7 @@ function Ask({
   onStart,
   onCancel,
 }: {
-  onStart: () => void;
+  onStart: () => unknown;
   onCancel: () => void;
 }) {
   return (
@@ -54,25 +54,21 @@ function Running({
   onStop,
 }: {
   status: ReorgStatus;
-  onStop: () => void;
+  onStop: () => unknown;
 }) {
   const { done, total, step } = status.progress;
-  const share = total > 0 ? Math.round((done / total) * 100) : 0;
+  const share = Math.round((done / Math.max(total, 1)) * 100);
   return (
     <>
       <p class="text-sm text-[#e8e8ea] mb-2" data-testid="reorg-step">
         {t(stepLabel(step))}
       </p>
-      <div
-        class="rounded-full bg-white/10 overflow-hidden mb-1"
-        style={{ height: "6px" }}
-        role="progressbar"
-        aria-valuenow={share}
-        aria-valuemin={0}
-        aria-valuemax={100}
-      >
-        <div class="h-full bg-accent" style={{ width: share + "%" }} />
-      </div>
+      <progress
+        class="reorg-progress block w-full mb-1"
+        value={share}
+        max={100}
+        aria-label={t(stepLabel(step))}
+      />
       {total > 0 && (
         <p class="text-xs text-[#9a9aaa] mb-5">
           {tf("{done} of {total}", { done, total })}
@@ -85,13 +81,34 @@ function Running({
   );
 }
 
+// ReportLines are the counts of what was done, or that nothing needed doing.
+function ReportLines({ lines }: { lines: { key: string; n: number }[] }) {
+  if (lines.length === 0) {
+    return (
+      <p class="text-sm text-[#e8e8ea] mb-2">
+        {t("Everything was already in order.")}
+      </p>
+    );
+  }
+  return (
+    <ul
+      class="text-sm text-[#e8e8ea] list-disc pl-5 space-y-1 mb-2"
+      data-testid="reorg-report"
+    >
+      {lines.map((l) => (
+        <li key={l.key}>{tf(l.key, { n: l.n })}</li>
+      ))}
+    </ul>
+  );
+}
+
 function Done({
   status,
   onUndo,
   onClose,
 }: {
   status: ReorgStatus;
-  onUndo: () => void;
+  onUndo: () => unknown;
   onClose: () => void;
 }) {
   const report = status.report as NonNullable<ReorgStatus["report"]>;
@@ -105,20 +122,7 @@ function Done({
           )}
         </p>
       )}
-      {lines.length === 0 ? (
-        <p class="text-sm text-[#e8e8ea] mb-2">
-          {t("Everything was already in order.")}
-        </p>
-      ) : (
-        <ul
-          class="text-sm text-[#e8e8ea] list-disc pl-5 space-y-1 mb-2"
-          data-testid="reorg-report"
-        >
-          {lines.map((l) => (
-            <li key={l.key}>{tf(l.key, { n: l.n })}</li>
-          ))}
-        </ul>
-      )}
+      <ReportLines lines={lines} />
       {!report.used_model && (
         <p class="text-xs text-[#9a9aaa] mb-2">
           {t(
@@ -154,12 +158,12 @@ function Done({
 function Body() {
   const { status, hide, start, stop, undo } = useApp().memory.reorg;
   if (status?.running) {
-    return <Running status={status} onStop={() => void stop()} />;
+    return <Running status={status} onStop={stop} />;
   }
   if (status?.report) {
-    return <Done status={status} onUndo={() => void undo()} onClose={hide} />;
+    return <Done status={status} onUndo={undo} onClose={hide} />;
   }
-  return <Ask onStart={() => void start()} onCancel={hide} />;
+  return <Ask onStart={start} onCancel={hide} />;
 }
 
 // ReorganizeDialog is the window, shown while the memory's reorganization is open.

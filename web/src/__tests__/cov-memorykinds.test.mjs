@@ -64,6 +64,7 @@ test("relationLine reads an association stated in front matter", () => {
     rest: '"[[A]]"',
   });
   assert.equal(kinds.relationLine("See [[A]]"), null);
+  assert.equal(kinds.relationLine("title: Not an association"), null);
 });
 
 test("groupRelations groups by kind and finds where each leads", () => {

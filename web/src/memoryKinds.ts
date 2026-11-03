@@ -50,20 +50,31 @@ export interface EntryRelation {
   target: string;
 }
 
-// RELATION_LINE matches a front matter line that states an association: "replaces: "[[Old]]"".
-const RELATION_LINE =
-  /^(related|replaces|contradicts|depends[_-]on|caused[_-]by|part[_-]of|example[_-]of)\s*:\s*(.*)$/i;
+// RELATION_KEYS are the front matter keys that state an association: "replaces: "[[Old]]"".
+const RELATION_KEYS = new Set([
+  "related",
+  "replaces",
+  "contradicts",
+  "depends_on",
+  "caused_by",
+  "part_of",
+  "example_of",
+]);
 
 // relationLine reads a line that states an association as its kind and the rest, null for any other
 // line: a backlink found in another entry's front matter is told in words, not as a property.
 export function relationLine(
   line: string,
 ): { kind: string; rest: string } | null {
-  const m = RELATION_LINE.exec(line.trim());
-  if (!m) {
+  const colon = line.indexOf(":");
+  if (colon < 0) {
     return null;
   }
-  return { kind: m[1].toLowerCase().replace("-", "_"), rest: m[2] };
+  const kind = line.slice(0, colon).trim().toLowerCase().replace("-", "_");
+  if (!RELATION_KEYS.has(kind)) {
+    return null;
+  }
+  return { kind, rest: line.slice(colon + 1).trim() };
 }
 
 // A group of associations of one kind, each with the entry it leads to when there is one.
@@ -180,7 +191,10 @@ export function reportLines(r: ReorgReport): { key: string; n: number }[] {
   return REPORT_LINES.filter(([field]) => (r[field] as number) > 0).map(
     ([field, many, one]) => {
       const n = r[field] as number;
-      return { key: n === 1 ? one : many, n };
+      if (n === 1) {
+        return { key: one, n };
+      }
+      return { key: many, n };
     },
   );
 }

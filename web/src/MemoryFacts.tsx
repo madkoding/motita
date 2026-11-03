@@ -16,7 +16,7 @@ import type { EntryMeta, EntryView } from "./memoryApi";
 export function factsLine(meta: Partial<EntryMeta> | undefined): string {
   const m = meta ?? {};
   return [
-    m.type ? t(kindLabel(m.type)) : "",
+    m.type && t(kindLabel(m.type)),
     authorName(m.author),
     (m.date ?? "").slice(0, 10),
     m.project ?? "",
@@ -24,6 +24,38 @@ export function factsLine(meta: Partial<EntryMeta> | undefined): string {
   ]
     .filter(Boolean)
     .join(" · ");
+}
+
+// Chip is one associated entry: a button that opens it, or its name alone when it is not written yet.
+function Chip({
+  item,
+  onFollow,
+}: {
+  item: { target: string; path?: string };
+  onFollow: (path: string) => void;
+}) {
+  if (!item.path) {
+    return (
+      <span
+        class="text-xs text-[#7a7a8c]"
+        title={t("No entry with this name yet")}
+      >
+        {item.target}
+      </span>
+    );
+  }
+  const path = item.path;
+  const follow = () => onFollow(path);
+  return (
+    <button
+      type="button"
+      class="memory-chip"
+      data-testid="association"
+      onClick={follow}
+    >
+      {item.target}
+    </button>
+  );
 }
 
 // Associations are the entries the open one is tied to, grouped by how: each one that exists opens
@@ -52,27 +84,9 @@ export function Associations({
             <span class="text-xs text-[#9a9aaa]">
               {t(relationLabel(g.kind))}
             </span>
-            {g.items.map((it) =>
-              it.path ? (
-                <button
-                  key={it.target}
-                  type="button"
-                  class="memory-chip"
-                  data-testid="association"
-                  onClick={() => onFollow(it.path as string)}
-                >
-                  {it.target}
-                </button>
-              ) : (
-                <span
-                  key={it.target}
-                  class="text-xs text-[#7a7a8c]"
-                  title={t("No entry with this name yet")}
-                >
-                  {it.target}
-                </span>
-              ),
-            )}
+            {g.items.map((it) => (
+              <Chip key={it.target} item={it} onFollow={onFollow} />
+            ))}
           </li>
         ))}
       </ul>

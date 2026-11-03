@@ -79,12 +79,7 @@ function Backlinks() {
 // EntryAssociations are the entries the open one is tied to, each opening in the window.
 function EntryAssociations() {
   const { current, openEntry } = useApp().memory;
-  return (
-    <Associations
-      entry={current as EntryView}
-      onFollow={(path) => void openEntry(path)}
-    />
-  );
+  return <Associations entry={current as EntryView} onFollow={openEntry} />;
 }
 
 // EntryBody is the entry as text to edit, or drawn, with its [[links]] alive.
