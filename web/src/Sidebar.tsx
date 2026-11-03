@@ -119,6 +119,16 @@ function UpgradeButton() {
   );
 }
 
+// FootLabel is the label of an entry of the bottom menu. It ends in an ellipsis if the cell runs
+// out of room, and its title then names it whole.
+function FootLabel({ text }: { text: string }) {
+  return (
+    <span class="foot-label" title={text}>
+      {text}
+    </span>
+  );
+}
+
 // Settings is the settings button. The modal it opens is drawn by the app (SettingsHost in
 // App.tsx), outside the sidebar: the sidebar's frosted glass is a containing block for anything
 // `fixed` inside it, and the modal ended up squeezed into the sidebar's width.
@@ -140,7 +150,7 @@ function Settings() {
         <circle cx="12" cy="12" r="3" />
         <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z" />
       </svg>
-      {t("Settings")}
+      <FootLabel text={t("Settings")} />
     </button>
   );
 }
@@ -152,13 +162,13 @@ function SidebarFoot() {
   return (
     <>
       {api && <ProviderUsagePanel api={api} running={rs.running} />}
-      <div class="sidebar-foot px-3 py-2 border-t border-white/5 flex-none space-y-1">
+      <div class="sidebar-foot border-t border-white/5 flex-none">
         <button
           class={FOOT_BUTTON}
           onClick={() => skills.setShowSkillLibrary(true)}
         >
           <IconBook size={18} />
-          {t("Skills")}
+          <FootLabel text={t("Skills")} />
         </button>
         <button
           class={FOOT_BUTTON}
@@ -166,7 +176,7 @@ function SidebarFoot() {
           onClick={memory.openMemory}
         >
           <IconNotes size={18} />
-          {t("Memory")}
+          <FootLabel text={t("Memory")} />
         </button>
         <button
           class={FOOT_BUTTON + " disabled:opacity-40"}
@@ -187,7 +197,7 @@ function SidebarFoot() {
             <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
             <polyline points="14 2 14 8 20 8" />
           </svg>
-          {t("Artifacts")}
+          <FootLabel text={t("Artifacts")} />
         </button>
         <button
           class={FOOT_BUTTON}
@@ -195,7 +205,7 @@ function SidebarFoot() {
           onClick={openPullRequests}
         >
           <IconPullRequest size={18} />
-          {t("Pull requests")}
+          <FootLabel text={t("Pull requests")} />
           {failingPRs > 0 && (
             <span
               class="ml-auto px-2 rounded-full bg-danger/20 text-danger text-xs text-center"
@@ -208,7 +218,7 @@ function SidebarFoot() {
         </button>
         <button class={FOOT_BUTTON} onClick={schedules.openScheduledTasks}>
           <IconClock size={18} />
-          {t("Tasks")}
+          <FootLabel text={t("Tasks")} />
         </button>
         <Settings />
       </div>
