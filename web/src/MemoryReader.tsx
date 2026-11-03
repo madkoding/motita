@@ -9,6 +9,8 @@ import { DotsMenu } from "./MemoryMenus";
 import { IconBook } from "./icons";
 import { GraphPane } from "./MemoryGraphPane";
 import { SMALL_BTN } from "./MemoryLibrary";
+import { Associations, factsLine } from "./MemoryFacts";
+import { relationLabel, relationLine, stripFront } from "./memoryKinds";
 import {
   parseEntryHref,
   placeOf,
@@ -23,6 +25,18 @@ const FIELD =
 // BACKLINKS_OPEN is how many pages that link here show open; more start folded so the page stays
 // in view.
 const BACKLINKS_OPEN = 5;
+
+// backlinkContext is the line of another entry that links here, as words: an association stated in
+// its front matter reads "Replaces Old", not "replaces: [[Old]]".
+function backlinkContext(line: string): string {
+  const rel = relationLine(line);
+  if (!rel) {
+    return plainWiki(line);
+  }
+  return (
+    t(relationLabel(rel.kind)) + " " + plainWiki(rel.rest.replace(/"/g, ""))
+  );
+}
 
 // Backlinks are the pages that link to the open one.
 function Backlinks() {
@@ -52,13 +66,24 @@ function Backlinks() {
             >
               <div class="text-sm text-accent truncate">{b.title}</div>
               <div class="text-xs text-[#9a9aaa] truncate">
-                {plainWiki(b.context)}
+                {backlinkContext(b.context)}
               </div>
             </button>
           </li>
         ))}
       </ul>
     </details>
+  );
+}
+
+// EntryAssociations are the entries the open one is tied to, each opening in the window.
+function EntryAssociations() {
+  const { current, openEntry } = useApp().memory;
+  return (
+    <Associations
+      entry={current as EntryView}
+      onFollow={(path) => void openEntry(path)}
+    />
   );
 }
 
@@ -77,7 +102,11 @@ function EntryBody() {
       />
     );
   }
-  return <Preview body={wikiToMarkdown(draft, (current as EntryView).links)} />;
+  return (
+    <Preview
+      body={wikiToMarkdown(stripFront(draft), (current as EntryView).links)}
+    />
+  );
 }
 
 // Preview draws the entry and follows the [[links]] in it. The listeners are added to the page
@@ -141,7 +170,7 @@ function EntryToolbar() {
   };
   const place = placeOf(entry.path);
   const title = entry.title;
-  const by = byline(entry);
+  const by = factsLine(entry.meta);
   return (
     <div class="flex items-center gap-2 mb-2 flex-wrap">
       <button
@@ -225,12 +254,6 @@ function EntryToolbar() {
   );
 }
 
-// byline says who wrote an entry and when, "" when the entry says neither.
-function byline(entry: EntryView): string {
-  const date = (entry.meta?.date ?? "").slice(0, 10);
-  return [entry.meta?.author, date].filter(Boolean).join(" · ");
-}
-
 // Welcome is what the window says when no entry is open: what the memory is, how it is organised,
 // and where the files are.
 function Welcome() {
@@ -254,7 +277,7 @@ function Welcome() {
       </p>
       <p>
         {t(
-          "What each task learns about a project is added on its own to the Projects collection.",
+          "Each entry is one kind of memory (a fact, a decision, a person…) tied to the ones it relates to. What a task learns about a project goes on its own to that project's collection, under Lessons.",
         )}
       </p>
       {!!root && (
@@ -291,6 +314,7 @@ export function OpenEntry() {
             class="flex flex-col flex-1 min-h-0 overflow-auto"
           >
             <EntryBody />
+            <EntryAssociations />
             <Backlinks />
           </div>
         </>

@@ -204,10 +204,12 @@ you reach for, not part of these instructions. Two actions reach all of it, INST
   one place, and write "open: <title, path or procedure name>" to read one in full
   ("in:procedures open: pull-requests-and-ci"). In the memory, ns:Collection, author:Name,
   since:2026-01-31, until:2026-12-31 and graph:1 narrow a search.
-- {"kind": "remember", "description": "what it is for", "command": "entry :: the Markdown"}
-  keeps it in the memory (added to the entry, created if needed, never replacing it). With
-  "in:procedures name :: the whole procedure" it writes a procedure; with "in:project the fact"
-  it keeps a lesson about this project.
+- {"kind": "remember", "description": "what it is for", "command": "type:decision entry :: the Markdown"}
+  keeps it in the memory (added to the entry, created if needed, never replacing it), as one kind
+  of memory: fact, episode, decision, preference, person, procedure or lesson. A new entry is tied
+  to the closest ones on its own; to say how, add "replaces: [[Old]]" (or contradicts, depends_on,
+  caused_by, part_of, example_of) at its top. With "in:procedures name :: the whole procedure" it
+  writes a procedure; with "in:project the fact" it keeps a lesson about this project.
 
 Recall once, in the first round, when the work depends on the person's own facts, decisions or
 plans, or is of a kind with pitfalls you cannot see from the code (a toolchain, a device, a deploy,

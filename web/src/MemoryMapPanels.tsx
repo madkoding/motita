@@ -5,6 +5,8 @@ import { choose } from "./choose";
 import { Markdown } from "./Markdown";
 import { IconClose } from "./icons";
 import { NEON_CSS } from "./memoryGraph3d";
+import { Associations, factsLine } from "./MemoryFacts";
+import { kindLabel, stripFront } from "./memoryKinds";
 import {
   mapGroups,
   entryTrail,
@@ -12,10 +14,19 @@ import {
   wikiToMarkdown,
   type GraphNode,
   type EntryView,
+  type MapGroup,
 } from "./memoryApi";
 
 // LEGEND_MAX is how many parts the legend names; the smaller ones keep their colour unnamed.
 const LEGEND_MAX = 8;
+
+// legendName is what the legend calls a part of the map: a kind of memory, or a collection.
+function legendName(g: MapGroup): string {
+  if (g.byKind) {
+    return t(kindLabel(g.key));
+  }
+  return choose(g.key === "", t("General"), g.key);
+}
 
 // MapLegend names the colour of each part of the vault, the biggest first.
 export function MapLegend({ nodes }: { nodes: GraphNode[] }) {
@@ -37,13 +48,7 @@ export function MapLegend({ nodes }: { nodes: GraphNode[] }) {
               background: NEON_CSS[i % NEON_CSS.length],
             }}
           />
-          <span class="truncate">
-            {choose(
-              g.key === "",
-              t("General"),
-              g.key.slice(g.key.lastIndexOf("/") + 1),
-            )}
-          </span>
+          <span class="truncate">{legendName(g)}</span>
           <span class="opacity-60">{g.count}</span>
         </li>
       ))}
@@ -100,6 +105,12 @@ export function MapPeek({
           <div class="text-sm font-semibold text-[#e8e8ea] truncate">
             {entry.title}
           </div>
+          <div
+            class="text-[11px] text-[#9a9aaa] truncate"
+            data-testid="graph-peek-facts"
+          >
+            {factsLine(entry.meta)}
+          </div>
         </div>
         <button
           type="button"
@@ -116,7 +127,10 @@ export function MapPeek({
         class="skill-body artifact-body relative flex-1 min-h-0 overflow-auto p-3 text-sm"
         data-testid="graph-peek-body"
       >
-        <Markdown content={wikiToMarkdown(entry.body, entry.links)} />
+        <Markdown
+          content={wikiToMarkdown(stripFront(entry.body), entry.links)}
+        />
+        <Associations entry={entry} onFollow={onPeek} />
       </div>
       <div class="p-3 border-t border-white/10">
         <button

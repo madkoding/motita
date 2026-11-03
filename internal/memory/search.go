@@ -33,6 +33,7 @@ type Query struct {
 	Text      string
 	Namespace string // only this collection, matched without regard to case
 	Author    string // only entries by this author
+	Type      string // only entries of this kind of memory
 	Since     time.Time
 	Until     time.Time
 	Graph     bool // add the entries related through links
@@ -49,6 +50,7 @@ type Hit struct {
 	Snippet   string    `json:"snippet"`
 	Block     string    `json:"block"`
 	Author    string    `json:"author,omitempty"`
+	Type      string    `json:"type,omitempty"`
 	Date      time.Time `json:"date"`
 	Score     float64   `json:"score"`
 	Via       string    `json:"via,omitempty"`
@@ -81,6 +83,8 @@ func ParseQuery(raw string) Query {
 			q.Namespace = val
 		case ok && k == "author" && val != "":
 			q.Author = val
+		case ok && k == "type" && NormalizeKind(val) != "":
+			q.Type = NormalizeKind(val)
 		case ok && (k == "since" || k == "until") && isDate(val):
 			q.setDate(k, val)
 		case ok && k == "graph" && (val == "1" || val == "true"):
@@ -154,6 +158,8 @@ func (q Query) allows(e indexed) bool {
 	case q.Namespace != "" && !strings.EqualFold(e.namespace, q.Namespace):
 		return false
 	case q.Author != "" && !strings.EqualFold(e.Author, q.Author):
+		return false
+	case q.Type != "" && e.Type != q.Type:
 		return false
 	case !q.Since.IsZero() && e.Date.Before(q.Since):
 		return false
@@ -260,7 +266,7 @@ func (ix *index) hit(p, kid int, score float64) Hit {
 	e := ix.entries[par.entry]
 	h := Hit{
 		Path: e.Path, Title: e.Title, Namespace: e.namespace, Heading: headingOf(e.Title, par.trail),
-		Line: ix.kids[kid].line, Block: par.text, Author: e.Author, Date: e.Date, Score: score,
+		Line: ix.kids[kid].line, Block: par.text, Author: e.Author, Type: e.Type, Date: e.Date, Score: score,
 	}
 	h.Snippet = clip(strings.Join(strings.Fields(ix.kids[kid].text), " "), snippetRunes)
 	return h

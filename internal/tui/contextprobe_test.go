@@ -106,4 +106,10 @@ func TestTheAgentGetsTheProjectsViewOfTheMemory(t *testing.T) {
 	if ag.mem == nil || ag.mem.Project() != "motita" {
 		t.Fatalf("in a project = %+v", ag.mem)
 	}
+	// The gateway names the project by its title, with its repositories: that wins over the folder.
+	r.SetMemoryProject("Motita app", []string{"madkoding/motita"})
+	r.equipAgent(ag)
+	if ag.mem.Project() != "Motita app" || strings.Join(ag.mem.Repos(), ",") != "madkoding/motita" {
+		t.Fatalf("named project = %q %v", ag.mem.Project(), ag.mem.Repos())
+	}
 }

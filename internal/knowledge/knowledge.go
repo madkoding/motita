@@ -212,6 +212,12 @@ func (b Base) readProcedure(name string) string {
 // replacing what the person wrote; in the procedures it writes the procedure called entry; in the
 // project it adds each line of content as a lesson.
 func (b Base) Remember(in, entry, content string) string {
+	return b.RememberKind(in, "", entry, content)
+}
+
+// RememberKind is Remember with the kind of memory it is (fact, episode, decision, preference,
+// person, procedure, lesson), which a memory entry keeps in its front matter.
+func (b Base) RememberKind(in, kind, entry, content string) string {
 	where, err := place(in)
 	if err != nil {
 		return "Error: " + err.Error()
@@ -236,21 +242,24 @@ func (b Base) Remember(in, entry, content string) string {
 		}
 		return oldNames.Replace(b.Library.Save(strings.TrimSpace(entry), content))
 	default: // Memory
-		return b.rememberInMemory(entry, content)
+		return b.rememberInMemory(kind, entry, content)
 	}
 }
 
 // rememberInMemory adds content to an entry of the person's memory. remember needs only the
-// content, and a model often leaves the entry out: the fact is kept under a title taken from it
-// rather than refused, which the model rarely acted on.
-func (b Base) rememberInMemory(entry, content string) string {
+// content, and a model often leaves the entry out: the fact goes into the entry that already covers
+// it, or is kept under a title taken from it rather than refused, which the model rarely acted on.
+func (b Base) rememberInMemory(kind, entry, content string) string {
 	if b.Memory == nil {
 		return "Error: there is no memory in this session."
 	}
 	if entry = strings.TrimSpace(entry); entry == "" {
 		entry = memory.NameFor(content)
+		if home, ok := b.Memory.Home(content); ok {
+			entry = home
+		}
 	}
-	return oldNames.Replace(b.Memory.AppendText(entry, content))
+	return oldNames.Replace(b.Memory.Keep(entry, content, kind))
 }
 
 // matchingLessons are the project's lessons that share a word with the query.

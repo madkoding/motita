@@ -5,6 +5,7 @@ import { plural, t, tf } from "./i18n";
 import { choose } from "./choose";
 import { useApp } from "./appStore";
 import { DotsMenu, type MenuItem } from "./MemoryMenus";
+import { factsLine, KindFilter } from "./MemoryFacts";
 import { IconFile, IconFolder, IconNotes } from "./icons";
 import {
   ageKey,
@@ -182,10 +183,9 @@ function FolderContent({
   );
 }
 
-// byline says who wrote a section and when.
+// byline says what kind of memory a section is, who wrote it and when.
 function byline(h: MemoryHit): string {
-  const date = (h.date ?? "").slice(0, 10);
-  return [h.author, date].filter(Boolean).join(" · ");
+  return factsLine({ type: h.type, author: h.author, date: h.date });
 }
 
 // HitRow is one section the search found: where it is, who wrote it and when, and what matched.
@@ -280,6 +280,14 @@ function LibraryMenu() {
       testid="library-menu"
       items={[
         {
+          label: t("Reorganize the memory"),
+          hint: t(
+            "Sort by kind, merge duplicates and tie related entries, with undo",
+          ),
+          testid: "memory-reorganize",
+          onSelect: () => app.memory.reorg.show(),
+        },
+        {
           label: t("Review the memory"),
           hint: t(
             "Ask the agent to find contradictions, stale entries and broken links",
@@ -335,6 +343,7 @@ function Filters() {
           {t("Follow links")}
         </label>
       </div>
+      <KindFilter class={FIELD} />
       <details class="text-xs text-[#9a9aaa]">
         <summary class="cursor-pointer">{t("More filters")}</summary>
         <div class="mt-2 flex flex-col gap-2">

@@ -11,6 +11,7 @@ import { plural, t, tf } from "./i18n";
 import { choose } from "./choose";
 import { useApp } from "./appStore";
 import { MapLegend, MapPeek } from "./MemoryMapPanels";
+import { relationLabel } from "./memoryKinds";
 import { SMALL_BTN } from "./MemoryLibrary";
 import {
   graph3d,
@@ -176,8 +177,15 @@ export function GraphPane({ graph }: { graph: MemoryGraph }) {
                 x2={at.get(e.to)?.x}
                 y2={at.get(e.to)?.y}
                 stroke="#00f0ff"
-                stroke-opacity="0.4"
-              />
+                stroke-opacity={choose(!!e.kind, "0.8", "0.4")}
+                stroke-dasharray={choose(
+                  e.kind === "contradicts",
+                  "4 3",
+                  undefined,
+                )}
+              >
+                {!!e.kind && <title>{t(relationLabel(e.kind))}</title>}
+              </line>
             ))}
             {nodes.map((n) => (
               <g

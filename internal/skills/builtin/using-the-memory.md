@@ -53,6 +53,10 @@ and do not answer as if you had read it.
 - Put the entry in the collection that fits: `Engineering/Rollback policy`, `HR/Hiring`. Write it
   with headings (`## Salary bands`), because a section is what a later search answers with. Start
   each passage with what it is about, so it makes sense read alone.
+- Say which KIND of memory it is (`type`: fact, episode, decision, preference, person, procedure,
+  lesson); the person's map is grouped by it. A new entry is tied to the closest ones on its own;
+  say how it is tied when you know, at its top: `replaces: "[[Old plan]]"` (or `contradicts`,
+  `depends_on`, `caused_by`, `part_of`, `example_of`, `related`).
 - Link related entries with `[[Title]]` so the graph and the backlinks connect them.
 - Record only what the person said or decided, in their words. Never write secrets, passwords or
   tokens into the memory.

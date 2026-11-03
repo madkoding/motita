@@ -30,6 +30,12 @@ export interface EntryMeta {
   author?: string;
   date: string;
   tags?: string[];
+  // The kind of memory the entry is (fact, decision...), its associations with other entries, and
+  // the project and repositories it belongs to.
+  type?: string;
+  relations?: { kind: string; target: string }[];
+  project?: string;
+  repos?: string[];
 }
 
 export interface EntryView extends MemoryEntry {
@@ -58,6 +64,7 @@ export interface MemoryHit {
   snippet: string;
   block: string;
   author?: string;
+  type?: string;
   date: string;
   score: number;
   via?: string;
@@ -71,6 +78,7 @@ export interface MemoryAnswer {
 // The filters that narrow a search. An empty one is not applied.
 export interface MemoryFilters {
   namespace: string;
+  type: string;
   author: string;
   since: string;
   until: string;
@@ -79,6 +87,7 @@ export interface MemoryFilters {
 
 export const NO_FILTERS: MemoryFilters = {
   namespace: "",
+  type: "",
   author: "",
   since: "",
   until: "",
@@ -88,8 +97,14 @@ export const NO_FILTERS: MemoryFilters = {
 // searchPath is the request that answers q under the filters.
 export function searchPath(q: string, f: MemoryFilters): string {
   const params = new URLSearchParams({ q });
-  for (const key of ["namespace", "author", "since", "until"] as const) {
-    if (f[key] !== "") {
+  for (const key of [
+    "namespace",
+    "type",
+    "author",
+    "since",
+    "until",
+  ] as const) {
+    if (f[key]) {
       params.set(key, f[key]);
     }
   }
@@ -244,11 +259,15 @@ export interface GraphNode {
   title: string;
   in: number;
   out: number;
+  // The kind of memory the entry is, absent while it has none.
+  type?: string;
 }
 
 export interface GraphEdge {
   from: string;
   to: string;
+  // The association the link states (replaces, related...), absent for a plain link.
+  kind?: string;
 }
 
 export interface MemoryGraph {
@@ -498,34 +517,47 @@ export function groupKey(path: string): string {
   return entryTrail(path)[0] ?? "";
 }
 
-// MapGroup is one collection on the map's legend, with how many entries it has.
+// MapGroup is one part of the map's legend, with how many entries it has: a kind of memory when
+// byKind, a collection otherwise.
 export interface MapGroup {
   key: string;
   count: number;
+  byKind: boolean;
 }
 
-// mapGroups lists the collections the entries belong to, the biggest first.
+// mapKey is what colours an entry on the map: its kind of memory once any entry has one, so the map
+// reads like a brain (facts, decisions, people...), its collection before that.
+function mapKey(nodes: GraphNode[]): (n: GraphNode) => string {
+  if (nodes.some((n) => n.type)) {
+    return (n) => n.type ?? "";
+  }
+  return (n) => groupKey(n.path);
+}
+
+// mapGroups lists the parts the entries belong to, the biggest first.
 export function mapGroups(nodes: GraphNode[]): MapGroup[] {
+  const keyOf = mapKey(nodes);
+  const byKind = nodes.some((n) => n.type);
   const count = new Map<string, number>();
   for (const n of nodes) {
-    const key = groupKey(n.path);
+    const key = keyOf(n);
     count.set(key, (count.get(key) ?? 0) + 1);
   }
   return [...count]
-    .map(([key, c]) => ({ key, count: c }))
+    .map(([key, c]) => ({ key, count: c, byKind }))
     .sort((a, b) => b.count - a.count || a.key.localeCompare(b.key));
 }
 
-// entryColours gives every entry the colour of its collection, as an index into a palette of
-// colours: the biggest collections get the first ones, so the ones the legend names never share one.
+// entryColours gives every entry the colour of its part of the map (see mapKey), as an index into
+// a palette of colours: the biggest parts get the first ones, so the ones the legend names never
+// share one.
 export function entryColours(
   nodes: GraphNode[],
   colours: number,
 ): Map<string, number> {
+  const keyOf = mapKey(nodes);
   const rank = new Map(mapGroups(nodes).map((g, i) => [g.key, i % colours]));
-  return new Map(
-    nodes.map((n) => [n.path, rank.get(groupKey(n.path)) as number]),
-  );
+  return new Map(nodes.map((n) => [n.path, rank.get(keyOf(n)) as number]));
 }
 
 // countEntries is how many entries a folder holds, its sub-folders included.

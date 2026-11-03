@@ -170,11 +170,36 @@ func TestAttachingARepositoryThatCannotBranch(t *testing.T) {
 // noteService records what the session's agent is told about the project.
 type noteService struct {
 	fakeService
-	note  string
-	floor int
+	note     string
+	floor    int
+	memName  string
+	memRepos []string
 }
 
 func (n *noteService) SetProjectNote(note string) { n.note = note }
+
+func (n *noteService) SetMemoryProject(name string, repos []string) {
+	n.memName, n.memRepos = name, repos
+}
+
+// The memory files a session's lessons under the project's own name and its repositories, never
+// under the session's worktree.
+func TestTheMemoryIsToldTheProjectAndItsRepos(t *testing.T) {
+	svc := &noteService{}
+	applyRuntimeTo(svc, &Project{Title: " Shop ", Dir: "/w/shop", GitURL: "git@github.com:acme/shop.git",
+		Repos: []ProjectRepo{{Name: "api", GitURL: "https://github.com/acme/api"}, {Name: "local"},
+			{Name: "dup", GitURL: "https://github.com/acme/shop.git/"}}}, "/w/worktrees/s1")
+	if svc.memName != "Shop" || strings.Join(svc.memRepos, ",") != "acme/shop,acme/api,local" {
+		t.Errorf("memory project = %q %v", svc.memName, svc.memRepos)
+	}
+	applyRuntimeTo(svc, &Project{Dir: "/w/shop"}, "")
+	if svc.memName != "shop" || len(svc.memRepos) != 0 {
+		t.Errorf("no title = %q %v", svc.memName, svc.memRepos)
+	}
+	if memoryProjectName(&Project{}) != "" || repoName("x") != "" || repoName("/x") != "" {
+		t.Error("nothing to name")
+	}
+}
 
 func TestTheAgentIsToldAboutTheOtherRepositories(t *testing.T) {
 	svc := &noteService{}

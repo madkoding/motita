@@ -857,10 +857,10 @@ const more: Record<string, string> = {
     "Mira cómo se conectan las entradas entre sí",
   "The entry is deleted for good, with everything written in it.":
     "La entrada se elimina para siempre, con todo lo que tiene escrito.",
-  "Welcome to your memory": "Bienvenido a tu memoria",
+  "Welcome to your memory": "Te damos la bienvenida a tu memoria",
   "What is the entry about?": "¿De qué trata la entrada?",
-  "What each task learns about a project is added on its own to the Projects collection.":
-    "Lo que cada tarea aprende de un proyecto se añade solo a la colección Projects.",
+  "Each entry is one kind of memory (a fact, a decision, a person…) tied to the ones it relates to. What a task learns about a project goes on its own to that project's collection, under Lessons.":
+    "Cada entrada es un tipo de memoria (un hecho, una decisión, una persona…) asociada a las que se relacionan con ella. Lo que una tarea aprende de un proyecto va solo a la colección de ese proyecto, en Lessons.",
   "What you and Motita want to remember, found by meaning.":
     "Lo que tú y Motita quieren recordar, encontrado por significado.",
   "Where is my memory kept?": "¿Dónde se guarda mi memoria?",
