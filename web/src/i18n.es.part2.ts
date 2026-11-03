@@ -859,6 +859,8 @@ const more: Record<string, string> = {
     "La entrada se elimina para siempre, con todo lo que tiene escrito.",
   "Welcome to your memory": "Bienvenido a tu memoria",
   "What is the entry about?": "¿De qué trata la entrada?",
+  "What each task learns about a project is added on its own to the Projects collection.":
+    "Lo que cada tarea aprende de un proyecto se añade solo a la colección Projects.",
   "What you and Motita want to remember, found by meaning.":
     "Lo que tú y Motita quieren recordar, encontrado por significado.",
   "Where is my memory kept?": "¿Dónde se guarda mi memoria?",

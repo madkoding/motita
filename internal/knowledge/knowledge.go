@@ -226,7 +226,7 @@ func (b Base) Remember(in, entry, content string) string {
 			"the project in project."
 	case Project:
 		lines := strings.Split(content, "\n")
-		if err := RecordLessons(b.Workspace, lines); err != nil || b.Workspace == "" {
+		if err := KeepLessons(b.Memory, b.Workspace, lines); err != nil || b.Workspace == "" {
 			return "Error: this session has no project to keep lessons in."
 		}
 		return fmt.Sprintf("Kept as this project's lessons (%s); every later task reads them.", LessonsFile)
