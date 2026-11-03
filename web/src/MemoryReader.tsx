@@ -252,18 +252,23 @@ function Welcome() {
           "Each top-level folder is a collection, so engineering and HR never mix. Link entries with [[double brackets]] and the map shows how they relate.",
         )}
       </p>
+      <p>
+        {t(
+          "What each task learns about a project is added on its own to the Projects collection.",
+        )}
+      </p>
       {!!root && (
-        <details class="text-xs text-left">
-          <summary class="cursor-pointer text-center">
+        <div class="text-xs text-left" data-testid="memory-where">
+          <p class="text-center text-[#e8e8ea]">
             {t("Where is my memory kept?")}
-          </summary>
+          </p>
           <p class="mt-1.5 break-all">
             {tf(
               "It is ordinary text files, so other programs such as Obsidian can open them too. The folder is {root}",
               { root },
             )}
           </p>
-        </details>
+        </div>
       )}
     </div>
   );

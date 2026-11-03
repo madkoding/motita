@@ -494,8 +494,15 @@ func TestOpenMemoryIsTheStoreUnderTheHome(t *testing.T) {
 	if got == nil || got.Root() != filepath.Join(home, ".motita", "memory") {
 		t.Fatalf("OpenMemory() = %+v, want the store under the home", got)
 	}
+	// Its index is kept beside the other state, never inside the person's folder.
+	if got, want := MemoryCacheDir(), filepath.Join(home, ".motita", "cache", "memory"); got != want {
+		t.Fatalf("MemoryCacheDir() = %q, want %q", got, want)
+	}
 	t.Setenv("HOME", "")
 	if got := OpenMemory(); got != nil {
 		t.Fatalf("OpenMemory() without a home = %+v, want nil", got)
+	}
+	if got := MemoryCacheDir(); got != "" {
+		t.Fatalf("MemoryCacheDir() without a home = %q", got)
 	}
 }
