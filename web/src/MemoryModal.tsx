@@ -9,6 +9,7 @@ import { ModalBackdrop } from "./ModalBackdrop";
 import { ConfirmDelete } from "./MemoryMenus";
 import { MemoryList, SMALL_BTN } from "./MemoryLibrary";
 import { OpenEntry } from "./MemoryReader";
+import { ReorganizeDialog } from "./MemoryReorganize";
 import { IconClose } from "./icons";
 
 // REFRESH_MS is how often the open window reads the list again, so what the agent saves while it is
@@ -26,6 +27,7 @@ export function MemoryModal() {
     pending,
     askDelete,
     confirmDelete,
+    reorg,
   } = app.memory;
   const toggleGraph = () => {
     if (graph) {
@@ -76,6 +78,7 @@ export function MemoryModal() {
           <OpenEntry />
         </div>
       </div>
+      {reorg.open && <ReorganizeDialog />}
       {!!pending && (
         <ConfirmDelete
           deletion={pending}

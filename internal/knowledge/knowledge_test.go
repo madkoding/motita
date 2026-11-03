@@ -194,3 +194,17 @@ func TestRememberWithoutAnEntryNamesItFromTheContent(t *testing.T) {
 		t.Errorf("the memory holds %q", read)
 	}
 }
+
+// A fact without a title that an entry already covers goes into that entry, as the kind named.
+func TestRememberWithoutAnEntryJoinsTheEntryThatCoversIt(t *testing.T) {
+	b, _ := base(t)
+	b.Remember("", "Deploys", "The staging server deploys every friday with the release script.")
+	got := b.RememberKind("", "decision", "", "The staging server deploys every friday, decided.")
+	if !strings.HasPrefix(got, "Added to [[Deploys]]") {
+		t.Fatalf("remember = %q", got)
+	}
+	read := b.Memory.ReadText("Deploys")
+	if !strings.Contains(read, "decided.") || !strings.Contains(read, "type: decision") {
+		t.Errorf("the memory holds %q", read)
+	}
+}

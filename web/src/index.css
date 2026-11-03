@@ -5521,6 +5521,26 @@ html .project-bar button.project-new-session {
 
 /* What a turn did with the memory: small chips under the question, each one opening the memory
    window (at the entry it saved). */
+/* The reorganization's progress: a thin accent bar on a faint track, the same on every engine. */
+.reorg-progress {
+  appearance: none;
+  height: 6px;
+  border: 0;
+  border-radius: 9999px;
+  overflow: hidden;
+  background: rgba(255, 255, 255, 0.1);
+  color: var(--color-accent);
+}
+.reorg-progress::-webkit-progress-bar {
+  background: rgba(255, 255, 255, 0.1);
+}
+.reorg-progress::-webkit-progress-value {
+  background: var(--color-accent);
+}
+.reorg-progress::-moz-progress-bar {
+  background: var(--color-accent);
+}
+
 .memory-chips {
   display: flex;
   flex-wrap: wrap;

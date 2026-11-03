@@ -191,6 +191,9 @@ type AppRunner struct {
 	//
 	// Guarded by sessionMu, like store, because both are read while a turn runs.
 	projectScope string
+	// memoryName and memoryRepos name the project in the memory (see SetMemoryProject).
+	memoryName  string
+	memoryRepos []string
 	// runtimeNote is the sentence added to the system prompt (how services are run, then the
 	// project note), kept so a change can swap it. Guarded by sessionMu, like the session it edits.
 	runtimeNote string

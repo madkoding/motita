@@ -274,6 +274,8 @@ type Options struct {
 // Server is the HTTP face of the conversations this process holds.
 type Server struct {
 	opts Options
+	// reorg is the reorganization of the memory, running or last run (memreorg.go).
+	reorg reorgJob
 	// approvalWait is agent.approval_timeout as the configuration file last said it.
 	approvalWait fileTimeout
 	listener     net.Listener

@@ -82,6 +82,12 @@ func TestRecallAndRememberActions(t *testing.T) {
 	if out := run("remember", "Trips/Japan :: Ramen in Tokyo"); !strings.Contains(out, "Added to [[Japan]]") {
 		t.Errorf("remember = %q", out)
 	}
+	if out := run("remember", "type:decision Trips/Plan :: We fly in May"); !strings.Contains(out, "Added to [[Plan]]") {
+		t.Errorf("remember with a kind = %q", out)
+	}
+	if body, _, _ := a.memory.Read("Trips/Plan.md"); !strings.Contains(body, "type: decision") {
+		t.Errorf("the kind is kept: %q", body)
+	}
 	out := run("remember", "IN:procedures ramen-hunt :: # Ramen hunt\n1. ask")
 	if !strings.Contains(out, "Saved \"ramen-hunt\"") {
 		t.Errorf("remember a procedure = %q", out)

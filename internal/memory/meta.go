@@ -24,6 +24,13 @@ type Meta struct {
 	Author string    `json:"author,omitempty"`
 	Date   time.Time `json:"date"`
 	Tags   []string  `json:"tags,omitempty"`
+	// Type is the kind of memory the entry is (see kinds.go), "" when it says none.
+	Type string `json:"type,omitempty"`
+	// Relations are the associations it states with other entries.
+	Relations []Relation `json:"relations,omitempty"`
+	// Project and Repos say which project, and which of its repositories, the entry belongs to.
+	Project string   `json:"project,omitempty"`
+	Repos   []string `json:"repos,omitempty"`
 }
 
 // maxFrontLines is how far down an entry its front matter may close: a stray "---" rule much further
@@ -77,11 +84,29 @@ func ParseMeta(body string, modified time.Time) (m Meta, rest string, skipped in
 			}
 		case "tags":
 			m.Tags = splitTags(value)
+		case "type":
+			m.Type = NormalizeKind(value)
+		case "project":
+			m.Project = strings.Trim(value, "\"'")
+		case "repos", "repo":
+			m.Repos = splitTags(value)
 		default:
-			// any other property is the person's and is left alone
+			m.addRelations(key, value)
 		}
 	}
 	return m, strings.Join(lines[end+1:], "\n"), end + 1
+}
+
+// addRelations keeps the associations a property states; any other property is the person's and is
+// left alone.
+func (m *Meta) addRelations(key, value string) {
+	kind := relationKey(key)
+	if kind == "" {
+		return
+	}
+	for _, t := range relationTargets(value) {
+		m.Relations = append(m.Relations, Relation{Kind: kind, Target: t})
+	}
 }
 
 // splitTags reads "a, b" or "[a, b]".
@@ -98,10 +123,19 @@ func splitTags(value string) []string {
 // Stamp puts front matter with the author and the day at the top of body, unless it already has
 // some: what the person wrote as properties is theirs.
 func Stamp(body, author string, now time.Time) string {
+	return StampKind(body, author, "", now)
+}
+
+// StampKind is Stamp with the kind of memory the entry is, when kind names one.
+func StampKind(body, author, kind string, now time.Time) string {
 	if _, _, skipped := ParseMeta(body, now); skipped > 0 {
 		return body
 	}
-	return "---\nauthor: " + author + "\ndate: " + now.UTC().Format("2006-01-02") + "\n---\n\n" + body
+	head := "---\nauthor: " + author + "\ndate: " + now.UTC().Format("2006-01-02") + "\n"
+	if kind = NormalizeKind(kind); kind != "" {
+		head += "type: " + kind + "\n"
+	}
+	return head + "---\n\n" + body
 }
 
 // Namespace is the collection an entry belongs to: its first folder. An entry at the top of the

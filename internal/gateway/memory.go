@@ -172,8 +172,8 @@ func (s *Server) handleMemoryGraph(w http.ResponseWriter, _ *http.Request) {
 }
 
 // handleSearchMemory recalls what the memory says about q. The query may carry its filters in the
-// text (ns:Name author:Name since:2026-01-31 until:2026-12-31 graph:1) or in the parameters
-// namespace, author, since, until and graph, which win. graph=1 adds the entries related through
+// text (ns:Name author:Name type:decision since:2026-01-31 until:2026-12-31 graph:1) or in the
+// parameters namespace, author, type, since, until and graph, which win. graph=1 adds the entries related through
 // links.
 func (s *Server) handleSearchMemory(w http.ResponseWriter, r *http.Request) {
 	m := s.memory(w)
@@ -184,6 +184,7 @@ func (s *Server) handleSearchMemory(w http.ResponseWriter, r *http.Request) {
 	q := memory.ParseQuery(v.Get("q"))
 	q.Namespace = cmp.Or(v.Get("namespace"), q.Namespace)
 	q.Author = cmp.Or(v.Get("author"), q.Author)
+	q.Type = cmp.Or(memory.NormalizeKind(v.Get("type")), q.Type)
 	if t, ok := memory.ParseDate(v.Get("since")); ok {
 		q.Since = t
 	}
@@ -207,4 +208,8 @@ func (s *Server) memoryRoutes(mux *http.ServeMux, plain func(http.HandlerFunc) h
 	mux.Handle("POST /v1/memory/rename", plain(s.handleRenameMemory))
 	mux.Handle("GET /v1/memory/search", plain(s.handleSearchMemory))
 	mux.Handle("GET /v1/memory/graph", plain(s.handleMemoryGraph))
+	mux.Handle("POST /v1/memory/reorganize", plain(s.handleStartReorganize))
+	mux.Handle("GET /v1/memory/reorganize", plain(s.handleReorganizeStatus))
+	mux.Handle("DELETE /v1/memory/reorganize", plain(s.handleCancelReorganize))
+	mux.Handle("POST /v1/memory/reorganize/undo", plain(s.handleUndoReorganize))
 }

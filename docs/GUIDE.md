@@ -661,7 +661,8 @@ always safe.
 
 **Per project.** A session that works in a project sees the memory through that project: what the
 agent writes under a bare title goes into the project's collection (named after the project's
-folder, e.g. `motita/Decisions.md`), a bare title it reads or adds to is looked for there first,
+title, its folder when it has none, never a session's worktree: e.g. `Motita/Decisions.md`; a new
+entry there records `project:` and the `repos:` it holds), a bare title it reads or adds to is looked for there first,
 and a search ranks that collection's passages first without hiding the rest. A title that starts
 with `/` (`/Preferences`) is written at the top of the memory, for what holds in every project. A
 search that names a collection (`ns:Name`) is answered as asked, and sessions outside a project
@@ -669,12 +670,33 @@ see the memory as before.
 
 - **Tree and editor.** Collections and entries on the left; the open entry is a preview you can
   switch to a text editor. A draft is saved with the Save button, when you open another entry and
-  when you close the window. A byline shows author and date.
+  when you close the window. A byline says, in words, what kind of memory the entry is, who wrote it
+  ("Motita" for the agent), when, and its project and repositories; the front matter they come
+  from is only shown in the editor.
+- **Kinds of memory.** Like a brain, every entry is one kind: fact, episode ("What happened"),
+  decision, preference, person, procedure ("How it is done") or lesson. It is the `type:` property
+  of the front matter; the agent sets it when it remembers (`type:decision Deploys :: …` in task
+  mode, the `type` argument in plan mode), and a search narrows by it (`type:decision`, or the
+  "Kind of memory" filter).
+- **Associations.** Entries are tied by named properties: `related`, `replaces`, `contradicts`,
+  `depends_on`, `caused_by`, `part_of`, `example_of` (`replaces: "[[Old plan]]"`). A new entry the
+  agent writes is associated with the closest ones on its own (`related`), and a fact remembered
+  without a title goes into the entry that already covers it. The open entry lists them under
+  "Associated with", grouped by how.
 - **Wiki links.** `[[Peru]]`, `[[trips/Peru]]`, `[[Peru#Food|the food]]` resolve as in Obsidian
   (a bare name matches an entry of that name in any folder, the shallowest wins). A link to an
   entry that does not exist yet creates it. Backlinks are listed under each entry.
 - **Map.** The Map button draws the entries as spheres joined by their links (3D where the browser
-  has WebGL), coloured by collection.
+  has WebGL), coloured by kind of memory once any entry has one (by collection before that). The
+  look at an entry beside the map shows its kind, author and associations.
+- **Reorganize the memory.** From the "⋯" menu: a copy of the whole memory is kept first (in
+  `~/.motita/memory-backups/<date>`), then the summary model sorts every entry without a kind,
+  gives a clear title to the ones without one, merges duplicates, ties a newer fact to the one it
+  replaces, marks contradictions and associates related entries; the old `Projects/<folder>`
+  lessons move to `<project>/Lessons`. Links follow every move. It shows its progress, can be
+  stopped, and ends with a summary and an Undo that puts the copy back. Without a model it only
+  moves the lessons and associates close entries. API: `POST`/`GET`/`DELETE
+  /v1/memory/reorganize`, `POST /v1/memory/reorganize/undo {"backup": "<name>"}`.
 - **Review the memory.** Opens a conversation that runs the `reviewing-the-memory` skill over the
   whole memory: contradictions, stale entries, no source, broken links, orphans. It changes
   nothing until you agree.
