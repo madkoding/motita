@@ -648,7 +648,9 @@ message.
 A finished task also reports `lessons`: facts about the project it learned that the next task
 should not rediscover (the command that runs the tests, a convention, a trap, a decision the
 person made). They are kept in `.motita/memory.md` in the workspace, newest last and bounded,
-and every later task reads them with the project note; the person can edit or delete a line. In
+and every later task reads them with the project note; the person can edit or delete a line. The
+new ones are also added to the person's memory, in the entry `Projects/<project folder>`, so the
+memory window and search show them without the model choosing to save. In
 the web UI the files, checks and lessons of a finished task are folded under one line, open only
 when the task is not done.
 
