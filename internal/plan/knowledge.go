@@ -20,6 +20,7 @@ type knowledgeArgs struct {
 	Open    string `json:"open"`
 	Entry   string `json:"entry"`
 	Content string `json:"content"`
+	Type    string `json:"type"`
 }
 
 // placeProperty describes the "in" argument both tools take.
@@ -50,7 +51,9 @@ func knowledgeTools() []llm.Tool {
 				"entry": llm.StringProperty("The memory entry's title or path (left out, its first line names it), " +
 					"or the procedure's name (lowercase, hyphenated)."),
 				"content": llm.StringProperty("The Markdown to keep."),
-				"in":      placeProperty(),
+				"type": llm.StringProperty("In memory, the kind: fact, episode, decision, preference, person, " +
+					"procedure or lesson."),
+				"in": placeProperty(),
 			}, "content")),
 	}
 }
@@ -80,7 +83,7 @@ func (p *Planner) toolKnowledge(ctx context.Context, name string, raw []byte) st
 	if name == "recall" {
 		return limitString(b.Recall(args.In, args.Query, args.Open), maxToolOutputBytes)
 	}
-	reply := b.Remember(args.In, args.Entry, args.Content)
+	reply := b.RememberKind(args.In, args.Type, args.Entry, args.Content)
 	if line, ok := memory.SavedLine(reply); ok {
 		p.tracef("%s", line)
 	}

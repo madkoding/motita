@@ -67,11 +67,22 @@ func (a *Agent) knowledgeReply(ctx context.Context, kind, command string) string
 		}
 		return truncateMiddle(b.Recall(in, rest, ""), actionOutputChars)
 	}
+	kindName, rest := kindOf(rest)
 	entry, body, ok := strings.Cut(rest, "::")
 	if !ok {
 		entry, body = "", rest
 	}
-	return b.Remember(in, entry, body)
+	return b.RememberKind(in, kindName, entry, body)
+}
+
+// kindOf splits a leading "type:<kind>" (fact, episode, decision...) off a remember.
+func kindOf(command string) (string, string) {
+	rest, ok := cutPrefixFold(strings.TrimSpace(command), "type:")
+	if !ok {
+		return "", command
+	}
+	kind, after, _ := strings.Cut(strings.TrimSpace(rest), " ")
+	return kind, strings.TrimSpace(after)
 }
 
 // placeOf splits a leading "in:<place>" off a command.

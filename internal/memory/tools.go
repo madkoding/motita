@@ -73,6 +73,9 @@ func writeHit(b *strings.Builder, h Hit) {
 	if h.Author != "" {
 		b.WriteString(", by " + h.Author)
 	}
+	if h.Type != "" {
+		b.WriteString(", a " + h.Type)
+	}
 	b.WriteString(", " + h.Date.Format("2006-01-02"))
 	if h.Via != "" {
 		b.WriteString(", linked from " + h.Via)
@@ -137,31 +140,9 @@ func (v *Store) WriteText(ref, body string) string {
 		v.projectHint(n.Path)
 }
 
-// AppendText adds text to the end of an entry, creating the entry when it does not exist.
+// AppendText adds text to the end of an entry, creating the entry when it does not exist (see Keep).
 func (v *Store) AppendText(ref, text string) string {
-	if strings.TrimSpace(ref) == "" || strings.TrimSpace(text) == "" {
-		return errPrefix + "give the entry's path or title and the text to add."
-	}
-	path := v.appendTarget(ref)
-	body, _, err := v.Read(path)
-	if err != nil && !errors.Is(err, ErrNotFound) {
-		return errPrefix + "" + err.Error()
-	}
-	if body != "" && !strings.HasSuffix(body, "\n") {
-		body += "\n"
-	}
-	if body != "" {
-		body += "\n"
-	}
-	added := body + strings.TrimRight(text, "\n") + "\n"
-	if body == "" {
-		added = Stamp(added, AgentAuthor, now())
-	}
-	n, err := v.Write(path, added, false)
-	if err != nil {
-		return errPrefix + "" + err.Error()
-	}
-	return fmt.Sprintf("Added to [[%s]] (%s).", n.Title, n.Path) + v.projectHint(n.Path)
+	return v.Keep(ref, text, "")
 }
 
 // appendTarget is the entry an append goes to: the one the title names, or a new one where a write

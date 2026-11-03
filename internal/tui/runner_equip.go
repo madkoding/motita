@@ -65,13 +65,26 @@ func (r *AppRunner) equipThreads(ag AgentRunner) {
 
 // memory is the person's memory as a session of this runner sees it: inside a project, the view
 // that writes to the project's collection (named after the project's folder) and ranks it first.
+// The project is named by its title when the gateway gave one (SetMemoryProject), by its folder
+// otherwise, never by a session's worktree.
 func (r *AppRunner) memory() *memory.Store {
 	r.sessionMu.Lock()
-	dir := r.projectScope
+	dir, name, repos := r.projectScope, r.memoryName, r.memoryRepos
 	r.sessionMu.Unlock()
 	m := config.OpenMemory()
-	if dir == "" {
+	if name == "" && dir != "" {
+		name = filepath.Base(dir)
+	}
+	if name == "" {
 		return m
 	}
-	return m.ForProject(filepath.Base(dir))
+	return m.ForProject(name, repos...)
+}
+
+// SetMemoryProject names the project this runner's sessions work in, as the memory files what they
+// learn: its title, and the repositories it holds.
+func (r *AppRunner) SetMemoryProject(name string, repos []string) {
+	r.sessionMu.Lock()
+	r.memoryName, r.memoryRepos = name, repos
+	r.sessionMu.Unlock()
 }

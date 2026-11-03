@@ -25,7 +25,7 @@ import (
 // moves a cosine by about a thousandth.
 
 // diskVersion changes whenever the layout or the meaning of the copy changes.
-const diskVersion = 1
+const diskVersion = 2
 
 // diskIndex is the copy of an index on disk.
 type diskIndex struct {

@@ -2,6 +2,7 @@ package memory
 
 import (
 	"path"
+	"slices"
 	"strings"
 )
 
@@ -18,19 +19,46 @@ import (
 // The person's own folders are untouched, and a search that names a collection (ns:Name) is
 // answered as asked.
 
-// ForProject returns the view of the memory for a session in the project named name; an empty name
-// is the memory itself. The name is used as a folder, so what cannot be one is dropped from it.
-func (v *Store) ForProject(name string) *Store {
+// ForProject returns the view of the memory for a session in the project named name, which works
+// on the repositories repos; an empty name is the memory itself. The name is the project's own (its
+// title), used as a folder, so what cannot be one is dropped from it. A new entry the view writes
+// in the project's collection says which project and repositories it belongs to.
+func (v *Store) ForProject(name string, repos ...string) *Store {
 	if v == nil {
 		return nil
 	}
 	c := *v
 	c.project = projectFolder(name)
+	c.repos = nil
+	for _, r := range repos {
+		if r = strings.TrimSpace(r); r != "" && !slices.Contains(c.repos, r) {
+			c.repos = append(c.repos, r)
+		}
+	}
 	return &c
 }
 
 // Project is the collection this view writes to, "" for the memory itself.
 func (v *Store) Project() string { return v.project }
+
+// Repos are the repositories of this view's project.
+func (v *Store) Repos() []string { return v.repos }
+
+// belongs writes, into a new entry of the project's collection, which project and repositories it
+// belongs to. Any other entry is left as it is.
+func (v *Store) belongs(p, body string) string {
+	if !v.inProject(p) {
+		return body
+	}
+	f := splitFront(body)
+	if f.find("project") < 0 {
+		f.set("project", v.project)
+	}
+	if len(v.repos) > 0 && f.find("repos") < 0 {
+		f.set("repos", strings.Join(v.repos, ", "))
+	}
+	return f.String()
+}
 
 // projectFolder is name as a single folder name a memory path accepts, "" when nothing is left.
 func projectFolder(name string) string {

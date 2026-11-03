@@ -5,6 +5,7 @@ import { plural, t } from "./i18n";
 import { HTTP_CONFLICT, JSON_HEADERS } from "./appConst";
 import type { SetStatus } from "./appTypes";
 import type { Deletion } from "./MemoryMenus";
+import { useReorganize } from "./useReorganize";
 import {
   entryFileName,
   folderOf,
@@ -459,8 +460,11 @@ export function useMemory(api: Api, setState: SetStatus) {
     [openEntry, createEntry],
   );
 
+  const reorg = useReorganize(api, loadList);
+
   return {
     showMemory,
+    reorg,
     entries,
     namespaces,
     root,

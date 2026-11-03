@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strings"
 	"sync"
@@ -739,6 +740,9 @@ func applyRuntimeTo(svc Service, p *Project, workspace string) {
 	if setter, ok := svc.(interface{ SetTestsFloor(int) }); ok && p != nil {
 		setter.SetTestsFloor(p.TestsFloor)
 	}
+	if setter, ok := svc.(interface{ SetMemoryProject(string, []string) }); ok && p != nil {
+		setter.SetMemoryProject(memoryProjectName(p), projectRepoNames(p))
+	}
 	if setter, ok := svc.(interface{ SetProjectNote(string) }); ok {
 		home, _ := os.UserHomeDir()
 		setter.SetProjectNote(projectScopeNote(p, workspace) + projectReposNote(p) +
@@ -1321,4 +1325,42 @@ func (c *conversation) setTitleIfPlaceholder(t string, epoch uint64) bool {
 	}
 	c.title = t
 	return true
+}
+
+// memoryProjectName is how the memory names a project: its title, its folder when it has none.
+func memoryProjectName(p *Project) string {
+	if name := strings.TrimSpace(p.Title); name != "" || p.Dir == "" {
+		return name
+	}
+	return filepath.Base(p.Dir)
+}
+
+// projectRepoNames are the repositories a project works on, as the memory names them: owner/name
+// from the address a repository was cloned from, its folder's name otherwise.
+func projectRepoNames(p *Project) []string {
+	var out []string
+	add := func(url, name string) {
+		if n := repoName(url); n != "" {
+			name = n
+		}
+		if name != "" && !slices.Contains(out, name) {
+			out = append(out, name)
+		}
+	}
+	add(p.GitURL, "")
+	for _, r := range p.Repos {
+		add(r.GitURL, r.Name)
+	}
+	return out
+}
+
+// repoName is "owner/name" of a git address (https://github.com/owner/name.git, git@host:owner/name).
+func repoName(url string) string {
+	url = strings.TrimSuffix(strings.TrimRight(strings.TrimSpace(url), "/"), ".git")
+	url = strings.ReplaceAll(url, ":", "/")
+	parts := strings.Split(url, "/")
+	if len(parts) < 2 || parts[len(parts)-1] == "" || parts[len(parts)-2] == "" {
+		return ""
+	}
+	return parts[len(parts)-2] + "/" + parts[len(parts)-1]
 }
