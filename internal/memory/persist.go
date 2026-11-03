@@ -80,7 +80,7 @@ func (v *Store) cacheFile() string {
 		return ""
 	}
 	h := fnv.New64a()
-	h.Write([]byte(v.root))
+	_, _ = h.Write([]byte(v.root))
 	return filepath.Join(v.cacheDir, fmt.Sprintf("%x.gob", h.Sum64()))
 }
 
@@ -96,7 +96,7 @@ func writeCache(file string, data []byte) error {
 	}
 	_, werr := tmp.Write(data)
 	if err := errors.Join(werr, tmp.Close(), moveFile(tmp.Name(), file)); err != nil {
-		os.Remove(tmp.Name())
+		_ = os.Remove(tmp.Name())
 		return err
 	}
 	return nil
@@ -142,7 +142,7 @@ func (v *Store) load() *index {
 	if file == "" {
 		return nil
 	}
-	data, err := os.ReadFile(file)
+	data, err := os.ReadFile(filepath.Clean(file))
 	if err != nil {
 		return nil
 	}
@@ -151,44 +151,16 @@ func (v *Store) load() *index {
 		return nil
 	}
 	docs := make([]*doc, len(d.Docs))
-	complete := true
 	for i, dd := range d.Docs {
-		e := Entry{Path: dd.Path, Title: dd.Title, Size: dd.Size, Modified: dd.Modified}
-		doc := &doc{entry: indexed{Entry: e, Meta: dd.Meta, namespace: Namespace(dd.Path)}, links: dd.Links}
-		for _, p := range dd.Parents {
-			doc.parents = append(doc.parents, parent{trail: p.Trail, line: p.Line, text: p.Text})
-		}
-		doc.text = make([][]string, len(dd.Kids))
-		doc.ctx = make([][]string, len(dd.Kids))
-		doc.vecs = make([]vec, len(dd.Kids))
-		for j, k := range dd.Kids {
-			doc.kids = append(doc.kids, child{parent: k.Parent, line: k.Line, text: k.Text, ctx: k.Ctx})
-			doc.text[j], doc.ctx[j] = terms(k.Text), terms(k.Ctx)
-			doc.vecs[j] = fromBF16(k.Vec)
-		}
-		docs[i] = doc
+		docs[i] = dd.doc()
 	}
 	ix := assemble(docs, d.Print)
-	h := &holo{idf: d.IDF, index: map[string]vec{}, rep: map[string]vec{}, learned: map[string]bool{},
-		vecs: make([]vec, len(ix.kids))}
-	if h.idf == nil {
-		h.idf = map[string]float64{}
-	}
-	for w := range h.idf {
-		h.index[w] = wordVector(w)
-		h.rep[w] = h.index[w]
-	}
-	for w, r := range d.Rep {
-		if _, ok := h.idf[w]; ok && len(r) == dim {
-			h.rep[w] = fromBF16(r)
-			h.learned[w] = true
-		}
-	}
+	h := d.space()
+	h.vecs = make([]vec, len(ix.kids))
+	complete := true
 	for i, r := range ix.at {
 		h.vecs[i] = docs[r.doc].vecs[r.kid]
-		if len(h.vecs[i]) != dim {
-			complete = false
-		}
+		complete = complete && len(h.vecs[i]) == dim
 	}
 	if complete {
 		ix.holo, ix.stale = h, d.Stale
@@ -202,6 +174,43 @@ func (v *Store) load() *index {
 	}
 	ix.encode(&index{holo: h, stale: d.Stale})
 	return ix
+}
+
+// doc is the entry as the index keeps it, with its words counted again.
+func (dd diskDoc) doc() *doc {
+	e := Entry{Path: dd.Path, Title: dd.Title, Size: dd.Size, Modified: dd.Modified}
+	d := &doc{entry: indexed{Entry: e, Meta: dd.Meta, namespace: Namespace(dd.Path)}, links: dd.Links}
+	for _, p := range dd.Parents {
+		d.parents = append(d.parents, parent{trail: p.Trail, line: p.Line, text: p.Text})
+	}
+	d.text = make([][]string, len(dd.Kids))
+	d.ctx = make([][]string, len(dd.Kids))
+	d.vecs = make([]vec, len(dd.Kids))
+	for j, k := range dd.Kids {
+		d.kids = append(d.kids, child{parent: k.Parent, line: k.Line, text: k.Text, ctx: k.Ctx})
+		d.text[j], d.ctx[j] = terms(k.Text), terms(k.Ctx)
+		d.vecs[j] = fromBF16(k.Vec)
+	}
+	return d
+}
+
+// space is the vector space the copy was learned in, without the passages' vectors.
+func (d diskIndex) space() *holo {
+	h := &holo{idf: d.IDF, index: map[string]vec{}, rep: map[string]vec{}, learned: map[string]bool{}}
+	if h.idf == nil {
+		h.idf = map[string]float64{}
+	}
+	for w := range h.idf {
+		h.index[w] = wordVector(w)
+		h.rep[w] = h.index[w]
+	}
+	for w, r := range d.Rep {
+		if _, ok := h.idf[w]; ok && len(r) == dim {
+			h.rep[w] = fromBF16(r)
+			h.learned[w] = true
+		}
+	}
+	return h
 }
 
 // toBF16 keeps the top half of each float32, rounded to nearest even. nil stays empty.
