@@ -32,7 +32,9 @@ export function useReorganize(api: Api, reload: () => Promise<void>) {
       setStatus(st);
       if (st.running) {
         timer.current = setTimeout(() => void read(), REORG_POLL.ms);
-      } else if (st.report) {
+        return;
+      }
+      if (st.report) {
         await reload();
       }
     } catch {

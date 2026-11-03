@@ -67,7 +67,8 @@ func (v *Store) Similar(text, skip string, n int) []Similar {
 		if shared < associateMinShared {
 			continue
 		}
-		out = append(out, Similar{Path: h.Path, Title: h.Title, Shared: shared, Overlap: float64(shared) / float64(len(want))})
+		overlap := float64(shared) / float64(len(want))
+		out = append(out, Similar{Path: h.Path, Title: h.Title, Shared: shared, Overlap: overlap})
 		if len(out) == n {
 			break
 		}

@@ -150,15 +150,21 @@ function Done({
   );
 }
 
+// Body is what the window shows: the question, how far it is, or what it did.
+function Body() {
+  const { status, hide, start, stop, undo } = useApp().memory.reorg;
+  if (status?.running) {
+    return <Running status={status} onStop={() => void stop()} />;
+  }
+  if (status?.report) {
+    return <Done status={status} onUndo={() => void undo()} onClose={hide} />;
+  }
+  return <Ask onStart={() => void start()} onCancel={hide} />;
+}
+
 // ReorganizeDialog is the window, shown while the memory's reorganization is open.
 export function ReorganizeDialog() {
-  const { status, failed, hide, start, stop, undo } = useApp().memory.reorg;
-  let body = <Ask onStart={() => void start()} onCancel={hide} />;
-  if (status?.running) {
-    body = <Running status={status} onStop={() => void stop()} />;
-  } else if (status?.report) {
-    body = <Done status={status} onUndo={() => void undo()} onClose={hide} />;
-  }
+  const { failed, hide } = useApp().memory.reorg;
   return (
     <BodyPortal>
       <ModalBackdrop
@@ -172,7 +178,7 @@ export function ReorganizeDialog() {
           <h2 class="text-base font-semibold mb-3">
             {t("Reorganize the memory")}
           </h2>
-          {body}
+          <Body />
           {failed !== "" && (
             <p class="text-sm text-danger mt-3" data-testid="reorg-failed">
               {failed}

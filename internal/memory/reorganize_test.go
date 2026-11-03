@@ -118,11 +118,15 @@ func TestReorganizeWithoutAModel(t *testing.T) {
 	write(t, v, "deploy.md", "# Deploy\n\nThe staging server deploys every friday with the release script and a tag.")
 	write(t, v, "release.md", "# Release\n\nThe release script deploys the staging server every friday with a tag.")
 	var steps []string
-	rep, err := v.Reorganize(context.Background(), t.TempDir(), nil, func(p Progress) { steps = append(steps, p.Step) })
+	follow := func(p Progress) { steps = append(steps, p.Step) }
+	rep, err := v.Reorganize(context.Background(), t.TempDir(), nil, follow)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if rep.Joined != 2 || rep.UsedModel || rep.Backup == "" || rep.Linked != 1 || rep.Entries != 6 {
+	if rep.Joined != 2 || rep.UsedModel || rep.Backup == "" {
+		t.Errorf("report = %+v", rep)
+	}
+	if rep.Linked != 1 || rep.Entries != 6 {
 		t.Errorf("report = %+v", rep)
 	}
 	shop, _, _ := v.Read("shop/Lessons.md")
@@ -157,7 +161,8 @@ func memoryForTheModel(t *testing.T) *Store {
 	t.Helper()
 	v := Open(t.TempDir())
 	write(t, v, "a.md", "# A\n\nThe staging server deploys every friday with the release script and a tag.")
-	write(t, v, "b.md", "---\nrelated: \"[[c]]\"\n---\nThe staging server deploys every friday with the release script and a tag. Also [[a]].")
+	write(t, v, "b.md", "---\nrelated: \"[[c]]\"\n---\n"+
+		"The staging server deploys every friday with the release script and a tag. Also [[a]].")
 	write(t, v, "c.md", "---\ntype: fact\n---\nThe release script tags the staging server build every friday morning.")
 	write(t, v, "note 1.md", "The release script tags the staging server build every friday night now.")
 	return v
@@ -167,7 +172,8 @@ func TestReorganizeWithAModel(t *testing.T) {
 	fixedNow(t)
 	v := memoryForTheModel(t)
 	j := &fakeJudge{
-		classify: "Here:\n```json\n" + `[{"n":0,"type":"fact","title":""},{"n":1,"type":"Decisión","title":"Staging deploys"},` +
+		classify: "Here:\n```json\n" + `[{"n":0,"type":"fact","title":""},` +
+			`{"n":1,"type":"Decisión","title":"Staging deploys"},` +
 			`{"n":2,"type":"nonsense","title":"Friday tags"},{"n":9,"type":"fact"}]` + "\n```",
 		pairs: `[{"n":0,"relation":"duplicate","keep":"a"},{"n":1,"relation":"replaces","keep":"b"},` +
 			`{"n":2,"relation":"contradicts"},{"n":3,"relation":"related"},{"n":4,"relation":"none"},{"n":-1}]`,

@@ -74,8 +74,11 @@ func TestTheMemoryIsReorganizedAndUndone(t *testing.T) {
 		t.Fatalf("start: %d %s", w.Code, w.Body)
 	}
 	st := waitReorg(t, srv)
-	if st.Report == nil || st.Error != "" || st.Report.Joined != 1 || !st.Report.UsedModel || st.Report.Backup == "" {
-		t.Fatalf("status = %+v report %+v", st, st.Report)
+	if st.Report == nil || st.Error != "" {
+		t.Fatalf("status = %+v", st)
+	}
+	if r := st.Report; r.Joined != 1 || !r.UsedModel || r.Backup == "" {
+		t.Fatalf("report %+v", r)
 	}
 	if _, err := os.Stat(filepath.Join(filepath.Dir(dir), "memory-backups", st.Report.Backup, "plan.md")); err != nil {
 		t.Errorf("the copy is kept beside the memory: %v", err)
@@ -120,10 +123,11 @@ func TestAReorganizationIsStoppedAndRunsOnce(t *testing.T) {
 	if w := memoryCall(t, srv, http.MethodPost, "/v1/memory/reorganize", ""); w.Code != http.StatusConflict {
 		t.Errorf("a second start: %d", w.Code)
 	}
-	if w := memoryCall(t, srv, http.MethodPost, "/v1/memory/reorganize/undo", `{"backup":"x"}`); w.Code != http.StatusConflict {
+	w := memoryCall(t, srv, http.MethodPost, "/v1/memory/reorganize/undo", `{"backup":"x"}`)
+	if w.Code != http.StatusConflict {
 		t.Errorf("an undo while running: %d", w.Code)
 	}
-	w := memoryCall(t, srv, http.MethodDelete, "/v1/memory/reorganize", "")
+	w = memoryCall(t, srv, http.MethodDelete, "/v1/memory/reorganize", "")
 	var st reorgStatus
 	_ = json.Unmarshal(w.Body.Bytes(), &st)
 	if w.Code != http.StatusOK || st.Running || !strings.Contains(st.Error, "canceled") {

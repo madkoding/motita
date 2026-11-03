@@ -156,7 +156,8 @@ func TestSimilarAndHome(t *testing.T) {
 	if len(near) != 1 || near[0].Path != "deploy.md" || near[0].Shared < 4 {
 		t.Fatalf("near = %+v", near)
 	}
-	if got := v.Similar("staging server deploys friday release script", "deploy.md", 3); len(got) != 1 || got[0].Path != "other.md" {
+	got := v.Similar("staging server deploys friday release script", "deploy.md", 3)
+	if len(got) != 1 || got[0].Path != "other.md" {
 		t.Errorf("skip = %+v", got)
 	}
 	if home, ok := v.Home("The staging server deploys every friday"); !ok || home != "deploy.md" {

@@ -24,7 +24,8 @@ func TestKeepLessonsMirrorsNewOnesIntoTheMemory(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, want := range []string{"- make test runs the gate", "- pnpm, not npm", "- go 1.26", "author: motita", "type: lesson"} {
+	wants := []string{"- make test runs the gate", "- pnpm, not npm", "- go 1.26", "author: motita", "type: lesson"}
+	for _, want := range wants {
 		if !strings.Contains(body, want) {
 			t.Errorf("entry lacks %q:\n%s", want, body)
 		}

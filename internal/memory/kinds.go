@@ -64,7 +64,9 @@ const (
 )
 
 // RelationKinds lists every association.
-var RelationKinds = []string{RelRelated, RelReplaces, RelContradicts, RelDependsOn, RelCausedBy, RelPartOf, RelExampleOf}
+var RelationKinds = []string{
+	RelRelated, RelReplaces, RelContradicts, RelDependsOn, RelCausedBy, RelPartOf, RelExampleOf,
+}
 
 // Relation is one association an entry states: the kind and the entry it leads to, as written.
 type Relation struct {

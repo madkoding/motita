@@ -158,9 +158,13 @@ func (v *Store) Restore(root, name string) error {
 // Reorganize puts the memory in order (see the top of this file). judge may be nil: without a
 // model only the lessons are joined and close entries associated. A cancelled ctx stops it between
 // two steps; what was done stays, and the copy can take it back.
-func (v *Store) Reorganize(ctx context.Context, root string, judge Judge, progress func(Progress)) (ReorgReport, error) {
+func (v *Store) Reorganize(
+	ctx context.Context, root string, judge Judge, progress func(Progress),
+) (ReorgReport, error) {
 	if progress == nil {
-		progress = func(Progress) {}
+		progress = func(Progress) {
+			// Nobody follows how far it is.
+		}
 	}
 	var rep ReorgReport
 	progress(Progress{Step: StepBackup})
@@ -293,6 +297,21 @@ type classified struct {
 
 // classify gives every entry without a kind its kind, and a clear title to the ones without one.
 func (v *Store) classify(ctx context.Context, judge Judge, rep *ReorgReport, progress func(Progress)) error {
+	todo := v.unsorted()
+	for start := 0; start < len(todo); start += classifyBatch {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		progress(Progress{Step: StepClassify, Done: start, Total: len(todo)})
+		if err := v.classifyEntries(ctx, judge, todo[start:min(start+classifyBatch, len(todo))], rep); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// unsorted are the entries without a kind yet.
+func (v *Store) unsorted() []Entry {
 	var todo []Entry
 	for _, e := range v.List() {
 		body, _, err := v.Read(e.Path)
@@ -300,30 +319,29 @@ func (v *Store) classify(ctx context.Context, judge Judge, rep *ReorgReport, pro
 			todo = append(todo, e)
 		}
 	}
-	for start := 0; start < len(todo); start += classifyBatch {
-		if err := ctx.Err(); err != nil {
-			return err
+	return todo
+}
+
+// classifyEntries asks the model about one batch of entries and applies what it answers. An answer
+// that does not come, or does not read, is counted and leaves the batch as it was.
+func (v *Store) classifyEntries(ctx context.Context, judge Judge, batch []Entry, rep *ReorgReport) error {
+	var ask strings.Builder
+	for i, e := range batch {
+		body, _, _ := v.Read(e.Path)
+		fmt.Fprintf(&ask, "<entry n=%d title=%q>\n%s\n</entry>\n", i, e.Title, clip(StripFront(body), excerptRunes))
+	}
+	var got []classified
+	out, err := judge(ctx, classifySystem, ask.String())
+	if err != nil || readJSON(out, &got) != nil {
+		if ctx.Err() != nil {
+			return ctx.Err()
 		}
-		progress(Progress{Step: StepClassify, Done: start, Total: len(todo)})
-		batch := todo[start:min(start+classifyBatch, len(todo))]
-		var ask strings.Builder
-		for i, e := range batch {
-			body, _, _ := v.Read(e.Path)
-			fmt.Fprintf(&ask, "<entry n=%d title=%q>\n%s\n</entry>\n", i, e.Title, clip(StripFront(body), excerptRunes))
-		}
-		var got []classified
-		out, err := judge(ctx, classifySystem, ask.String())
-		if err != nil || readJSON(out, &got) != nil {
-			if ctx.Err() != nil {
-				return ctx.Err()
-			}
-			rep.Unanswered++
-			continue
-		}
-		for _, c := range got {
-			if c.N >= 0 && c.N < len(batch) {
-				v.applyClass(batch[c.N], c, rep)
-			}
+		rep.Unanswered++
+		return nil
+	}
+	for _, c := range got {
+		if c.N >= 0 && c.N < len(batch) {
+			v.applyClass(batch[c.N], c, rep)
 		}
 	}
 	return nil
@@ -331,7 +349,10 @@ func (v *Store) classify(ctx context.Context, judge Judge, rep *ReorgReport, pro
 
 // applyClass writes one entry's kind and gives it its new title.
 func (v *Store) applyClass(e Entry, c classified, rep *ReorgReport) {
-	if kind := NormalizeKind(c.Type); kind != "" && v.update(e.Path, func(b string) string { return SetKind(b, kind) }) == nil {
+	setKind := func(kind string) error {
+		return v.update(e.Path, func(b string) string { return SetKind(b, kind) })
+	}
+	if kind := NormalizeKind(c.Type); kind != "" && setKind(kind) == nil {
 		rep.Typed++
 	}
 	title := strings.Join(strings.Fields(strings.NewReplacer("/", " ", "\\", " ").Replace(c.Title)), " ")

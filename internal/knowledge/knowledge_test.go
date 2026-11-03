@@ -203,7 +203,8 @@ func TestRememberWithoutAnEntryJoinsTheEntryThatCoversIt(t *testing.T) {
 	if !strings.HasPrefix(got, "Added to [[Deploys]]") {
 		t.Fatalf("remember = %q", got)
 	}
-	if read := b.Memory.ReadText("Deploys"); !strings.Contains(read, "decided.") || !strings.Contains(read, "type: decision") {
+	read := b.Memory.ReadText("Deploys")
+	if !strings.Contains(read, "decided.") || !strings.Contains(read, "type: decision") {
 		t.Errorf("the memory holds %q", read)
 	}
 }
