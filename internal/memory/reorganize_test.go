@@ -85,8 +85,9 @@ func TestBackupAndRestoreFailures(t *testing.T) {
 	if _, err := v.Backup(file); err == nil {
 		t.Error("a copy under a file")
 	}
-	if writeCopy(filepath.Join(file, "x", "a.md"), "x") == nil || writeCopy(t.TempDir(), "x") == nil {
-		t.Error("writeCopy must fail on a file parent and on a folder")
+	if writeCopy(file, "x/a.md", "x") == nil || writeCopy(t.TempDir(), ".", "x") == nil ||
+		writeCopy(t.TempDir(), "../out.md", "x") != ErrBadPath {
+		t.Error("writeCopy must fail on a file parent, on its own folder and on a route out")
 	}
 	root := t.TempDir()
 	name, _ := v.Backup(root)

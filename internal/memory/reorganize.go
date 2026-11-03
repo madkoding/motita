@@ -94,7 +94,7 @@ func (v *Store) Backup(root string) (string, error) {
 	for _, e := range v.List() {
 		body, _, err := v.Read(e.Path)
 		if err == nil {
-			err = writeCopy(filepath.Join(dir, filepath.FromSlash(e.Path)), body)
+			err = writeCopy(dir, e.Path, body)
 		}
 		if err != nil {
 			return "", err
@@ -109,8 +109,13 @@ func exists(p string) bool {
 	return err == nil
 }
 
-// writeCopy writes one entry of a copy, with the folders it needs.
-func writeCopy(to, body string) error {
+// writeCopy writes the entry rel of the copy in dir, with the folders it needs. A path that would
+// leave dir is refused, as the memory itself refuses it.
+func writeCopy(dir, rel, body string) error {
+	to := filepath.Join(dir, filepath.FromSlash(rel))
+	if !strings.HasPrefix(to, filepath.Clean(dir)+string(filepath.Separator)) {
+		return ErrBadPath
+	}
 	if err := os.MkdirAll(filepath.Dir(to), 0o700); err != nil {
 		return err
 	}
@@ -120,8 +125,12 @@ func writeCopy(to, body string) error {
 // Restore puts the memory back as the copy called name under root holds it: what is not in the
 // copy goes, what is comes back as it was.
 func (v *Store) Restore(root, name string) error {
+	// The name is checked before it becomes a path: only a copy's own name, never a route out.
+	if !backupNameRe.MatchString(name) {
+		return ErrBadBackup
+	}
 	dir := filepath.Join(root, name)
-	if fi, err := os.Stat(dir); !backupNameRe.MatchString(name) || err != nil || !fi.IsDir() {
+	if fi, err := os.Stat(dir); err != nil || !fi.IsDir() {
 		return ErrBadBackup
 	}
 	copied := Open(dir)
