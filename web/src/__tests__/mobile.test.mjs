@@ -278,6 +278,23 @@ test("the settings tabs fit a phone's width instead of running off the panel", (
   assert.match(phone, /animation-timeline:\s*scroll\(self inline\)/);
 });
 
+test("the sidebar's bottom menu is a two-column grid whose labels never wrap or overlap", () => {
+  // Six entries in one row left about 45px each: "Artefactos" was cut and "Pull requests"
+  // wrapped onto two lines, so the row went out of line.
+  assert.match(
+    css,
+    /\.sidebar-foot\s*\{[^}]*display:\s*grid;[^}]*grid-template-columns:\s*repeat\(2, minmax\(0, 1fr\)\)/,
+  );
+  assert.match(css, /\.sidebar-foot > button\s*\{[^}]*text-align:\s*left/);
+  assert.match(css, /\.sidebar-foot > button > svg\s*\{[^}]*flex:\s*none/);
+  assert.match(
+    css,
+    /\.sidebar-foot > button > \.foot-label\s*\{[^}]*text-overflow:\s*ellipsis;[^}]*white-space:\s*nowrap/,
+  );
+  // The old spacing utilities would push the grid's cells out of their rows.
+  assert.doesNotMatch(src(SIDEBAR), /sidebar-foot[^"]*space-y-/);
+});
+
 test("an open dialog moves the toast off its title", () => {
   assert.match(
     css,

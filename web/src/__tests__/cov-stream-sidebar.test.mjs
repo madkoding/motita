@@ -504,6 +504,16 @@ test("the sidebar has its header, buttons, lists and footer", async () => {
   await click(buttonNamed(root, "Pull requests"));
   await click(buttonNamed(root, "Tasks"));
   await click(buttonNamed(root, "Settings"));
+  // Every label of the bottom menu names itself whole in its title, for when it is cut.
+  assert.deepEqual(
+    [...root.querySelectorAll(".sidebar-foot .foot-label")].map((l) => [
+      text(l),
+      l.getAttribute("title"),
+    ]),
+    ["Skills", "Memory", "Artifacts", "Pull requests", "Tasks", "Settings"].map(
+      (n) => [n, n],
+    ),
+  );
   assert.deepEqual(v.calls, [
     ["closeSidebar"],
     ["openNewProject"],
