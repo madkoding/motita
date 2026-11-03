@@ -53,7 +53,8 @@ func TestKeepLessonsWithoutMemoryOrWorkspace(t *testing.T) {
 }
 
 func TestProjectEntry(t *testing.T) {
-	for in, want := range map[string]string{"/w/shop/": "Projects/shop", "/": "Projects/project", ".": "Projects/project"} {
+	cases := map[string]string{"/w/shop/": "Projects/shop", "/": "Projects/project", ".": "Projects/project"}
+	for in, want := range cases {
 		if got := ProjectEntry(in); got != want {
 			t.Errorf("ProjectEntry(%q) = %q, want %q", in, got, want)
 		}
