@@ -623,7 +623,7 @@ with `address already in use`, pick another with `-gateway 127.0.0.1:<port>`.
 
 The **Memory** button in the web interface's sidebar opens what you and Motita want to remember
 (it replaces the old Notes window). It is still plain `.md` files, now in `~/.motita/memory/`
-(nothing else is kept on disk: no database, no index file), so the same folder opens in Obsidian.
+(no database, and nothing but your Markdown in that folder), so the same folder opens in Obsidian.
 The first start after the upgrade renames `~/.motita/notes/` to `~/.motita/memory/`; nothing is
 rewritten and nothing is lost. The old scan that wrote project, session and architecture notes is
 gone: the memory holds what you or the agent write, and what the agent writes it signs.
@@ -649,6 +649,23 @@ The holographic memory is a vector-symbolic (hyperdimensional) one: every word h
 512-dimension code, a passage is the superposition of its words' contexts, and title and heading
 are bound to their role by element-wise product, so similar passages have a high cosine without any
 model, any download or any network.
+
+**The index survives a restart.** The search index (passages, word postings, vectors, link graph)
+is derived from the files and kept as a cache in `~/.motita/cache/memory/`, one file per memory
+folder, outside the memory itself. A restart starts from that copy instead of building the index
+again (seconds on a large memory); a copy that is missing, unreadable or of another version is just
+rebuilt from the files. When entries change only those files are read again, and a large memory
+(2000 passages or more) keeps the vector space it learned and encodes only the new passages in it,
+until they reach a tenth of the whole; then it learns the space again. Deleting the cache folder is
+always safe.
+
+**Per project.** A session that works in a project sees the memory through that project: what the
+agent writes under a bare title goes into the project's collection (named after the project's
+folder, e.g. `motita/Decisions.md`), a bare title it reads or adds to is looked for there first,
+and a search ranks that collection's passages first without hiding the rest. A title that starts
+with `/` (`/Preferences`) is written at the top of the memory, for what holds in every project. A
+search that names a collection (`ns:Name`) is answered as asked, and sessions outside a project
+see the memory as before.
 
 - **Tree and editor.** Collections and entries on the left; the open entry is a preview you can
   switch to a text editor. A draft is saved with the Save button, when you open another entry and

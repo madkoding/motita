@@ -88,7 +88,7 @@ func (v *Store) ReadText(ref string) string {
 		return errPrefix + "name the entry to read, by title or path."
 	}
 	all := v.List()
-	path, ok := Resolve(all, ref)
+	path, ok := v.resolveRef(all, ref)
 	if !ok {
 		return fmt.Sprintf(errPrefix+"there is no entry %q. Use search_memory to find the right one.", ref)
 	}
@@ -122,7 +122,8 @@ func (v *Store) WriteText(ref, body string) string {
 	if strings.TrimSpace(ref) == "" || strings.TrimSpace(body) == "" {
 		return errPrefix + "give the entry's path or title and the text to put in it."
 	}
-	n, err := v.Write(toolPath(ref), Stamp(body, AgentAuthor, now()), true)
+	scoped, _ := v.scopedRef(ref)
+	n, err := v.Write(toolPath(scoped), Stamp(body, AgentAuthor, now()), true)
 	switch {
 	case errors.Is(err, ErrExists):
 		return fmt.Sprintf(errPrefix+"the entry %q already exists. Read it, then add to it with append_memory; "+
@@ -132,7 +133,8 @@ func (v *Store) WriteText(ref, body string) string {
 	default:
 		// created
 	}
-	return fmt.Sprintf("Created [[%s]] (%s). Link it from related entries with [[%s]].", n.Title, n.Path, n.Title)
+	return fmt.Sprintf("Created [[%s]] (%s). Link it from related entries with [[%s]].", n.Title, n.Path, n.Title) +
+		v.projectHint(n.Path)
 }
 
 // AppendText adds text to the end of an entry, creating the entry when it does not exist.
@@ -140,10 +142,7 @@ func (v *Store) AppendText(ref, text string) string {
 	if strings.TrimSpace(ref) == "" || strings.TrimSpace(text) == "" {
 		return errPrefix + "give the entry's path or title and the text to add."
 	}
-	path := toolPath(ref)
-	if found, ok := Resolve(v.List(), ref); ok {
-		path = found
-	}
+	path := v.appendTarget(ref)
 	body, _, err := v.Read(path)
 	if err != nil && !errors.Is(err, ErrNotFound) {
 		return errPrefix + "" + err.Error()
@@ -162,7 +161,20 @@ func (v *Store) AppendText(ref, text string) string {
 	if err != nil {
 		return errPrefix + "" + err.Error()
 	}
-	return fmt.Sprintf("Added to [[%s]] (%s).", n.Title, n.Path)
+	return fmt.Sprintf("Added to [[%s]] (%s).", n.Title, n.Path) + v.projectHint(n.Path)
+}
+
+// appendTarget is the entry an append goes to: the one the title names, or a new one where a write
+// would put it. In a project a bare title found only in another collection is not that entry: the
+// project gets its own.
+func (v *Store) appendTarget(ref string) string {
+	scoped, top := v.scopedRef(ref)
+	found, ok := v.resolveRef(v.List(), ref)
+	bare := v.project != "" && !top && !strings.ContainsAny(ref, "/\\")
+	if ok && (!bare || Namespace(found) == "" || v.inProject(found)) {
+		return found
+	}
+	return toolPath(scoped)
 }
 
 // writeLinks lists what an entry links to, marking the links that lead nowhere yet.

@@ -44,7 +44,7 @@ func (s *Server) memory(w http.ResponseWriter) *memory.Store {
 		writeError(w, http.StatusNotImplemented, errNoMemory)
 		return nil
 	}
-	return memory.Open(s.opts.MemoryDir)
+	return memory.Open(s.opts.MemoryDir).WithCache(s.opts.MemoryCacheDir)
 }
 
 // writeMemoryError answers with the status that fits what went wrong.

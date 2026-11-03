@@ -183,9 +183,18 @@ func (s *Store) Search(ctx context.Context, q Query) Result {
 			fused[c.at] += 1 / float64(rrfK+r+1)
 		}
 	}
+	cue, hasCue := ix.holo.cue(words)
 	fuse(ix.bm25(words, keep))
-	if cue, ok := ix.holo.cue(words); ok {
+	if hasCue {
 		fuse(ix.holo.recall(cue, keep))
+	}
+	// In a project its collection counts twice, so it comes first without hiding the rest.
+	if s.project != "" && q.Namespace == "" {
+		mine := func(i int) bool { return keep(i) && s.inProject(ix.entries[ix.kids[i].entry].Path) }
+		fuse(ix.bm25(words, mine))
+		if hasCue {
+			fuse(ix.holo.recall(cue, mine))
+		}
 	}
 
 	limit := q.Limit

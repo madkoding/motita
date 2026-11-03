@@ -2,6 +2,7 @@ package tui
 
 import (
 	"context"
+	"path/filepath"
 
 	"github.com/madkoding/motita/internal/config"
 	"github.com/madkoding/motita/internal/memory"
@@ -20,7 +21,7 @@ func (r *AppRunner) equipAgent(ag AgentRunner) {
 		}
 	}
 	if setter, ok := ag.(interface{ SetMemory(*memory.Store) }); ok {
-		setter.SetMemory(config.OpenMemory())
+		setter.SetMemory(r.memory())
 	}
 	// The conversation's own archive: what earlier turns said, so a short request has
 	// something to refer to beyond the tail the prompt already carries.
@@ -60,4 +61,17 @@ func (r *AppRunner) equipThreads(ag AgentRunner) {
 	route := r.threads
 	r.sessionMu.Unlock()
 	setter.SetThreads(route)
+}
+
+// memory is the person's memory as a session of this runner sees it: inside a project, the view
+// that writes to the project's collection (named after the project's folder) and ranks it first.
+func (r *AppRunner) memory() *memory.Store {
+	r.sessionMu.Lock()
+	dir := r.projectScope
+	r.sessionMu.Unlock()
+	m := config.OpenMemory()
+	if dir == "" {
+		return m
+	}
+	return m.ForProject(filepath.Base(dir))
 }

@@ -14,7 +14,17 @@ func OpenMemory() *memory.Store {
 	if dir == "" {
 		return nil
 	}
-	return memory.Open(dir)
+	return memory.Open(dir).WithCache(MemoryCacheDir())
+}
+
+// MemoryCacheDir is where the memory's index is kept between runs: ~/.motita/cache/memory, outside
+// the memory's folder so nothing but the person's Markdown is in it. Empty without a home.
+func MemoryCacheDir() string {
+	d := Dir()
+	if d == "" {
+		return ""
+	}
+	return filepath.Join(d, "cache", "memory")
 }
 
 // MemoryDir is the memory: ~/.motita/memory, plain Markdown files another program (Obsidian) can
