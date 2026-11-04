@@ -249,7 +249,10 @@ export function LocalModelSettings({
   useEffect(read, [read]);
   const polling = !!st && busy(st);
   useEffect(() => {
-    const id = polling ? setInterval(read, POLL_MS) : undefined;
+    let id: ReturnType<typeof setInterval> | undefined;
+    if (polling) {
+      id = setInterval(read, POLL_MS);
+    }
     return () => clearInterval(id);
   }, [polling, read]);
   const act = useCallback<Act>(

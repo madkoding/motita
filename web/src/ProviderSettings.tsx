@@ -233,9 +233,10 @@ function LocalIfOffered({
   view,
   ...props
 }: Omit<LocalModelSettingsProps, "writable"> & { view: LLMView }) {
-  return hasLocal(view) ? (
-    <LocalSection {...props} writable={view.writable} />
-  ) : null;
+  if (!hasLocal(view)) {
+    return null;
+  }
+  return <LocalSection {...props} writable={view.writable} />;
 }
 
 // hasLocal says the gateway offers Motita's own local model.
