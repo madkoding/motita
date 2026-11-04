@@ -27,18 +27,17 @@ env:
 jobs:
   # The web UI is built ONCE and every job that embeds it downloads the same assets: twelve
   # identical `npm ci && npm run build` runs became one, and every binary of a run embeds the
-  # exact bundle the web tests ran against.
+  # exact bundle the web tests ran against. The build is its own job, apart from the web tests:
+  # the Go jobs need only the bundle (ready in ~20 s), not the ~80 s of web tests, so they start
+  # that much sooner.
   web:
-    name: web UI · build · test · typecheck
+    name: web UI · build
     runs-on: ubuntu-latest
-    # A web test that hangs (an open handle, a promise nobody settles) once held this job for 55
-    # minutes; the whole job normally takes about two.
-    timeout-minutes: 15
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
-      # Node 22 runs the web tests' TypeScript imports as they are (type stripping). The npm
-      # download cache is keyed on the lockfile; `npm ci` still installs from the lockfile.
+      # The npm download cache is keyed on the lockfile; `npm ci` still installs from the lockfile.
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: 22
@@ -47,6 +46,39 @@ jobs:
 
       - name: Build web UI (Vite + Preact + Tailwind)
         run: cd web && npm ci && npm run build
+
+      # One tar instead of ~1400 loose files: the emoji set alone is 1285 of them, and an
+      # artifact uploads and downloads file by file.
+      - name: Pack the embedded assets
+        run: tar -C internal/webui -cf webui-assets.tar assets
+
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: webui-assets
+          path: webui-assets.tar
+          retention-days: 1
+          if-no-files-found: error
+
+  # The web tests read the sources, not the bundle, so they run beside the build and the Go jobs
+  # instead of in front of them.
+  web-test:
+    name: web UI · test · typecheck
+    runs-on: ubuntu-latest
+    # A web test that hangs (an open handle, a promise nobody settles) once held this job for 55
+    # minutes; the whole job normally takes about two.
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      # Node 22 runs the web tests' TypeScript imports as they are (type stripping).
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+
+      - name: Install web dependencies
+        run: cd web && npm ci
 
       # The same 100 % bar as the Go packages, lines and branches, file by file: a file no test
       # loads fails as surely as one at 0 %.
@@ -65,18 +97,6 @@ jobs:
 
       - name: Web UI type check
         run: cd web && npm run typecheck
-
-      # One tar instead of ~1400 loose files: the emoji set alone is 1285 of them, and an
-      # artifact uploads and downloads file by file.
-      - name: Pack the embedded assets
-        run: tar -C internal/webui -cf webui-assets.tar assets
-
-      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
-        with:
-          name: webui-assets
-          path: webui-assets.tar
-          retention-days: 1
-          if-no-files-found: error
 
   # Checks that read the source alone start at once, beside the web build: formatting, the
   # unsafe ban, the Go floor and both installers need neither the embedded UI nor a compile.
@@ -343,10 +363,16 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
-      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+      # The same restore-on-PR / save-on-main build cache as the Linux jobs, at the Windows
+      # paths: most of this job was compiling the five packages from nothing. The tests embed
+      # the placeholder page the repository carries, not the built UI.
+      - uses: ./.github/actions/go-env
         with:
-          go-version-file: go.mod
-          cache: false
+          cache-key: go-windows
+          cache-paths: |
+            ~/AppData/Local/go-build
+            ~/go/pkg/mod
+          web-assets: "false"
 
       - name: the shell runs a line under PowerShell
         run: go test -count=1 -run 'Shell|PowerShell|Quote|IsCmd' ./internal/execx/
@@ -363,6 +389,13 @@ jobs:
       - name: the desktop steps parse and run under Windows PowerShell
         run: go test -count=1 -run 'WindowsScripts' ./internal/desktop/
 
+      - uses: ./.github/actions/go-cache-save
+        with:
+          cache-key: go-windows
+          cache-paths: |
+            ~/AppData/Local/go-build
+            ~/go/pkg/mod
+
   # The name branch protection requires. The checks it stood for are now jobs that run in
   # parallel, so this job carries the old name and passes only when all of them passed.
   # `always()` plus the explicit check matter: a required job that is SKIPPED counts as
@@ -370,7 +403,7 @@ jobs:
   verify:
     name: fmt · vet · test
     if: always()
-    needs: [hygiene, audit-report, vet, staticcheck, govulncheck, test, coverage, windows]
+    needs: [web, web-test, hygiene, audit-report, vet, staticcheck, govulncheck, test, coverage, windows]
     runs-on: ubuntu-latest
     steps:
       - name: every quality job passed
@@ -395,11 +428,11 @@ jobs:
   # The full Sonar analysis, on main and by hand only: Sonar Community keeps a single branch and
   # every analysis replaces the previous one, so a pull request only gets sast's new-code checks.
   # Nothing is built or run again here: the Go profile comes from `coverage`, the web report from
-  # `web` and the SARIF from `sast`. Secrets: SONAR_TOKEN and SONAR_HOST_URL.
+  # `web-test` and the SARIF from `sast`. Secrets: SONAR_TOKEN and SONAR_HOST_URL.
   sonar:
     name: sonar · quality gate
     if: ${{ !cancelled() && needs.sast.result == 'success' && (github.ref == 'refs/heads/main' || github.event_name == 'workflow_dispatch') }}
-    needs: [sast, web, coverage]
+    needs: [sast, web-test, coverage]
     runs-on: ubuntu-latest
     # One analysis at a time: a newer one waits instead of racing the older to the server.
     concurrency:
@@ -419,7 +452,7 @@ jobs:
         run: echo "paths=$(ls sarif/*.sarif | paste -sd, -)" >> "$GITHUB_OUTPUT"
 
       # The profiles the gates produced. A failing test does not stop the analysis (the gate is
-      # `coverage` / `web`), but a missing report does: Sonar would read it as 0 %.
+      # `coverage` / `web-test`), but a missing report does: Sonar would read it as 0 %.
       - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           name: go-coverage
