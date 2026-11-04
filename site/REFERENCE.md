@@ -1543,6 +1543,10 @@ provider `local` (OpenAI-compatible). Nothing is downloaded or started until a b
   `MOTITA_LOCAL_CONTEXT`) and handed to the open conversations; pick it in **Models**. It stops
   with **Stop**, with Motita, and on Linux also when Motita dies.
 
+In the terminal the same steps are `/local` (the status and the next step to type),
+`/local install`, `/local cancel`, `/local start`, `/local stop` and `/local delete confirm`; the
+gateway runs them, so they reach the same download and the same server as the browser.
+
 | Endpoint                         | What it does                                                                                                   |
 | -------------------------------- | -------------------------------------------------------------------------------------------------------------- |
 | `GET /v1/local-model`            | the GPU found, `eligible` and `reason` (`no_gpu`, `low_vram`), what is installed, the download (`task`) and the server; reads only |

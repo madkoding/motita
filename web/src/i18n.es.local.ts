@@ -24,6 +24,8 @@ const local: Record<string, string> = {
   "Delete {size} from this computer": "Borrar {size} de este computador",
   "Saved in {dir}": "Guardado en {dir}",
   "Local model deleted": "Modelo local borrado",
+  "the local model on this GPU: install, start, stop, delete":
+    "el modelo local en esta GPU: instalar, iniciar, detener, borrar",
 };
 
 export default local;

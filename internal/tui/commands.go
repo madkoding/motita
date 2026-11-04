@@ -48,6 +48,8 @@ var commands = []Command{
 	{Name: "/models", Aliases: []string{"/m"}, Help: "list the provider's models, or switch to one", Arg: "[id]",
 		Group: "mode"},
 	{Name: "/config", Aliases: []string{"/c"}, Help: "run the setup again: provider, key, model, check", Group: "mode"},
+	{Name: "/local", Help: "the local model on this GPU: install, start, stop, delete", Arg: "[step]",
+		Group: "mode"},
 	{Name: "/git", Help: "connect GitHub, GitLab or Bitbucket", Arg: "[connect]", Group: "mode"},
 	{Name: "/reasoning", Aliases: []string{"/r", "/think"}, Help: "how hard the model thinks: off, low, medium, high",
 		Group: "mode"},
@@ -132,6 +134,10 @@ var commandActions = map[string]func(t *TUI, ctx context.Context, arg string) bo
 		t.setScreen(ScreenConfig)
 		t.runConfig(ctx)
 		t.setScreen(ScreenTask)
+		return false
+	},
+	"/local": func(t *TUI, ctx context.Context, arg string) bool {
+		t.runLocal(ctx, arg)
 		return false
 	},
 	"/git": func(t *TUI, ctx context.Context, arg string) bool {
