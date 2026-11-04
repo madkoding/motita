@@ -159,12 +159,7 @@ func (s *Server) settleAfterPR(ctx context.Context, c *conversation, repo, base 
 	if head != main && !s.returnToBranch(ctx, c, dir, head, main) {
 		return
 	}
-	if dir == p.Dir {
-		s.syncProject(ctx, c, main)
-	} else if err := gitx.RefreshBranch(ctx, dir, main); err != nil {
-		s.warn("the repository could not be brought up to date after the pull request",
-			"session", c.id, "dir", dir, "branch", main, "error", err.Error())
-	}
+	s.bringUpToDate(ctx, c, p, dir, main)
 	if head != main && merged {
 		s.dropMergedBranch(ctx, c, dir, head)
 	}
@@ -177,6 +172,19 @@ func settleBranch(ctx context.Context, p *Project, dir, base string) string {
 		return cmp.Or(startBranchOf(ctx, p), base)
 	}
 	return cmp.Or(startBranchOf(ctx, &Project{Dir: dir}), base)
+}
+
+// bringUpToDate moves main forward from origin after a pull request: the project's folder by the
+// project's own rule (see syncProject), a repository inside a plain folder by its own fetch.
+func (s *Server) bringUpToDate(ctx context.Context, c *conversation, p *Project, dir, main string) {
+	if dir == p.Dir {
+		s.syncProject(ctx, c, main)
+		return
+	}
+	if err := gitx.RefreshBranch(ctx, dir, main); err != nil {
+		s.warn("the repository could not be brought up to date after the pull request",
+			"session", c.id, "dir", dir, "branch", main, "error", err.Error())
+	}
 }
 
 // returnToBranch checks dir out on main, and reports whether it did: a dirty checkout, or one git
