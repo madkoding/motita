@@ -131,9 +131,22 @@ var (
 	forgetUsage   = llm.ForgetProviderUsage
 )
 
-// claudeSignInLost says whether claude last refused for want of a sign-in; a variable so a test can
-// say so without running claude.
-var claudeSignInLost = llm.ClaudeSignInLost
+// claudeCodeID is the provider the claude CLI serves.
+const claudeCodeID = "claude-code"
+
+// signInExpired says whether a provider that runs on a login (claude's own, or a stored one) has
+// lost it. A key is never "expired": a refused key stays a refused key.
+func signInExpired(id, key string) bool {
+	if key != config.KeyLogin && (id != claudeCodeID || key != config.KeyNotNeeded) {
+		return false
+	}
+	_, lost := signInLost(id)
+	return lost
+}
+
+// signInLost says whether a provider's sign-in was last refused for good; a variable so a test can
+// say so without a provider.
+var signInLost = llm.SignInLost
 
 // genericKey is the variable that belongs to whichever provider the configuration names.
 const genericKey = "MOTITA_LLM_API_KEY"
@@ -294,9 +307,14 @@ func (s *Server) providerView(cfg config.LLM, p onboard.Provider) llmProviderVie
 		Default: strings.EqualFold(cfg.Provider, p.ID),
 		Models:  make([]llmModelView, 0, len(p.Models)),
 	}
-	if _, lost := claudeSignInLost(); lost && p.ID == "claude-code" && pv.Key == config.KeyNotNeeded {
-		// claude refused its last turn for want of a sign-in: until a turn gets through it is not ready.
+	if signInExpired(p.ID, pv.Key) {
+		// The login's last request was refused for good: until a new sign-in it is not ready.
 		pv.Key = config.KeyExpired
+	}
+	if p.ID == claudeCodeID {
+		// claude signs in with its own command, which the page can run when claude is installed.
+		_, err := lookPath("claude")
+		pv.SupportsLogin = err == nil
 	}
 	if p.ID == "gemini" && pv.SupportsLogin {
 		// Google's login is gcloud's, on this machine: without it the button could only fail.
@@ -587,8 +605,10 @@ func (s *Server) handleLLMForget(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-	// What it consumed goes too, so the usage panel stops showing a provider that is gone.
+	// What it consumed goes too, so the usage panel stops showing a provider that is gone, and so
+	// does an expired mark: a disconnected provider is not expired, it is not there.
 	forgetUsage(p.ID)
+	llm.NoteSignIn(p.ID, true)
 	s.quotaCache.forget(p.ID)
 	s.refreshSessions(p.ID)
 	writeJSON(w, http.StatusOK, s.providerView(s.configuredLLM(), p))

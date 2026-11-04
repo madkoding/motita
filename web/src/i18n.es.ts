@@ -14,6 +14,7 @@ import terminal from "./i18n.es.terminal.ts";
 import speechService from "./i18n.es.speechservice.ts";
 import pinnedPlan from "./i18n.es.pinnedplan.ts";
 import memoryKinds from "./i18n.es.memorykinds.ts";
+import signin from "./i18n.es.signin.ts";
 
 // The dictionary is in two files so neither grows too long: this one and i18n.es.part2.ts.
 const first: Record<string, string> = {
@@ -905,6 +906,7 @@ const es: Record<string, string> = {
   ...secrets,
   ...pinnedPlan,
   ...memoryKinds,
+  ...signin,
 };
 
 export default es;

@@ -156,9 +156,11 @@ func (s *loginState) credential(ctx context.Context, force bool) (oauth.Credenti
 		if s.adoptStored() {
 			return s.cred, nil
 		}
-		return oauth.Credential{}, fatalError{fmt.Errorf(
-			"the %s login could not be renewed: %w (log in again with `motita config`)", s.provider, err)}
+		NoteSignIn(s.provider, false)
+		return oauth.Credential{}, fatalError{fmt.Errorf("the %s sign-in expired and could not be renewed: %w "+
+			"(sign in again in Settings → Providers, or with `motita config`)", s.provider, err)}
 	}
+	NoteSignIn(s.provider, true)
 	s.cred = fresh
 	if s.dir != "" {
 		if err := oauth.SaveCredential(s.dir, fresh); err != nil {
@@ -293,14 +295,12 @@ func (c *Client) send(ctx context.Context, path string, body any, stream bool) (
 			return nil, t, Explain(err) // network error: retryable
 		}
 		if resp.StatusCode == http.StatusOK {
-			if r, ok := limitsFrom(resp.Header, time.Now()); ok {
-				totals.limits(c.source(), r)
-			}
+			c.answered(t, resp)
 			return resp, t, nil
 		}
 		b, _ := io.ReadAll(io.LimitReader(resp.Body, 8<<20))
 		resp.Body.Close()
-		if resp.StatusCode == http.StatusUnauthorized && t.login && !renewed {
+		if c.loginRefused(t, resp.StatusCode, renewed) {
 			renewed, renew = true, true
 			continue
 		}
@@ -310,6 +310,29 @@ func (c *Client) send(ctx context.Context, path string, body any, stream bool) (
 		return nil, t, &HTTPError{Code: resp.StatusCode, Body: strings.TrimSpace(string(b)),
 			RetryAfter: parseRetryAfter(resp.Header.Get("Retry-After"), time.Now())}
 	}
+}
+
+// answered notes what a 200 says: a login that works, and the limits in its headers.
+func (c *Client) answered(t target, resp *http.Response) {
+	if t.login {
+		NoteSignIn(c.login.provider, true)
+	}
+	if r, ok := limitsFrom(resp.Header, time.Now()); ok {
+		totals.limits(c.source(), r)
+	}
+}
+
+// loginRefused reports whether a refusal is a login to renew and ask again with: a 401 to a
+// login not renewed yet. A 401 right after a renewal means the login itself was revoked.
+func (c *Client) loginRefused(t target, status int, renewed bool) bool {
+	if status != http.StatusUnauthorized || !t.login {
+		return false
+	}
+	if renewed {
+		NoteSignIn(c.login.provider, false)
+		return false
+	}
+	return true
 }
 
 // refusalFixes are the repairs one request may get after a refusal, each at most once.

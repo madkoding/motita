@@ -3,9 +3,12 @@ package llm
 import (
 	"context"
 	"fmt"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/madkoding/motita/internal/config"
 )
 
 // resetClaudeSignIn forgets what an earlier test recorded about claude's sign-in.
@@ -36,13 +39,13 @@ func TestClaudeCodeExpiredSignInSaysWhatToDo(t *testing.T) {
 			if retryable(err) {
 				t.Errorf("err = %v: a lost sign-in cannot be retried away", err)
 			}
-			since, lost := ClaudeSignInLost()
+			since, lost := SignInLost(claudeCodeID)
 			if !lost || time.Since(since) > time.Minute {
 				t.Fatalf("lost = %v since %v, want it recorded now", lost, since)
 			}
 			// A second refusal keeps the first time.
 			_, _ = c.callClaudeCode(context.Background(), hi, nil, nil)
-			if again, _ := ClaudeSignInLost(); !again.Equal(since) {
+			if again, _ := SignInLost(claudeCodeID); !again.Equal(since) {
 				t.Errorf("since moved from %v to %v", since, again)
 			}
 		})
@@ -57,7 +60,7 @@ func TestClaudeCodeAnswerClearsALostSignIn(t *testing.T) {
 	if _, err := c.callClaudeCode(context.Background(), hi, nil, nil); err != nil {
 		t.Fatal(err)
 	}
-	if _, lost := ClaudeSignInLost(); lost {
+	if _, lost := SignInLost(claudeCodeID); lost {
 		t.Error("the sign-in is still marked lost after an answer")
 	}
 }
@@ -76,5 +79,19 @@ func TestIsSignInFailure(t *testing.T) {
 		if got := isSignInFailure(tc.kind, tc.text); got != tc.want {
 			t.Errorf("isSignInFailure(%q, %q) = %v, want %v", tc.kind, tc.text, got, tc.want)
 		}
+	}
+}
+
+// TestClaudeCodeFatalErrorsAreNotRetried: the retry loop must give up at once on a
+// failure that retrying cannot fix.
+func TestClaudeCodeFatalErrorsAreNotRetried(t *testing.T) {
+	c, _ := claudeTestClient(t, "", func(c *config.LLM) {
+		c.MaxAttempts = 3
+		c.BackoffInitial = time.Millisecond
+	})
+	t.Setenv("MOTITA_CLAUDE_BIN", filepath.Join(t.TempDir(), "claude"))
+	if _, err := c.CompleteTools(context.Background(), hi, nil); err == nil ||
+		strings.Contains(err.Error(), "attempts were exhausted") {
+		t.Errorf("err = %v: a missing claude must fail without retrying", err)
 	}
 }

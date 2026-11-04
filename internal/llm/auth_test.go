@@ -462,3 +462,42 @@ func TestGeminiCallWithoutArgumentsGetsAnObject(t *testing.T) {
 		t.Errorf("reply=%+v err=%v", reply, err)
 	}
 }
+
+// TestARevokedLoginIsMarkedLost: a login refused again right after its renewal was revoked, and
+// shows as lost until a request gets through.
+func TestARevokedLoginIsMarkedLost(t *testing.T) {
+	withLogin(t, oauth.Credential{Provider: "qwen", AccessToken: "a0", RefreshToken: "r0",
+		ExpiresAt: time.Now().Add(time.Hour)})
+	t.Cleanup(func() { NoteSignIn("qwen", true) })
+	refuse := true
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if refuse {
+			w.WriteHeader(http.StatusUnauthorized)
+			return
+		}
+		fmt.Fprint(w, `{"choices":[{"message":{"content":"ok"}}]}`)
+	}))
+	defer srv.Close()
+	c, err := New(config.LLM{Provider: "qwen", Model: "m", MaxAttempts: 1}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	reroute(t, c, srv)
+	c.login.refresh = func(context.Context, oauth.HTTPClient, oauth.Credential) (oauth.Credential, error) {
+		return oauth.Credential{Provider: "qwen", AccessToken: "a1", RefreshToken: "r1",
+			ExpiresAt: time.Now().Add(time.Hour)}, nil
+	}
+	if _, err := c.Complete(context.Background(), []Message{{Role: "user", Content: "x"}}); err == nil {
+		t.Fatal("a refused login must fail")
+	}
+	if _, lost := SignInLost("qwen"); !lost {
+		t.Error("a login refused after its renewal is lost")
+	}
+	refuse = false
+	if _, err := c.Complete(context.Background(), []Message{{Role: "user", Content: "x"}}); err != nil {
+		t.Fatal(err)
+	}
+	if _, lost := SignInLost("qwen"); lost {
+		t.Error("a request that got through clears the mark")
+	}
+}

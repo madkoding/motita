@@ -6,42 +6,19 @@ package llm
 import (
 	"fmt"
 	"strings"
-	"sync"
-	"time"
 )
 
 // claudeSignInHint is what a lost sign-in tells the person to do. claude refreshes its own OAuth
 // token; when it says the refresh failed, only a new login on that machine can fix it.
 const claudeSignInHint = "the Claude subscription sign-in has expired or was revoked: " +
-	"run `claude auth login` on the machine motita runs on, as the same user, then try again"
+	"sign in again in Settings → Providers, or run `claude auth login` on the machine motita runs on " +
+	"as the same user, then try again"
 
-// claudeSignIn remembers whether claude's last answer said its sign-in is gone, so the settings can
-// show the provider as signed out instead of ready. Any answer that gets through clears it.
-var claudeSignIn struct {
-	sync.Mutex
-	lost time.Time
-}
-
-// ClaudeSignInLost reports whether claude last refused for want of a valid sign-in, and since when.
-func ClaudeSignInLost() (time.Time, bool) {
-	claudeSignIn.Lock()
-	defer claudeSignIn.Unlock()
-	return claudeSignIn.lost, !claudeSignIn.lost.IsZero()
-}
+// claudeCodeID is the provider the claude CLI serves.
+const claudeCodeID = "claude-code"
 
 // noteClaudeSignIn records whether claude's sign-in works, from the answer it just gave.
-func noteClaudeSignIn(ok bool) {
-	claudeSignIn.Lock()
-	defer claudeSignIn.Unlock()
-	switch {
-	case ok:
-		claudeSignIn.lost = time.Time{}
-	case claudeSignIn.lost.IsZero():
-		claudeSignIn.lost = time.Now()
-	default:
-		// Already lost: keep since when.
-	}
-}
+func noteClaudeSignIn(ok bool) { NoteSignIn(claudeCodeID, ok) }
 
 // isSignInFailure says whether claude's error is about its login rather than the request: the
 // authentication_failed kind, or the words claude prints when its token cannot be refreshed.
