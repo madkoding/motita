@@ -658,6 +658,7 @@ func (s *Server) finishMerge(ctx context.Context, c *conversation, repo string, 
 	// the project's folder just goes on: the pull request is done, the session is not.
 	if !gitx.SamePath(c.workspace, c.projectDir) && !c.otherPRsOpen(repo) {
 		c.setMerged(sha)
+		s.releaseMergedWorktree(c)
 	}
 	s.saveSession(c)
 	s.settleAfterPR(ctx, c, repo, base, true)

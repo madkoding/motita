@@ -49,6 +49,23 @@ function ProjectMenu({ p }: { p: ProjectInfo }) {
           {t("Update main branch")}
         </button>
       )}
+      {p.main_branch && !!p.branch && p.branch !== p.main_branch && (
+        <button
+          class={ITEM_PLAIN}
+          data-testid="return-main"
+          title={t(
+            "Checks the project's folder out on its main branch; uncommitted changes come along when git can carry them.",
+          )}
+          onClick={(e) => {
+            e.stopPropagation();
+            void projects.returnProjectMain(p.id);
+            menus.closeRowMenu();
+          }}
+        >
+          <IconRefresh size={14} class="flex-none" />
+          {t("Return to main branch")}
+        </button>
+      )}
       {p.tests_lost && (
         <button
           class={ITEM_PLAIN}

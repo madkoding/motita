@@ -72,6 +72,8 @@ type sessionRecord struct {
 	// MergedSHA is the commit produced by the integration, if any. It is what
 	// the front end shows when the user asks "which commit did this session make".
 	MergedSHA string `json:"merged_sha,omitempty"`
+	// WorktreeReleased marks a merged session whose worktree was given back after the merge.
+	WorktreeReleased bool `json:"worktree_released,omitempty"`
 
 	// PRWatch is what the gateway was doing about the session's pull request, so a restart picks
 	// the CI up where it was and does not forget a pull request it was following.
@@ -139,6 +141,8 @@ func (st *sessionStore) write(c *conversation, ended bool) error {
 		AutoApprove: c.autoApprove,
 		Merged:      c.merged,
 		MergedSHA:   c.mergedSha,
+
+		WorktreeReleased: c.worktreeReleased,
 	}
 	if c.prWatch != nil {
 		rec.PRWatch = &prWatchRecord{

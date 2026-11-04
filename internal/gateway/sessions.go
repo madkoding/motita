@@ -135,6 +135,9 @@ type conversation struct {
 	// baseBranch is the project's main branch as decided when the session was placed: what its
 	// work starts from and is compared with (see sessionbase.go).
 	baseBranch string
+	// worktreeReleased marks a merged session whose worktree was given back (see
+	// releaseMergedWorktree): it runs in the project's folder now, and continues isolated.
+	worktreeReleased bool
 
 	// current is the run in flight, and nil when there is none.
 	//
@@ -471,6 +474,9 @@ type SessionStatus struct {
 	// Continuable is true when a merged session belongs to a project: the user
 	// can open a fresh session from the project's up-to-date base branch.
 	Continuable bool `json:"continuable"`
+	// WorktreeReleased marks a merged session whose own checkout was given back once its pull
+	// request was merged: the work is on the base branch, and nothing of it is left on disk.
+	WorktreeReleased bool `json:"worktree_released,omitempty"`
 	// Workspace is the directory this session actually runs in. For a session
 	// in a git project that is its OWN worktree, not the project's checkout,
 	// which is what lets two sessions work at once without editing each
@@ -604,6 +610,7 @@ func (c *conversation) workspaceStatus(st *SessionStatus) {
 		st.Merged = true
 		st.MergedSHA = c.mergedSha
 		st.Continuable = c.projectDir != "" && c.projectID != ""
+		st.WorktreeReleased = c.worktreeReleased
 		return
 	}
 	// Integrate: the session's branch exists and has commits the base

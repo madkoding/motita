@@ -64,6 +64,8 @@ export interface SessionInfo {
   pr_ready?: boolean;
   merged?: boolean;
   merged_sha?: string;
+  // worktree_released marks a merged session whose own checkout was given back after the merge.
+  worktree_released?: boolean;
   continuable?: boolean;
   changes?: number;
   worktree?: string;

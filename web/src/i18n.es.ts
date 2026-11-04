@@ -655,6 +655,21 @@ const first: Record<string, string> = {
     "Toma la cantidad de tests de hoy como la de referencia; úsalo cuando borrarlos fue a propósito.",
   "could not accept the tests": "no se pudieron aceptar los tests",
   "Update main branch": "Actualizar rama principal",
+  "Return to main branch": "Volver a la rama principal",
+  "Checks the project's folder out on its main branch; uncommitted changes come along when git can carry them.":
+    "Pone la carpeta del proyecto en su rama principal; los cambios sin commit se llevan cuando git puede cargarlos.",
+  "Returning to the main branch": "Volviendo a la rama principal",
+  "git checkout of the main branch, then a fast-forward from origin; nothing is forced.":
+    "git checkout de la rama principal y luego un fast-forward desde origin; nada se fuerza.",
+  "could not return to the main branch":
+    "no se pudo volver a la rama principal",
+  "Back on the main branch": "De vuelta en la rama principal",
+  branch: "rama",
+  worktree: "worktree",
+  released: "liberado",
+  "On branch {branch}": "En la rama {branch}",
+  "Proposed into {base}": "Se propone en {base}",
+  "Worktree released after the merge": "Worktree liberado tras el merge",
   "Update {repo}": "Actualizar {repo}",
   "Branch {branch}": "Rama {branch}",
   "could not read the repository": "no se pudo leer el repositorio",

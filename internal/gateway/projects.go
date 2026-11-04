@@ -866,7 +866,7 @@ func (s *Server) continueFrom(ctx context.Context, c *conversation) (*conversati
 		return nil, http.StatusNotImplemented, err
 	}
 	dir := p.Dir
-	if !gitx.SamePath(c.workspace, c.projectDir) {
+	if c.wasIsolated() {
 		dir = s.isolatedDir(ctx, p, newConv.id)
 	}
 	newConv.setProjectID(c.projectID, dir, p.Dir)
