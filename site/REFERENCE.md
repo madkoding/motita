@@ -1515,6 +1515,43 @@ the failed turn in the chat carries a **Reconnect the provider** button that ope
 | `POST /v1/llm/logins/{flow}/paste`  | `{"code":"…"}` hands a `code` sign-in the address the browser ended on, or a `paste` one (Claude Code) the code the page shows |
 | `DELETE /v1/llm/logins/{flow}`      | stops a pending sign-in                                                                                                                                                                   |
 
+### Motita's local model
+
+The **Providers** tab has a **Local model** section: Motita's own local model, one model only,
+[ISTA-DASLab/Qwen3-8B-GGUF-GSQ](https://huggingface.co/ISTA-DASLab/Qwen3-8B-GGUF-GSQ)
+`qwen3-8b-Q2_K.gguf` (3.28 GB), served by llama.cpp's `llama-server` on this machine as the
+provider `local` (OpenAI-compatible). Nothing is downloaded or started until a button is pressed.
+
+- **GPU memory.** It is offered when the GPU has at least 4 GB (3800 MiB, as some 4 GB cards
+  report a little less): NVIDIA through `nvidia-smi` (Linux, Windows), AMD on Linux through the
+  amdgpu counters in `/sys/class/drm`, any adapter on Windows through the registry, Apple Silicon
+  as Metal's share of the unified memory (two thirds, three quarters above 36 GB), Intel Macs
+  through `system_profiler`. Below that, or with no GPU found, the section says why and its
+  buttons stay disabled.
+- **Download.** The runtime first, then the model, both resumable (`.part` files, HTTP Range)
+  and verified before use: the model against the SHA-256 Hugging Face published for it (fixed in
+  Motita), the runtime against the SHA-256 GitHub publishes for every release asset (an asset
+  without one is refused). A `llama-server` already on `PATH` is used instead of downloading one.
+  The runtime is the latest llama.cpp release (`MOTITA_LOCAL_LLAMA_TAG=b…` pins one): Metal on
+  Apple Silicon, Vulkan on Linux and Windows. Everything lives in `~/.motita/local`
+  (`runtime/`, `models/`), and **Delete** removes that folder.
+- **Server.** It listens on `127.0.0.1` only (port 8471, or a free one when that is taken) with
+  a new random key each start, the KV cache in q8_0 and flash attention. The context is sized by
+  the card (8K below 8 GB, 16K below 12 GB, 32K above) and the layers on the GPU by the free
+  memory, so a 4 GB card keeps a few layers on the CPU. Once it answers, its address, key and
+  context are written to the credentials file (`MOTITA_LOCAL_BASE_URL`, `MOTITA_LOCAL_API_KEY`,
+  `MOTITA_LOCAL_CONTEXT`) and handed to the open conversations; pick it in **Models**. It stops
+  with **Stop**, with Motita, and on Linux also when Motita dies.
+
+| Endpoint                         | What it does                                                                                                   |
+| -------------------------------- | -------------------------------------------------------------------------------------------------------------- |
+| `GET /v1/local-model`            | the GPU found, `eligible` and `reason` (`no_gpu`, `low_vram`), what is installed, the download (`task`) and the server; reads only |
+| `POST /v1/local-model/install`   | downloads what is missing in the background; `409` `not_eligible` or `busy`                                    |
+| `POST /v1/local-model/cancel`    | stops the download, keeping what arrived                                                                       |
+| `POST /v1/local-model/start`     | starts `llama-server`; `409` `not_eligible`, `busy` or `start_failed`                                         |
+| `POST /v1/local-model/stop`      | stops it                                                                                                       |
+| `DELETE /v1/local-model`         | stops it, deletes `~/.motita/local` and disconnects the provider                                               |
+
 ### Models per kind of work
 
 The **Models** tab holds the default model and, under it, a model for each kind of work. A kind
