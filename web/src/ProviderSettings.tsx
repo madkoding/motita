@@ -4,6 +4,10 @@ import { choose } from "./choose";
 import { errorMessage } from "./errors";
 import { InsecureWarning } from "./InsecureWarning";
 import { ProviderLogo } from "./ProviderPicker";
+import type {
+  LocalModelSettings,
+  LocalModelSettingsProps,
+} from "./LocalModelSettings";
 import {
   type Api,
   type LLMProvider,
@@ -180,7 +184,7 @@ export function ProviderSettings({ api, onNotice }: ProviderSettingsProps) {
             {t("Providers")}
           </h4>
           <ul class="settings-card" data-testid="llm-providers">
-            {view.providers.map((p) => (
+            {rows(view).map((p) => (
               <ProviderRow
                 key={p.id}
                 api={api}
@@ -195,8 +199,43 @@ export function ProviderSettings({ api, onNotice }: ProviderSettingsProps) {
           </ul>
         </section>
       )}
+      {view && hasLocal(view) && (
+        <LocalSection
+          api={api}
+          writable={view.writable}
+          onChanged={changed}
+          onNotice={onNotice}
+        />
+      )}
     </div>
   );
+}
+
+// LOCAL_PROVIDER is Motita's own local model, which has a section of its own.
+const LOCAL_PROVIDER = "local";
+
+// LocalSection loads the local model's section on demand: few gateways have the GPU for it, and
+// every visitor would download it otherwise.
+function LocalSection(props: LocalModelSettingsProps) {
+  const [Section, setSection] = useState<typeof LocalModelSettings | null>(
+    null,
+  );
+  useEffect(() => {
+    import("./LocalModelSettings").then((m) =>
+      setSection(() => m.LocalModelSettings),
+    );
+  }, []);
+  return Section && <Section {...props} />;
+}
+
+// hasLocal says the gateway offers Motita's own local model.
+function hasLocal(v: LLMView): boolean {
+  return v.providers.some((p) => p.id === LOCAL_PROVIDER);
+}
+
+// rows are the providers connected with a key or a sign-in; the local model has its own section.
+function rows(v: LLMView): LLMProvider[] {
+  return v.providers.filter((p) => p.id !== LOCAL_PROVIDER);
 }
 
 interface RowProps {
