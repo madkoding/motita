@@ -255,14 +255,21 @@ jobs:
         with:
           cache-key: go-test
 
-      # One run gives both answers: the race detector and each package's own coverage.
-      # Coverage instrumentation does not change what a test does, and the per-package figure
-      # `go test -cover ./...` prints is the same one `go test -cover <pkg>` printed when the
-      # gate below ran every package again, one at a time, after this step.
+      # One run gives every answer: the race detector, each package's own coverage for the gate
+      # below, and the profile Sonar reads. Coverage instrumentation does not change what a test
+      # does, and the per-package figure `go test -cover ./...` prints is the same one
+      # `go test -cover <pkg>` printed when the gate ran every package again, one at a time.
+      #
+      # The profile is per package (no -coverpkg): with every package held at 100 % by its own
+      # tests, it gives Sonar the same figure the old -coverpkg=./... run did, without running
+      # the whole suite a second time on another runner. The packages below 100 % on their own
+      # (tools/seccomptrap, with no tests, and the test-support tools/clitest) are both in
+      # sonar.coverage.exclusions.
       - name: go test (with race detector and per-package coverage)
         run: |
           set -o pipefail
-          go test -count=1 -race -cover ./... 2>&1 | tee test.log
+          go test -count=1 -race -cover -coverprofile=coverage.out ./... 2>&1 | tee test.log
+          printf 'aggregate: '; go tool cover -func=coverage.out | tail -1
 
       - name: coverage gate (100% per package)
         run: |
@@ -309,35 +316,7 @@ jobs:
           done
           [ "$failed" -eq 0 ] || exit 1
 
-      - uses: ./.github/actions/go-cache-save
-        with:
-          cache-key: go-test
-
-  # The cross-package figure (-coverpkg=./...) needs a run of its own: with -coverpkg every
-  # package reports the coverage of ALL packages, so it cannot share the gate's run. It runs
-  # beside the race run instead of after it.
-  coverage:
-    name: aggregate coverage
-    needs: web
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-
-      - uses: ./.github/actions/go-env
-        with:
-          cache-key: go-coverage
-
-      - name: aggregate coverage
-        run: |
-          # The output is kept rather than thrown away: when this run fails, the log has to name
-          # the test that failed, not just the exit code.
-          if ! go test -count=1 -coverpkg=./... -coverprofile=coverage.out -covermode=atomic ./... >aggregate.log 2>&1; then
-            grep -E -B2 -A20 '^(--- FAIL|FAIL|panic:)' aggregate.log || tail -n 100 aggregate.log
-            exit 1
-          fi
-          printf 'aggregate: '; go tool cover -func=coverage.out | tail -1
-
-      # The Sonar analysis on main reads this profile instead of running the suite a third time.
+      # The Sonar analysis on main reads this profile instead of running the suite again.
       # Kept even when a test failed: the analysis only reports coverage, the gate is above.
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         if: ${{ !cancelled() }}
@@ -349,7 +328,7 @@ jobs:
 
       - uses: ./.github/actions/go-cache-save
         with:
-          cache-key: go-coverage
+          cache-key: go-test
 
   # The Windows side of the agent: the shell it runs lines through (PowerShell), the policy that
   # judges those lines and the procedures served there. The Linux jobs cover the same code, but
@@ -403,7 +382,7 @@ jobs:
   verify:
     name: fmt · vet · test
     if: always()
-    needs: [web, web-test, hygiene, audit-report, vet, staticcheck, govulncheck, test, coverage, windows]
+    needs: [web, web-test, hygiene, audit-report, vet, staticcheck, govulncheck, test, windows]
     runs-on: ubuntu-latest
     steps:
       - name: every quality job passed
@@ -427,12 +406,12 @@ jobs:
 
   # The full Sonar analysis, on main and by hand only: Sonar Community keeps a single branch and
   # every analysis replaces the previous one, so a pull request only gets sast's new-code checks.
-  # Nothing is built or run again here: the Go profile comes from `coverage`, the web report from
+  # Nothing is built or run again here: the Go profile comes from `test`, the web report from
   # `web-test` and the SARIF from `sast`. Secrets: SONAR_TOKEN and SONAR_HOST_URL.
   sonar:
     name: sonar · quality gate
     if: ${{ !cancelled() && needs.sast.result == 'success' && (github.ref == 'refs/heads/main' || github.event_name == 'workflow_dispatch') }}
-    needs: [sast, web-test, coverage]
+    needs: [sast, web-test, test]
     runs-on: ubuntu-latest
     # One analysis at a time: a newer one waits instead of racing the older to the server.
     concurrency:
@@ -452,7 +431,7 @@ jobs:
         run: echo "paths=$(ls sarif/*.sarif | paste -sd, -)" >> "$GITHUB_OUTPUT"
 
       # The profiles the gates produced. A failing test does not stop the analysis (the gate is
-      # `coverage` / `web-test`), but a missing report does: Sonar would read it as 0 %.
+      # `test` / `web-test`), but a missing report does: Sonar would read it as 0 %.
       - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           name: go-coverage
@@ -492,7 +471,7 @@ jobs:
 
   # Platform builds (the 10-target matrix and the android seccomp build) run only when a
   # release tag is pushed, or by hand. PRs and main keep the quality checks: hygiene, vet,
-  # staticcheck, govulncheck, tests, coverage, windows tests and the gateway e2e. Nothing
+  # staticcheck, govulncheck, tests with coverage, windows tests and the gateway e2e. Nothing
   # required by branch protection depends on these jobs: `verify` does not need them.
   build:
     name: build ${{ matrix.goos }}/${{ matrix.goarch }}
