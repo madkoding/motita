@@ -348,11 +348,15 @@ export function sameThinking(
   return true;
 }
 
+// How a sign-in is finished: a code typed on the provider's page (device), the address the
+// browser ended on (code), the code the provider's page shows (paste), or nothing (instant).
+export type LoginMethod = "device" | "code" | "paste" | "instant";
+
 // A sign-in with the provider's account, run by the gateway. The page only learns its state.
 export interface LoginView {
   id: string;
   provider: string;
-  method: "device" | "code" | "paste" | "instant";
+  method: LoginMethod;
   url?: string;
   code?: string;
   status: "pending" | "connected" | "failed";

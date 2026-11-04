@@ -793,20 +793,6 @@ func runClaudeFailureCase(t *testing.T, tc claudeFailureCase) {
 	}
 }
 
-// TestClaudeCodeFatalErrorsAreNotRetried: the retry loop must give up at once on a
-// failure that retrying cannot fix.
-func TestClaudeCodeFatalErrorsAreNotRetried(t *testing.T) {
-	c, _ := claudeTestClient(t, "", func(c *config.LLM) {
-		c.MaxAttempts = 3
-		c.BackoffInitial = time.Millisecond
-	})
-	t.Setenv("MOTITA_CLAUDE_BIN", filepath.Join(t.TempDir(), "claude"))
-	if _, err := c.CompleteTools(context.Background(), hi, nil); err == nil ||
-		strings.Contains(err.Error(), "attempts were exhausted") {
-		t.Errorf("err = %v: a missing claude must fail without retrying", err)
-	}
-}
-
 // TestCompleteToolsStreamRetriesAFailureBeforeAnyChunk: a stream that fails before it
 // delivered anything is a failed attempt, and the retry policy applies to it.
 func TestCompleteToolsStreamRetriesAFailureBeforeAnyChunk(t *testing.T) {

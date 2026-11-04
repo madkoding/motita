@@ -3,9 +3,12 @@ package llm
 import (
 	"context"
 	"fmt"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/madkoding/motita/internal/config"
 )
 
 // resetClaudeSignIn forgets what an earlier test recorded about claude's sign-in.
@@ -76,5 +79,19 @@ func TestIsSignInFailure(t *testing.T) {
 		if got := isSignInFailure(tc.kind, tc.text); got != tc.want {
 			t.Errorf("isSignInFailure(%q, %q) = %v, want %v", tc.kind, tc.text, got, tc.want)
 		}
+	}
+}
+
+// TestClaudeCodeFatalErrorsAreNotRetried: the retry loop must give up at once on a
+// failure that retrying cannot fix.
+func TestClaudeCodeFatalErrorsAreNotRetried(t *testing.T) {
+	c, _ := claudeTestClient(t, "", func(c *config.LLM) {
+		c.MaxAttempts = 3
+		c.BackoffInitial = time.Millisecond
+	})
+	t.Setenv("MOTITA_CLAUDE_BIN", filepath.Join(t.TempDir(), "claude"))
+	if _, err := c.CompleteTools(context.Background(), hi, nil); err == nil ||
+		strings.Contains(err.Error(), "attempts were exhausted") {
+		t.Errorf("err = %v: a missing claude must fail without retrying", err)
 	}
 }

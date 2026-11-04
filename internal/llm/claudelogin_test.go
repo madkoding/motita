@@ -66,61 +66,63 @@ func TestClaudeLoginSignsInWithThePastedCode(t *testing.T) {
 	}
 }
 
-func TestClaudeLoginFailures(t *testing.T) {
-	t.Run("wrong code", func(t *testing.T) {
-		fakeLogin(t, "")
-		l, err := StartClaudeLogin(context.Background())
-		if err != nil {
-			t.Fatal(err)
-		}
-		pasted := make(chan string, 1)
-		pasted <- "bad"
-		if err := l.Wait(context.Background(), pasted); err == nil || !strings.Contains(err.Error(), "invalid code") {
-			t.Errorf("err = %v, want claude's own words", err)
-		}
-	})
-	t.Run("cancelled", func(t *testing.T) {
-		fakeLogin(t, "")
-		ctx, cancel := context.WithCancel(context.Background())
-		l, err := StartClaudeLogin(ctx)
-		if err != nil {
-			t.Fatal(err)
-		}
-		cancel()
-		if err := l.Wait(ctx, nil); err != context.Canceled {
-			t.Errorf("err = %v", err)
-		}
-	})
-	t.Run("no address", func(t *testing.T) {
-		fakeLogin(t, "noaddress")
-		if _, err := StartClaudeLogin(context.Background()); err == nil ||
-			!strings.Contains(err.Error(), "without a sign-in address: no browser here") {
-			t.Errorf("err = %v", err)
-		}
-	})
-	t.Run("silent", func(t *testing.T) {
-		fakeLogin(t, "silent")
-		old := claudeLoginURLWait
-		claudeLoginURLWait = 200 * time.Millisecond
-		t.Cleanup(func() { claudeLoginURLWait = old })
-		if _, err := StartClaudeLogin(context.Background()); err == nil || !strings.Contains(err.Error(), "in time") {
-			t.Errorf("err = %v", err)
-		}
-	})
-	t.Run("no claude", func(t *testing.T) {
-		t.Setenv("MOTITA_CLAUDE_BIN", filepath.Join(t.TempDir(), "claude"))
-		if _, err := StartClaudeLogin(context.Background()); err == nil || !strings.Contains(err.Error(), "not found") {
-			t.Errorf("err = %v", err)
-		}
-	})
-	t.Run("not a program", func(t *testing.T) {
+func TestClaudeLoginTakesAWrongCode(t *testing.T) {
+	fakeLogin(t, "")
+	l, err := StartClaudeLogin(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	pasted := make(chan string, 1)
+	pasted <- "bad"
+	if err := l.Wait(context.Background(), pasted); err == nil || !strings.Contains(err.Error(), "invalid code") {
+		t.Errorf("err = %v, want claude's own words", err)
+	}
+}
+
+func TestClaudeLoginStopsWhenCancelled(t *testing.T) {
+	fakeLogin(t, "")
+	ctx, cancel := context.WithCancel(context.Background())
+	l, err := StartClaudeLogin(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	cancel()
+	if err := l.Wait(ctx, nil); err != context.Canceled {
+		t.Errorf("err = %v", err)
+	}
+}
+
+// TestClaudeLoginThatCannotStart: each way claude fails before it prints an address says so.
+func TestClaudeLoginThatCannotStart(t *testing.T) {
+	notAProgram := func(t *testing.T) {
 		bin := filepath.Join(t.TempDir(), "claude")
 		_ = os.WriteFile(bin, []byte("not a program"), 0o700)
 		t.Setenv("MOTITA_CLAUDE_BIN", bin)
-		if _, err := StartClaudeLogin(context.Background()); err == nil || !strings.Contains(err.Error(), "could not run") {
-			t.Errorf("err = %v", err)
-		}
-	})
+	}
+	for _, tc := range []struct {
+		name  string
+		setup func(t *testing.T)
+		want  string
+	}{
+		{"no address", func(t *testing.T) { fakeLogin(t, "noaddress") }, "without a sign-in address: no browser here"},
+		{"silent", func(t *testing.T) {
+			fakeLogin(t, "silent")
+			old := claudeLoginURLWait
+			claudeLoginURLWait = 200 * time.Millisecond
+			t.Cleanup(func() { claudeLoginURLWait = old })
+		}, "in time"},
+		{"no claude", func(t *testing.T) {
+			t.Setenv("MOTITA_CLAUDE_BIN", filepath.Join(t.TempDir(), "claude"))
+		}, "not found"},
+		{"not a program", notAProgram, "could not run"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			tc.setup(t)
+			if _, err := StartClaudeLogin(context.Background()); err == nil || !strings.Contains(err.Error(), tc.want) {
+				t.Errorf("err = %v, want %q", err, tc.want)
+			}
+		})
+	}
 }
 
 func TestTailKeepsTheEnd(t *testing.T) {

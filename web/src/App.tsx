@@ -170,16 +170,9 @@ function groupsOf(messages: Message[]): Group[] {
 function MessageBody({ m, auto }: { m: Message; auto?: boolean }) {
   const loadEvidenceImage = useContext(EvidenceCtx);
   const { running, lastUserId, answerSuggestions, answerQuestions } = useTurn();
-  const { openProviders } = useApp();
   if (m.role !== "agent" || m.kind) {
     // A user's message is never here: each one opens its turn and is drawn by TurnHead.
-    if (isEmptyNote(m)) {
-      return <EmptyNote />;
-    }
-    if (m.kind === "error" && isSignInFailure(m.text)) {
-      return <SignInNotice text={m.text} onReconnect={openProviders} />;
-    }
-    return <span>{choose(m.kind === "kind", t(m.text), m.text)}</span>;
+    return <NoteBody m={m} />;
   }
   if (m.questions) {
     // The agent asked before doing anything: the questions are answered on a card, while nothing
@@ -219,6 +212,19 @@ function MessageBody({ m, auto }: { m: Message; auto?: boolean }) {
     );
   }
   return <Markdown content={m.text} />;
+}
+
+// NoteBody is a line that is not an answer: the empty conversation's card, a failed sign-in with
+// its way back to the providers, a translated kind note, or the text as it came.
+function NoteBody({ m }: { m: Message }) {
+  const { openProviders } = useApp();
+  if (isEmptyNote(m)) {
+    return <EmptyNote />;
+  }
+  if (m.kind === "error" && isSignInFailure(m.text)) {
+    return <SignInNotice text={m.text} onReconnect={openProviders} />;
+  }
+  return <span>{choose(m.kind === "kind", t(m.text), m.text)}</span>;
 }
 
 // isEmptyNote says the message is the placeholder of a conversation with nothing in it yet.
