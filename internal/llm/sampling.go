@@ -58,15 +58,23 @@ func containsAny(model string, parts ...string) bool {
 	return false
 }
 
+// Family names written more than once below.
+const (
+	familyQwen3  = "qwen3"
+	familyKimiK2 = "kimi-k2"
+	keyTopK      = "top_k"
+	keyMinP      = "min_p"
+)
+
 // samplingPresets are tried in order, so a narrower family comes before the one that contains it
 // (qwen3-coder before qwen3). Values are the ones each model card recommends.
 var samplingPresets = []samplingPreset{
-	{"qwen3-coder", func(m string) bool { return containsAll(m, "qwen3", "coder") },
+	{"qwen3-coder", func(m string) bool { return containsAll(m, familyQwen3, "coder") },
 		Sampling{Temperature: fp(0.7), TopP: fp(0.8), TopK: fp(20)}},
-	{"qwen3-instruct", func(m string) bool { return containsAll(m, "qwen3") && containsAny(m, "instruct", "max") },
+	{"qwen3-instruct", func(m string) bool { return containsAll(m, familyQwen3) && containsAny(m, "instruct", "max") },
 		Sampling{Temperature: fp(0.7), TopP: fp(0.8), TopK: fp(20), MinP: fp(0)}},
 	// Hybrid Qwen3 models think unless told not to: the thinking preset.
-	{"qwen3", func(m string) bool { return containsAll(m, "qwen3") },
+	{familyQwen3, func(m string) bool { return containsAll(m, familyQwen3) },
 		Sampling{Temperature: fp(0.6), TopP: fp(0.95), TopK: fp(20), MinP: fp(0)}},
 	{"qwq", func(m string) bool { return containsAll(m, "qwq") },
 		Sampling{Temperature: fp(0.6), TopP: fp(0.95), TopK: fp(40), MinP: fp(0)}},
@@ -80,9 +88,9 @@ var samplingPresets = []samplingPreset{
 		Sampling{Temperature: fp(1)}},
 	{"gpt-oss", func(m string) bool { return containsAll(m, "gpt-oss") },
 		Sampling{Temperature: fp(1), TopP: fp(1)}},
-	{"kimi-k2-thinking", func(m string) bool { return containsAll(m, "kimi-k2", "thinking") },
+	{"kimi-k2-thinking", func(m string) bool { return containsAll(m, familyKimiK2, "thinking") },
 		Sampling{Temperature: fp(1)}},
-	{"kimi-k2", func(m string) bool { return containsAll(m, "kimi-k2") },
+	{familyKimiK2, func(m string) bool { return containsAll(m, familyKimiK2) },
 		Sampling{Temperature: fp(0.6)}},
 	{"llama-3", func(m string) bool { return containsAny(m, "llama-3", "llama3") },
 		Sampling{Temperature: fp(0.6), TopP: fp(0.9)}},
@@ -133,7 +141,7 @@ func (c *Client) sampling() Sampling {
 
 // extraSamplingKeys are the /chat/completions fields past temperature: not every server takes
 // them, so they are dropped from a request a server refuses for one of them.
-var extraSamplingKeys = []string{"top_p", "top_k", "min_p", "presence_penalty"}
+var extraSamplingKeys = []string{"top_p", keyTopK, keyMinP, "presence_penalty"}
 
 // addOpenAISampling puts the preset past temperature on a /chat/completions body. top_k and min_p
 // are not OpenAI parameters: its own API is not sent them.
@@ -143,9 +151,9 @@ func (c *Client) addOpenAISampling(body map[string]any, s Sampling) {
 	}
 	official := isOfficialOpenAI(c.baseURL(DefaultBaseURL(c.cfg.Provider)))
 	for key, v := range map[string]*float64{
-		"top_p": s.TopP, "top_k": s.TopK, "min_p": s.MinP, "presence_penalty": s.PresencePenalty,
+		"top_p": s.TopP, keyTopK: s.TopK, keyMinP: s.MinP, "presence_penalty": s.PresencePenalty,
 	} {
-		if v == nil || (official && (key == "top_k" || key == "min_p")) {
+		if v == nil || (official && (key == keyTopK || key == keyMinP)) {
 			continue
 		}
 		body[key] = *v
