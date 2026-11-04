@@ -8,12 +8,7 @@ export type Api = (path: string, init?: RequestInit) => Promise<Response>;
 
 // Where a provider's key comes from, as the gateway reports it.
 export type KeySource =
-  | "env"
-  | "stored"
-  | "config"
-  | "login"
-  | "not_needed"
-  | "missing";
+  "env" | "stored" | "config" | "login" | "not_needed" | "expired" | "missing";
 
 export interface LLMModel {
   id: string;
@@ -396,15 +391,21 @@ export async function cancelLogin(api: Api, flow: string): Promise<void> {
   await api(loginPath(flow), { method: "DELETE" }).catch(() => undefined);
 }
 
-// isConnected says whether a provider can run: it has a key, a login, or needs neither.
+// isConnected says whether a provider can run: it has a key, a login, or needs neither. A command
+// whose own sign-in expired (claude-code) cannot run until it is signed in again.
 export function isConnected(p: LLMProvider): boolean {
-  return p.key !== "missing";
+  return p.key !== "missing" && p.key !== "expired";
 }
 
 // canTypeKey says whether the settings may take a key for this provider: not when it needs none,
 // and not when an exported variable or the configuration file holds it, since those win.
 export function canTypeKey(p: LLMProvider): boolean {
-  return p.key !== "not_needed" && p.key !== "env" && p.key !== "config";
+  return (
+    p.key !== "not_needed" &&
+    p.key !== "expired" &&
+    p.key !== "env" &&
+    p.key !== "config"
+  );
 }
 
 // trialOf is what a test or a save sends: the key only when one was typed, the endpoint only

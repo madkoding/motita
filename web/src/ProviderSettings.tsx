@@ -100,6 +100,8 @@ function keyState(p: LLMProvider): string {
       return t("Connected · signed in");
     case "not_needed":
       return t("Ready · no key needed");
+    case "expired":
+      return t("Sign-in expired · sign in again");
     default:
       return t("Not connected");
   }
@@ -255,6 +257,12 @@ function ProviderRow(
 
 // explanation says how a provider connects, for the source its key comes from.
 function explanation(p: LLMProvider): string {
+  if (p.key === "expired") {
+    return tf(
+      "Its own command's sign-in expired and could not be renewed: run {cmd} on the gateway's machine, as the same user, then send the message again.",
+      { cmd: p.login || "" },
+    );
+  }
   if (p.key === "not_needed" && p.login) {
     return tf(
       "It uses the login of its own command: run {cmd} on the gateway's machine.",

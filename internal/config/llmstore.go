@@ -28,6 +28,10 @@ const (
 	KeyMissing   = "missing"
 )
 
+// KeyExpired is claude-code after claude said its own sign-in is gone. KeySource never answers it:
+// only the gateway knows, from the last answer claude gave (llm.ClaudeSignInLost).
+const KeyExpired = "expired"
+
 // genericKeyVariable is the variable that belongs to whichever provider the configuration names.
 const genericKeyVariable = "MOTITA_LLM_API_KEY"
 
