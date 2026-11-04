@@ -79,6 +79,9 @@ func TestAMessageSteersTheRunningTask(t *testing.T) {
 	if e.agent.Steer("too late") {
 		t.Fatal("the task ended: the message must not be taken")
 	}
+	if left := e.agent.UnreadSteering(); left != nil {
+		t.Fatalf("every message was read, left %q", left)
+	}
 
 	mu.Lock()
 	defer mu.Unlock()

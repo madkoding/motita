@@ -746,12 +746,13 @@ var liveAnswerEvery = 100 * time.Millisecond
 // into dozens of "actions". A snapshot is shown growing where the answer will be instead (the
 // terminal drops it), and the answer still arrives whole when the plan ends. A tool announcement
 // starts a new snapshot: the text before it was the model talking while it worked, and the tool
-// itself is already reported through the trace.
+// itself is already reported through the trace, and so does plan.StreamReset: the person wrote and
+// the model starts its reply again.
 func livePlanText(progress func(string, ...any)) func(string) {
 	var live strings.Builder
 	var last time.Time
 	return func(s string) {
-		if strings.HasPrefix(s, "[using tool: ") {
+		if s == plan.StreamReset || strings.HasPrefix(s, "[using tool: ") {
 			live.Reset()
 			progress("%s", agent.AnswerPrefix)
 			return
@@ -826,7 +827,9 @@ func (r *AppRunner) RunPlan(ctx context.Context, prompt string, progress func(st
 		// Reading a page follows the commands' network, which Settings → Security can change
 		// while the session is open, so it is asked at every fetch.
 		WithWeb(webfetch.New(r.networkIsolated))
+	r.live.set(planner)
 	answer, err := planner.Run(ctx, prompt)
+	r.live.set(nil)
 	// The turn's iteration count is folded into the runner's running total whatever the
 	// outcome: it is what decides whether the fork that just looked at this turn fires
 	// again on the next one.

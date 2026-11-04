@@ -3,6 +3,7 @@ package gateway
 import (
 	"net/http"
 	"strings"
+	"sync"
 	"testing"
 )
 
@@ -80,4 +81,34 @@ func TestSteerHandsTheMessageToTheTaskInFlight(t *testing.T) {
 		t.Errorf("the message must be a step of the turn")
 	}
 	steerExpect(t, srv, base+"/steer", `{"task":"not taken"}`, http.StatusAccepted, `"queued":true`)
+}
+
+// unreadProbe is a queueProbe whose turn ends with messages it accepted and never read.
+type unreadProbe struct {
+	queueProbe
+	mu     sync.Mutex
+	unread []string
+}
+
+func (p *unreadProbe) UnreadSteering() []string {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	out := p.unread
+	p.unread = nil
+	return out
+}
+
+// A message the turn accepted but ended without reading is not lost: it runs as the next turn.
+func TestAMessageTheTurnNeverReadRunsNext(t *testing.T) {
+	rec := &queueRec{started: make(chan struct{}, 4), release: make(chan struct{})}
+	probe := &unreadProbe{queueProbe: queueProbe{rec: rec}, unread: []string{"late one", "late two"}}
+	srv := newTestServer(t, probe, func(o *Options) {
+		o.SessionDir = t.TempDir()
+		o.NewService = func() (Service, error) { return probe, nil }
+	})
+	a := newSessionFor(t, srv)
+	quietRunFor(t, srv, a.ID)
+	steerExpect(t, srv, "/v1/sessions/"+a.ID+"/steer", `{"task":"first"}`, http.StatusAccepted, `"started":true`)
+	waitUntil(t, "the unread messages to run", func() bool { return rec.ran("late one\n\nlate two") })
+	waitIdle(t, srv.conversationOf(a.ID))
 }

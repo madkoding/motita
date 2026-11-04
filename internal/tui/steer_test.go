@@ -36,7 +36,7 @@ func TestAMessageTypedWhileATaskRunsSteersIt(t *testing.T) {
 		t.Fatalf("taken %v, queued %q", r.taken, tu.queued)
 	}
 	text := messageTexts(tu)
-	if !strings.Contains(text, "also this") || !strings.Contains(text, "Added to the task in progress") {
+	if !strings.Contains(text, "also this") || !strings.Contains(text, "Added to the turn in progress") {
 		t.Errorf("the conversation must show the message and say it was added:\n%s", text)
 	}
 
@@ -74,4 +74,47 @@ type steerableAgent struct {
 func (s *steerableAgent) Steer(text string) bool {
 	s.got = text
 	return true
+}
+
+// unreadAgent is an agent whose turn ended with a message it accepted and never read.
+type unreadAgent struct {
+	steerableAgent
+	left []string
+}
+
+func (u *unreadAgent) UnreadSteering() []string { return u.left }
+
+// What a turn accepted and never read is handed back once the turn ends, and the TUI queues it
+// ahead of a message queued after it.
+func TestAMessageTheTurnNeverReadIsQueued(t *testing.T) {
+	r := &AppRunner{}
+	r.live.set(&unreadAgent{left: []string{"late"}})
+	r.live.set(nil)
+	if got := r.UnreadSteering(); len(got) != 1 || got[0] != "late" || r.UnreadSteering() != nil {
+		t.Fatalf("unread %q", got)
+	}
+
+	tu := &TUI{Runner: &unreadRunner{liveRunner: newLiveRunner(), left: []string{"late"}}, queued: "typed after"}
+	tu.requeueUnread()
+	if tu.queued != "late\n\ntyped after" {
+		t.Fatalf("queued %q", tu.queued)
+	}
+	tu.requeueUnread()
+	tu.Runner = &steeringRunner{liveRunner: newLiveRunner()}
+	tu.requeueUnread()
+	if tu.queued != "late\n\ntyped after" {
+		t.Fatalf("nothing more to queue, got %q", tu.queued)
+	}
+}
+
+// unreadRunner is a Runner that hands back unread messages once.
+type unreadRunner struct {
+	*liveRunner
+	left []string
+}
+
+func (u *unreadRunner) UnreadSteering() []string {
+	out := u.left
+	u.left = nil
+	return out
 }

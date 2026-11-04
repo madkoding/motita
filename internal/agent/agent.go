@@ -38,6 +38,7 @@ import (
 	"github.com/madkoding/motita/internal/redact"
 	"github.com/madkoding/motita/internal/sandbox"
 	"github.com/madkoding/motita/internal/skills"
+	"github.com/madkoding/motita/internal/steer"
 	"github.com/madkoding/motita/internal/task"
 	"github.com/madkoding/motita/internal/usage"
 )
@@ -83,7 +84,7 @@ type Agent struct {
 	// SetApproveAllSource.
 	approveAllNow func() bool
 	// steer is what the person says while a task runs: see steer.go.
-	steer steering
+	steer steer.Inbox
 
 	// library is the procedure library, when one is configured. It is the SAME library Plan
 	// mode uses: one shelf of procedures, reachable from both modes, because a procedure is

@@ -8,6 +8,7 @@ import (
 
 	"github.com/madkoding/motita/internal/anchor"
 	"github.com/madkoding/motita/internal/llm"
+	"github.com/madkoding/motita/internal/steer"
 	"github.com/madkoding/motita/internal/task"
 )
 
@@ -143,8 +144,8 @@ func (a *Agent) direct(ctx context.Context, t task.Task) TaskResult {
 	r.baseline, _ = treeFingerprint(a.cfg.Agent.WorkspaceDir, true)
 	r.before = a.startBaseline(ctx)
 	defer r.before.close(ctx)
-	a.steer.begin()
-	defer a.steer.end()
+	a.steer.Begin()
+	defer a.steer.End()
 	r.msgs = []llm.Message{
 		{Role: "system", Content: a.directSystem(ctx, t)},
 		{Role: "user", Content: t.Description, Images: llm.AttachedImages(a.cfg.Agent.WorkspaceDir, t.Description)},
@@ -178,11 +179,21 @@ func (a *Agent) directSystem(ctx context.Context, t task.Task) string {
 
 // step asks the model for its next turn and acts on it. It reports whether the run ended.
 func (r *directRun) step() bool {
-	for _, n := range r.a.steer.take() {
-		r.a.report("you: %s", n)
-		r.msgs = append(r.msgs, llm.Message{Role: "user", Content: "(the person added while you worked) " + n})
+	if notes := r.a.steer.Take(); len(notes) > 0 {
+		for _, n := range notes {
+			r.a.report("you: %s", n)
+		}
+		r.msgs = append(r.msgs, llm.Message{Role: "user", Content: steer.Note(notes)})
 	}
-	reply, err := r.a.directReply(r.ctx, r.msgs)
+	call, done := r.a.steer.Call(r.ctx)
+	reply, err := r.a.directReply(call, r.msgs)
+	// The person wrote while the model answered, or as it finished its answer: the reply is
+	// dropped and the turn is asked again with the message in front of it.
+	cut := steer.Interrupted(r.ctx, call) || (err == nil && !reply.WantsTools() && r.a.steer.Pending())
+	done()
+	if cut {
+		return false
+	}
 	if err != nil {
 		r.res.Reason = "could not reach the reasoning engine: " + err.Error()
 		r.a.report("%s", r.res.Reason)

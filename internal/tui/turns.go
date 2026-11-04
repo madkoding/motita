@@ -79,6 +79,7 @@ func (t *TUI) endCurrent(ctx context.Context, out runOutcome) {
 		t.decideConfirm(false)
 	}
 	tr.onDone(out)
+	t.requeueUnread()
 	q := t.queued
 	if q == "" {
 		return
@@ -143,16 +144,34 @@ func (t *TUI) leaveTurn(ctx context.Context) {
 	t.finishTurn(ctx)
 }
 
+// requeueUnread queues what the ended turn accepted mid-turn and never read, ahead of a message
+// queued after it: a message the conversation showed as added must not vanish.
+func (t *TUI) requeueUnread() {
+	u, ok := t.Runner.(interface{ UnreadSteering() []string })
+	if !ok {
+		return
+	}
+	notes := u.UnreadSteering()
+	if len(notes) == 0 {
+		return
+	}
+	if t.queued != "" {
+		notes = append(notes, t.queued)
+	}
+	t.queued = strings.Join(notes, "\n\n")
+}
+
 // queue keeps a message typed while a turn runs, to send when it ends.
 //
 // One message, not a list: a second one replaces the first, and the conversation says so. A
 // queue the user cannot see is a queue that sends things they forgot they typed.
 func (t *TUI) queue(line string) {
-	// A task in flight reads the message at its next round: the work goes on with it, which is
-	// what a person who keeps typing wants. A plan, or a task between rounds, still queues.
+	// The turn in flight (a plan or a task) reads the message at once: the model call it waits on is
+	// cut and asked again with the message, which is what a person who keeps typing wants. A turn
+	// that cannot be steered still queues.
 	if st, ok := t.Runner.(steerer); ok && st.Steer(line) {
 		t.addMessage(AuthorUser, line)
-		t.addMessage(AuthorSystem, t.tr("Added to the task in progress; it reads it in its next step. Esc stops it."))
+		t.addMessage(AuthorSystem, t.tr("Added to the turn in progress; it reads it now. Esc stops it."))
 		return
 	}
 	note := t.tr("Queued: it will be sent when the current task finishes. Esc stops the current one.")
