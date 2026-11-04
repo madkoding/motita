@@ -92,6 +92,9 @@ func runnerFor(url string) AgentRunner {
 	cfg.LLM.Provider, cfg.LLM.Model = "openai", "gpt-5-mini"
 	cfg.LLM.APIKey, cfg.LLM.BaseURL = "key", url
 	cfg.LLM.MaxAttempts, cfg.LLM.Timeout = 1, 10*time.Second
+	// No transient budget: an unreachable model fails at the first refused connection
+	// instead of waiting out the default five minutes of network retries.
+	cfg.LLM.TransientBudget = 0
 	cfg.Agent.MaxRetries = 1
 	return AgentRunner{Cfg: cfg, Log: logx.Global()}
 }
