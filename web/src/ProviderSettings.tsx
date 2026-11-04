@@ -199,10 +199,10 @@ export function ProviderSettings({ api, onNotice }: ProviderSettingsProps) {
           </ul>
         </section>
       )}
-      {view && hasLocal(view) && (
-        <LocalSection
+      {view && (
+        <LocalIfOffered
+          view={view}
           api={api}
-          writable={view.writable}
           onChanged={changed}
           onNotice={onNotice}
         />
@@ -226,6 +226,16 @@ function LocalSection(props: LocalModelSettingsProps) {
     );
   }, []);
   return Section && <Section {...props} />;
+}
+
+// LocalIfOffered is the local model's section, when the gateway offers the model.
+function LocalIfOffered({
+  view,
+  ...props
+}: Omit<LocalModelSettingsProps, "writable"> & { view: LLMView }) {
+  return hasLocal(view) ? (
+    <LocalSection {...props} writable={view.writable} />
+  ) : null;
 }
 
 // hasLocal says the gateway offers Motita's own local model.

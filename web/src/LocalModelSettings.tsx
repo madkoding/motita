@@ -249,23 +249,24 @@ export function LocalModelSettings({
   useEffect(read, [read]);
   const polling = !!st && busy(st);
   useEffect(() => {
-    if (!polling) {
-      return;
-    }
-    const id = setInterval(read, POLL_MS);
+    const id = polling ? setInterval(read, POLL_MS) : undefined;
     return () => clearInterval(id);
   }, [polling, read]);
-  const act: Act = (fn, done) => () => {
-    setConfirming(false);
-    fn(api)
-      .then((s) => {
-        take(s);
-        if (done) {
-          onNotice(done);
-        }
-      })
-      .catch((e: Error) => setErr(e.message));
-  };
+  const act = useCallback<Act>(
+    (fn, done) => () => {
+      setConfirming(false);
+      fn(api)
+        .then((s) => {
+          take(s);
+          if (done) {
+            onNotice(done);
+          }
+        })
+        .catch((e: Error) => setErr(e.message));
+    },
+    [api, take, onNotice],
+  );
+  const ask = useCallback(() => setConfirming(true), []);
   const remove = act(localDelete, t("Local model deleted"));
   return (
     <section
@@ -291,7 +292,7 @@ export function LocalModelSettings({
               <LocalDelete
                 st={st}
                 confirming={confirming}
-                onAsk={() => setConfirming(true)}
+                onAsk={ask}
                 onDelete={remove}
               />
             </div>

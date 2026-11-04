@@ -157,7 +157,8 @@ var lookPath = exec.LookPath
 func findServer(dir, goos string) string {
 	want := serverName(goos)
 	found := ""
-	_ = filepath.WalkDir(dir, func(path string, d fs.DirEntry, err error) error { // #nosec G703 -- dir is Motita's own runtime folder
+	// dir is Motita's own runtime folder.
+	_ = filepath.WalkDir(dir, func(path string, d fs.DirEntry, err error) error { // #nosec G703
 		if err != nil {
 			return nil
 		}
