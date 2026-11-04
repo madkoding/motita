@@ -31,37 +31,40 @@ awk '
 MIN_PER_PACKAGE=100.0
 failed=0
 
-# coverage_of PKG: the package's statement coverage from the merged profile, as go test prints it.
-coverage_of() {
-  awk -v p="$1" '
-    NR == 1 { next }
-    {
-      file = $1; sub(/:.*/, "", file)
-      dir = file; sub(/\/[^\/]*$/, "", dir)
-      if (dir != p) next
-      total += $2
-      if ($3 > 0) covered += $2
-    }
-    END { if (total > 0) printf "%.1f", 100 * covered / total; else print "0.0" }
-  ' "$merged"
-}
+# Each package's statement coverage from the merged profile, as go test prints it (one line per
+# package that has blocks: "import/path 99.9").
+awk '
+  NR == 1 { next }
+  {
+    file = $1; sub(/:.*/, "", file)
+    dir = file; sub(/\/[^\/]*$/, "", dir)
+    total[dir] += $2
+    if ($3 > 0) covered[dir] += $2
+  }
+  END { for (d in total) printf "%s %.1f\n", d, 100 * covered[d] / total[d] }
+' "$merged" >"$merged.pkgs"
+trap 'rm -f "$merged.pkgs"' EXIT
 
-for pkg in $(go list ./internal/... ./cmd/... ./tools/...); do
-  # "does this package have tests" is asked of the package, not of go test's report: the wording
-  # changed under Go 1.26 ("no test files" is gone), and a string match on it silently stopped
-  # skipping the test-less harnesses and started gating them at 0.0%.
-  if [ "$(go list -f '{{len .TestGoFiles}}{{len .XTestGoFiles}}' "$pkg" 2>/dev/null)" = "00" ]; then
+# One `go list` for every package: its import path, whether it has tests, and its folder.
+# "does this package have tests" is asked of the package, not of go test's report: the wording
+# changed under Go 1.26 ("no test files" is gone), and a string match on it silently stopped
+# skipping the test-less harnesses and started gating them at 0.0%.
+go list -f '{{.ImportPath}} {{len .TestGoFiles}}{{len .XTestGoFiles}} {{.Dir}}' \
+  ./internal/... ./cmd/... ./tools/... >"$merged.list"
+trap 'rm -f "$merged.pkgs" "$merged.list"' EXIT
+
+while read -r pkg tests dir; do
+  if [ "$tests" = "00" ]; then
     echo "::warning::$pkg has no test files"
     continue
   fi
-  cov="$(coverage_of "$pkg")"
+  cov="$(awk -v p="$pkg" '$1 == p { print $2; found = 1 } END { if (!found) print "0.0" }' "$merged.pkgs")"
   # A TEST-SUPPORT package cannot meet this bar, and demanding it is asking for tests of the
   # tests: the only statements left uncovered are its own failure and skip branches (t.Skip,
   # t.Fatal, t.Errorf), which run when a test has already failed. The exemption is derived from
   # a property - does the package import "testing" in non-test source? - rather than listed by
   # name, so it cannot be widened by adding a name and cannot go stale when a directory moves.
   # It matches exactly one package today: tools/clitest.
-  dir="$(go list -f '{{.Dir}}' "$pkg")"
   if [ -n "$(grep -l '"testing"' "$dir"/*.go 2>/dev/null | grep -v '_test.go')" ]; then
     printf '%-52s %s%% (test-support: its own failure branches)\n' "$pkg" "$cov"
     continue
@@ -71,7 +74,7 @@ for pkg in $(go list ./internal/... ./cmd/... ./tools/...); do
     echo "::error::$pkg coverage ${cov}% is below the ${MIN_PER_PACKAGE}% gate"
     failed=1
   fi
-done
+done <"$merged.list"
 
 printf 'aggregate: '
 go tool cover -func="$merged" | tail -1
