@@ -233,7 +233,7 @@ type LLM struct {
 	APIKey         string        `yaml:"api_key"`
 	BaseURL        string        `yaml:"base_url"`
 	MaxTokens      int           `yaml:"max_tokens"`
-	Temperature    *float64      `yaml:"temperature"` // nil: the provider default
+	Temperature    *float64      `yaml:"temperature"` // nil: the model's sampling preset (llm.PresetFor)
 	Timeout        time.Duration `yaml:"timeout"`
 	MaxAttempts    int           `yaml:"max_attempts"`
 	BackoffInitial time.Duration `yaml:"backoff_initial"`

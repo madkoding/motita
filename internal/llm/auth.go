@@ -340,10 +340,11 @@ func (c *Client) loginRefused(t target, status int, renewed bool) bool {
 }
 
 // refusalFixes are the repairs one request may get after a refusal, each at most once.
-type refusalFixes struct{ relearned, uncached, unschemed bool }
+type refusalFixes struct{ relearned, uncached, unschemed, unsampled bool }
 
 // repair rewrites data after a refusal the request can be asked again without, and reports
-// whether it did: an output limit the refusal names, the prompt-cache fields, the reply schema.
+// whether it did: an output limit the refusal names, the prompt-cache fields, the preset's sampling
+// fields, the reply schema.
 func (f *refusalFixes) repair(c *Client, data *[]byte, status int, answer []byte) bool {
 	// Asked for more output than the model allows: the refusal names the limit.
 	// Ask once more within it, and keep it for the next request.
@@ -354,6 +355,10 @@ func (f *refusalFixes) repair(c *Client, data *[]byte, status int, answer []byte
 	}
 	if !f.uncached && c.refusedCache(data, status, answer) {
 		f.uncached = true
+		return true
+	}
+	if !f.unsampled && c.refusedSampling(data, status, answer) {
+		f.unsampled = true
 		return true
 	}
 	if !f.unschemed && c.refusedSchema(data, status) {

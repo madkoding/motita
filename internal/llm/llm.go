@@ -69,6 +69,9 @@ type Client struct {
 	outputCap atomic.Int64
 	// noTemperature is set once the provider has refused temperature for the configured model.
 	noTemperature atomic.Bool
+	// noSampling is set once the provider has refused a sampling field past temperature (see
+	// refusedSampling): the model's preset then sends only its temperature.
+	noSampling atomic.Bool
 	// noSchema is set once the provider has refused a request that carried a reply schema (see
 	// schemaFor): the replies are then read by ExtractJSON alone, as before the schema existed.
 	noSchema atomic.Bool
