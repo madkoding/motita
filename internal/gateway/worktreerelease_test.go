@@ -41,24 +41,25 @@ func TestAMergedThreadGivesItsWorktreeBack(t *testing.T) {
 	if err != nil || gitx.SamePath(next.workspace, p.Dir) {
 		t.Fatalf("a released thread continues in a worktree of its own: %v %q", err, next.workspace)
 	}
-	// The release survives a restart.
-	store, err := newSessionStore(filepath.Join(t.TempDir(), "sessions"))
-	if err != nil {
-		t.Fatal(err)
+	// Deleting it afterwards has nothing to give back and succeeds.
+	if rec := del(t, srv, "/v1/sessions/"+ss.ID, testToken); rec.Code != http.StatusNoContent {
+		t.Errorf("delete: %d %s", rec.Code, rec.Body.String())
 	}
-	if err := store.write(c, false); err != nil {
-		t.Fatal(err)
+}
+
+// The release survives a restart: the session comes back in the project's folder and the
+// worktree is not recreated.
+func TestAReleasedWorktreeStaysReleasedAfterARestart(t *testing.T) {
+	ctx := context.Background()
+	srv, _, ss := isolatedPRSession(t, "")
+	c := srv.sessions[ss.ID]
+	p := srv.projectOf(ss.ProjectID)
+	commitFile(t, ss.Workspace, "work.txt", "w\n", "feat: the work")
+	srv.finishMerge(ctx, c, "", 7, "sha", "main")
+	if !c.status().WorktreeReleased {
+		t.Fatal("released")
 	}
-	recs, err := store.loadAll()
-	if err != nil {
-		t.Fatal(err)
-	}
-	var rec sessionRecord
-	for _, r := range recs {
-		if r.ID == ss.ID {
-			rec = r
-		}
-	}
+	rec := recordOf(t, c)
 	if !rec.WorktreeReleased {
 		t.Fatal("the release is persisted")
 	}
@@ -74,10 +75,29 @@ func TestAMergedThreadGivesItsWorktreeBack(t *testing.T) {
 	if _, err := os.Stat(ss.Workspace); !os.IsNotExist(err) {
 		t.Error("a restart does not recreate the released worktree")
 	}
-	// Deleting it afterwards has nothing to give back and succeeds.
-	if rec := del(t, srv, "/v1/sessions/"+ss.ID, testToken); rec.Code != http.StatusNoContent {
-		t.Errorf("delete: %d %s", rec.Code, rec.Body.String())
+}
+
+// recordOf is the session's persisted record, written and read back through a store of its own.
+func recordOf(t *testing.T, c *conversation) sessionRecord {
+	t.Helper()
+	store, err := newSessionStore(filepath.Join(t.TempDir(), "sessions"))
+	if err != nil {
+		t.Fatal(err)
 	}
+	if err := store.write(c, false); err != nil {
+		t.Fatal(err)
+	}
+	recs, err := store.loadAll()
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, r := range recs {
+		if r.ID == c.id {
+			return r
+		}
+	}
+	t.Fatal("the session was not written")
+	return sessionRecord{}
 }
 
 // What keeps a merged thread's worktree: uncommitted work, a run in flight, and a session that

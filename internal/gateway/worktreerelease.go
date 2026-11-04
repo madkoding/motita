@@ -18,7 +18,10 @@ import (
 // the project's folder, like a merged session that never had a worktree, and remembers that it
 // was isolated so that continuing it isolates again.
 func (s *Server) releaseMergedWorktree(c *conversation) {
-	if !c.isMerged() || c.isRunning() || gitx.SamePath(c.workspace, c.projectDir) || c.ownWorktreeName(context.Background()) == "" {
+	if !c.isMerged() || c.isRunning() || gitx.SamePath(c.workspace, c.projectDir) {
+		return
+	}
+	if c.ownWorktreeName(context.Background()) == "" {
 		return
 	}
 	if err := s.releaseWorktree(c, false); err != nil {
