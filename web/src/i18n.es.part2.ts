@@ -249,6 +249,10 @@ const more: Record<string, string> = {
     "Conectado · clave en el archivo de configuración",
   "Connected · signed in": "Conectado · sesión iniciada",
   "Ready · no key needed": "Listo · no necesita clave",
+  "Sign-in expired · sign in again":
+    "Sesión caducada · vuelve a iniciar sesión",
+  "Its own command's sign-in expired and could not be renewed: run {cmd} on the gateway's machine, as the same user, then send the message again.":
+    "La sesión de su propio comando caducó y no se pudo renovar: ejecuta {cmd} en la máquina del gateway, con el mismo usuario, y vuelve a enviar el mensaje.",
   Manage: "Gestionar",
   "Set up {name}": "Configurar {name}",
   "It uses the login of its own command: run {cmd} on the gateway's machine.":

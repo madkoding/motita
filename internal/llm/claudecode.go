@@ -717,8 +717,11 @@ func (t *claudeTurn) result(ev claudeEvent) (Reply, error) {
 	// error_max_turns after tool calls is claude trying to run a denied tool once
 	// the answer was complete: the answer stands.
 	if ev.IsError && (ev.Subtype != "error_max_turns" || len(t.reply.Calls) == 0) {
-		return Reply{}, fmt.Errorf("claude failed (%s): %s",
-			ev.Subtype, strings.TrimSpace(ev.Result+" "+string(ev.Errors)))
+		text := strings.TrimSpace(ev.Result + " " + string(ev.Errors))
+		if isSignInFailure("", text) {
+			return Reply{}, signInError(fmt.Sprintf("claude failed (%s): %s", ev.Subtype, text))
+		}
+		return Reply{}, fmt.Errorf("claude failed (%s): %s", ev.Subtype, text)
 	}
 	return t.finish(), nil
 }
@@ -726,6 +729,61 @@ func (t *claudeTurn) result(ev claudeEvent) (Reply, error) {
 // hasStructuredOutput reports whether a result event repeats a --json-schema answer.
 func hasStructuredOutput(ev claudeEvent) bool {
 	return len(ev.StructuredOutput) > 0 && string(ev.StructuredOutput) != "null"
+}
+
+// claudeSignInHint is what a lost sign-in tells the person to do. claude refreshes its own OAuth
+// token; when it says the refresh failed, only a new login on that machine can fix it.
+const claudeSignInHint = "the Claude subscription sign-in has expired or was revoked: " +
+	"run `claude auth login` on the machine motita runs on, as the same user, then try again"
+
+// claudeSignIn remembers whether claude's last answer said its sign-in is gone, so the settings can
+// show the provider as signed out instead of ready. Any answer that gets through clears it.
+var claudeSignIn struct {
+	sync.Mutex
+	lost time.Time
+}
+
+// ClaudeSignInLost reports whether claude last refused for want of a valid sign-in, and since when.
+func ClaudeSignInLost() (time.Time, bool) {
+	claudeSignIn.Lock()
+	defer claudeSignIn.Unlock()
+	return claudeSignIn.lost, !claudeSignIn.lost.IsZero()
+}
+
+// noteClaudeSignIn records whether claude's sign-in works, from the answer it just gave.
+func noteClaudeSignIn(ok bool) {
+	claudeSignIn.Lock()
+	defer claudeSignIn.Unlock()
+	switch {
+	case ok:
+		claudeSignIn.lost = time.Time{}
+	case claudeSignIn.lost.IsZero():
+		claudeSignIn.lost = time.Now()
+	default:
+		// Already lost: keep since when.
+	}
+}
+
+// isSignInFailure says whether claude's error is about its login rather than the request: the
+// authentication_failed kind, or the words claude prints when its token cannot be refreshed.
+func isSignInFailure(kind, text string) bool {
+	if kind == "authentication_failed" {
+		return true
+	}
+	low := strings.ToLower(text)
+	for _, w := range []string{"failed to authenticate", "oauth session expired", "please run /login",
+		"invalid api key", "oauth token has expired"} {
+		if strings.Contains(low, w) {
+			return true
+		}
+	}
+	return false
+}
+
+// signInError is claude's own report followed by what to do about it, recorded as a lost sign-in.
+func signInError(report string) error {
+	noteClaudeSignIn(false)
+	return fatalError{fmt.Errorf("%s (%s)", report, claudeSignInHint)}
 }
 
 // assistantError is claude's report of a request that failed upstream. It is
@@ -736,6 +794,9 @@ func assistantError(ev claudeEvent) error {
 		text += b.Text
 	}
 	err := fmt.Errorf("claude: %s: %s", ev.Error, text)
+	if isSignInFailure(ev.Error, text) {
+		return signInError(err.Error())
+	}
 	switch ev.Error {
 	case "rate_limit", "overloaded", "server_error", "unknown":
 		return err
@@ -784,6 +845,7 @@ func (c *Client) callClaudeCode(
 		p.stop()
 		return Reply{}, err
 	}
+	noteClaudeSignIn(true)
 	// The answer is out; the subscription's limits come after it.
 	claudeDrains.Add(1)
 	go func(wait time.Duration) {
@@ -857,6 +919,7 @@ func ProbeClaudeQuota(ctx context.Context) error {
 	if !p.drain(claudeProbeTimeout) {
 		return errors.New("claude stated no subscription limits")
 	}
+	noteClaudeSignIn(true)
 	return nil
 }
 

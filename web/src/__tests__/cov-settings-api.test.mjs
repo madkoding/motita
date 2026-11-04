@@ -352,8 +352,10 @@ test("isConnected, canTypeKey, trialOf and modelOptions", () => {
   });
   assert.equal(llm.isConnected(p()), false);
   assert.equal(llm.isConnected(p({ key: "stored" })), true);
+  assert.equal(llm.isConnected(p({ key: "expired" })), false);
   for (const [key, can] of [
     ["not_needed", false],
+    ["expired", false],
     ["env", false],
     ["config", false],
     ["stored", true],
