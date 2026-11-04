@@ -717,11 +717,7 @@ func (t *claudeTurn) result(ev claudeEvent) (Reply, error) {
 	// error_max_turns after tool calls is claude trying to run a denied tool once
 	// the answer was complete: the answer stands.
 	if ev.IsError && (ev.Subtype != "error_max_turns" || len(t.reply.Calls) == 0) {
-		text := strings.TrimSpace(ev.Result + " " + string(ev.Errors))
-		if isSignInFailure("", text) {
-			return Reply{}, signInError(fmt.Sprintf("claude failed (%s): %s", ev.Subtype, text))
-		}
-		return Reply{}, fmt.Errorf("claude failed (%s): %s", ev.Subtype, text)
+		return Reply{}, resultError(ev.Subtype, strings.TrimSpace(ev.Result+" "+string(ev.Errors)))
 	}
 	return t.finish(), nil
 }
@@ -729,61 +725,6 @@ func (t *claudeTurn) result(ev claudeEvent) (Reply, error) {
 // hasStructuredOutput reports whether a result event repeats a --json-schema answer.
 func hasStructuredOutput(ev claudeEvent) bool {
 	return len(ev.StructuredOutput) > 0 && string(ev.StructuredOutput) != "null"
-}
-
-// claudeSignInHint is what a lost sign-in tells the person to do. claude refreshes its own OAuth
-// token; when it says the refresh failed, only a new login on that machine can fix it.
-const claudeSignInHint = "the Claude subscription sign-in has expired or was revoked: " +
-	"run `claude auth login` on the machine motita runs on, as the same user, then try again"
-
-// claudeSignIn remembers whether claude's last answer said its sign-in is gone, so the settings can
-// show the provider as signed out instead of ready. Any answer that gets through clears it.
-var claudeSignIn struct {
-	sync.Mutex
-	lost time.Time
-}
-
-// ClaudeSignInLost reports whether claude last refused for want of a valid sign-in, and since when.
-func ClaudeSignInLost() (time.Time, bool) {
-	claudeSignIn.Lock()
-	defer claudeSignIn.Unlock()
-	return claudeSignIn.lost, !claudeSignIn.lost.IsZero()
-}
-
-// noteClaudeSignIn records whether claude's sign-in works, from the answer it just gave.
-func noteClaudeSignIn(ok bool) {
-	claudeSignIn.Lock()
-	defer claudeSignIn.Unlock()
-	switch {
-	case ok:
-		claudeSignIn.lost = time.Time{}
-	case claudeSignIn.lost.IsZero():
-		claudeSignIn.lost = time.Now()
-	default:
-		// Already lost: keep since when.
-	}
-}
-
-// isSignInFailure says whether claude's error is about its login rather than the request: the
-// authentication_failed kind, or the words claude prints when its token cannot be refreshed.
-func isSignInFailure(kind, text string) bool {
-	if kind == "authentication_failed" {
-		return true
-	}
-	low := strings.ToLower(text)
-	for _, w := range []string{"failed to authenticate", "oauth session expired", "please run /login",
-		"invalid api key", "oauth token has expired"} {
-		if strings.Contains(low, w) {
-			return true
-		}
-	}
-	return false
-}
-
-// signInError is claude's own report followed by what to do about it, recorded as a lost sign-in.
-func signInError(report string) error {
-	noteClaudeSignIn(false)
-	return fatalError{fmt.Errorf("%s (%s)", report, claudeSignInHint)}
 }
 
 // assistantError is claude's report of a request that failed upstream. It is
@@ -889,38 +830,12 @@ func (p *claudeProcess) drain(wait time.Duration) bool {
 	}
 }
 
-// claudeProbeTimeout bounds one ProbeClaudeQuota.
-const claudeProbeTimeout = time.Minute
-
-// claudeProbeArgs is claude's command line for ProbeClaudeQuota: the smallest model, no tools, no
-// settings, no session left behind, and a system prompt of one line instead of claude's own.
-var claudeProbeArgs = append(claudeBareArgs(), "--model", "haiku",
-	"--system-prompt", "Answer with the single word: ok", "--max-turns", "1", "--permission-mode", "dontAsk")
-
 // claudeBareArgs is the command line of a claude that only talks stream-json: no tools, no settings,
 // no MCP server, no slash command and no session left behind.
 func claudeBareArgs() []string {
 	return []string{"-p", "--input-format", streamJSON, "--output-format", streamJSON, "--verbose",
 		"--tools", "", "--setting-sources", "", "--strict-mcp-config", "--disable-slash-commands",
 		"--no-session-persistence"}
-}
-
-// ProbeClaudeQuota asks claude the smallest question there is so that it states the subscription's
-// limits, which it only does with an answer; they land in the ledger like those of any turn. The
-// question is not counted as a call. It fails when claude cannot run or states no limits.
-func ProbeClaudeQuota(ctx context.Context) error {
-	p, err := startClaude(ctx, claudeProbeTimeout, claudeProbeArgs, claudeEnv(config.LLM{MaxTokens: 16}))
-	if err != nil {
-		return err
-	}
-	// One frame, so nothing waits on claude; a claude that died shows up as the end of its output.
-	_, frames, _ := claudeFrames([]Message{{Role: "user", Content: "ok"}})
-	_ = p.replay(frames)
-	if !p.drain(claudeProbeTimeout) {
-		return errors.New("claude stated no subscription limits")
-	}
-	noteClaudeSignIn(true)
-	return nil
 }
 
 // callClaudeCodeText is Complete's single call: text only, no tools.

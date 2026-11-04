@@ -127,16 +127,6 @@ func TestLLMListsEveryProviderWithoutAFile(t *testing.T) {
 	if p := providerOf(v, "anthropic"); !p.Default || p.Key != config.KeyMissing || p.AskBaseURL {
 		t.Errorf("anthropic = %+v", p)
 	}
-	// Once claude says its own sign-in is gone, claude-code shows as expired, not ready.
-	claudeSignInLost = func() (time.Time, bool) { return time.Now(), true }
-	t.Cleanup(func() { claudeSignInLost = llm.ClaudeSignInLost })
-	v = decodeLLM(t, get(t, srv, "/v1/llm", testToken))
-	if p := providerOf(v, "claude-code"); p.Key != config.KeyExpired || p.Login == "" {
-		t.Errorf("claude-code after a lost sign-in = %+v", p)
-	}
-	if p := providerOf(v, "anthropic"); p.Key != config.KeyMissing {
-		t.Errorf("only claude-code can lose its sign-in: anthropic = %+v", p)
-	}
 	if p := providerOf(v, "ollama"); !p.AskBaseURL || p.BaseURL != "" || p.DefaultBaseURL != "http://localhost:11434/v1" {
 		t.Errorf("ollama = %+v", p)
 	}
@@ -802,5 +792,24 @@ func TestTheUsagePanelNamesAProviderShortly(t *testing.T) {
 	}
 	if got := shortName(onboard.Provider{Name: "Custom"}); got != "Custom" {
 		t.Errorf("no short name: %q", got)
+	}
+}
+
+// TestLLMShowsAnExpiredClaudeSignIn: once claude says its own sign-in is gone, claude-code shows as
+// expired, not ready, and no other provider changes.
+func TestLLMShowsAnExpiredClaudeSignIn(t *testing.T) {
+	llmEnv(t, "")
+	svc := &fakeService{}
+	svc.cfg = config.Default()
+	svc.cfg.LLM.Provider, svc.cfg.LLM.Model = "anthropic", "claude-sonnet-5-5"
+	srv := newTestServer(t, svc)
+	claudeSignInLost = func() (time.Time, bool) { return time.Now(), true }
+	t.Cleanup(func() { claudeSignInLost = llm.ClaudeSignInLost })
+	v := decodeLLM(t, get(t, srv, "/v1/llm", testToken))
+	if p := providerOf(v, "claude-code"); p.Key != config.KeyExpired || p.Login == "" {
+		t.Errorf("claude-code after a lost sign-in = %+v", p)
+	}
+	if p := providerOf(v, "anthropic"); p.Key != config.KeyMissing {
+		t.Errorf("only claude-code can lose its sign-in: anthropic = %+v", p)
 	}
 }

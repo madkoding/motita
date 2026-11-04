@@ -18,7 +18,8 @@ func resetClaudeSignIn(t *testing.T) {
 // TestClaudeCodeExpiredSignInSaysWhatToDo: claude's own refresh failing is reported with the
 // command that fixes it, is not retried, and marks the sign-in lost until a turn gets through.
 func TestClaudeCodeExpiredSignInSaysWhatToDo(t *testing.T) {
-	expired := fmt.Sprintf(`{"type":"assistant","error":"authentication_failed","message":{"content":[{"type":"text","text":%q}]}}`,
+	expired := fmt.Sprintf(`{"type":"assistant","error":"authentication_failed",`+
+		`"message":{"content":[{"type":"text","text":%q}]}}`,
 		"Failed to authenticate: OAuth session expired and could not be refreshed")
 	for name, script := range map[string]string{
 		"assistant error": expired,
