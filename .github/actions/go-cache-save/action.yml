@@ -1,5 +1,5 @@
 name: Save the Go build cache
-description: Saves the Go build cache; only from main. Same inputs as the go-env restore.
+description: Saves the Go build cache; only from main, once a week per key. Same inputs as the go-env restore.
 inputs:
   cache-key:
     description: Same prefix given to go-env.
@@ -12,8 +12,15 @@ inputs:
 runs:
   using: composite
   steps:
+    # The same go.mod + ISO-week key as the restore in go-env. Once a week's entry exists, a later
+    # save finds the key taken and only warns: main uploads each job's cache once a week.
+    - id: week
+      if: github.ref == 'refs/heads/main'
+      shell: bash
+      run: echo "week=$(date -u +%G-%V)" >> "$GITHUB_OUTPUT"
+
     - if: github.ref == 'refs/heads/main'
       uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
       with:
         path: ${{ inputs.cache-paths }}
-        key: ${{ inputs.cache-key }}-${{ hashFiles('go.mod', '**/*.go') }}
+        key: ${{ inputs.cache-key }}-${{ hashFiles('go.mod') }}-${{ steps.week.outputs.week }}
