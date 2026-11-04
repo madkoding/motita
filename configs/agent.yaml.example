@@ -95,7 +95,7 @@ sandbox:
 # Layer B — THE REASONING ENGINE
 # ---------------------------------------------------------------------------
 llm:
-  provider: openai     # openai | codex | copilot | ollama | ollama-cloud | anthropic | claude-code | gemini | qwen | custom
+  provider: openai     # openai | codex | copilot | ollama | ollama-cloud | anthropic | claude-code | gemini | qwen | custom | local
   model: gpt-4o-mini
   api_key: ""          # BETTER: export MOTITA_LLM_API_KEY
   base_url: https://api.openai.com/v1   # any compatible gateway works

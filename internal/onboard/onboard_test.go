@@ -798,7 +798,8 @@ func TestPresetBaseURLForAnOpenAIHost(t *testing.T) {
 	}
 }
 
-// The custom provider is set up in the browser: the catalogue has it, the wizard does not.
+// The custom and the local providers are set up in the browser: the catalogue has them, the wizard
+// does not.
 func TestTheWizardDoesNotOfferWebOnlyProviders(t *testing.T) {
 	p, ok := Lookup("custom")
 	if !ok || !p.WebOnly || !p.AskBaseURL || p.DefaultBaseURL != "" {
@@ -812,8 +813,8 @@ func TestTheWizardDoesNotOfferWebOnlyProviders(t *testing.T) {
 	if strings.Contains(Names(), "custom") {
 		t.Errorf("Names() = %q", Names())
 	}
-	if len(WizardProviders()) != len(Providers())-1 {
-		t.Error("only the custom provider is kept out")
+	if len(WizardProviders()) != len(Providers())-2 {
+		t.Error("only the custom and the local providers are kept out")
 	}
 	_, _, err := run(context.Background(), t, t.TempDir(), nil, Answers{Provider: "custom"})
 	if err == nil {

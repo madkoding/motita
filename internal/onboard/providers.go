@@ -88,6 +88,7 @@ func Providers() []Provider {
 		qwenProvider(),
 		ollamaCloudProvider(),
 		customProvider(),
+		localProvider(),
 	}
 	for _, p := range list {
 		for i, m := range p.Models {
@@ -259,6 +260,25 @@ func customProvider() Provider {
 		AskBaseURL:  true,
 		FetchModels: true,
 		WebOnly:     true,
+	}
+}
+
+// localProvider is Motita's own local model (internal/localmodel): one model, served by
+// llama-server on this machine, installed and started from the browser's settings, so it is
+// never offered by the wizard. Its endpoint and key are written when the server starts.
+func localProvider() Provider {
+	return Provider{
+		ID:             "local",
+		Name:           "Motita local (Qwen3-8B on your GPU)",
+		Short:          "Motita local",
+		Access:         "free on this computer's GPU (4 GB or more)",
+		DefaultBaseURL: "http://127.0.0.1:8471/v1",
+		EnvKey:         "MOTITA_LOCAL_API_KEY",
+		Models: []Model{
+			{ID: "qwen3-8b-gsq-q2_k", Label: "Qwen3-8B GSQ (Q2_K)", Note: "runs on this computer, about 3 GB",
+				Tier: "basic", Cost: "local"},
+		},
+		WebOnly: true,
 	}
 }
 

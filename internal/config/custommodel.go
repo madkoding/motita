@@ -80,10 +80,14 @@ func (l LLM) Tuned() LLM {
 }
 
 // WindowOverride is the context window the configuration forces: the custom model's when it runs
-// that model, else llm.session.context_window. Zero means "ask the model".
+// that model, the local server's when it runs on that one, else llm.session.context_window. Zero means "ask the model".
 func (l LLM) WindowOverride() int {
 	if l.customApplies() && l.Custom.ContextWindow > 0 {
 		return l.Custom.ContextWindow
+	}
+	if isLocalProvider(l.Provider) && l.Session.ContextWindow == 0 {
+		// The local server's window is the one it was started with, whatever the model's name says.
+		return localWindow()
 	}
 	return l.Session.ContextWindow
 }

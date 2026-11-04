@@ -331,6 +331,9 @@ type Server struct {
 	quotaCache quotaCache
 	// claudeProbe is the question that keeps Claude's quotas fresh.
 	claudeProbe claudeProbe
+	// local is Motita's own local model (localmodel.go), made on first use.
+	localMu sync.Mutex
+	local   localModeler
 
 	// baseCtx is cancelled when this server closes, and every run derives its context from it.
 	//
@@ -771,6 +774,7 @@ func (s *Server) Close(ctx context.Context) error {
 		// the process exit, and a lost race is a lost session.
 		s.saveAllSessions()
 		s.baseCancel()
+		s.closeLocalModel()
 		// The "run now" runs just cancelled write their end onto their task's record: that is
 		// done before the process leaves, as far as the caller is willing to wait.
 		finished := make(chan struct{})
@@ -891,6 +895,7 @@ func (s *Server) routes() *http.ServeMux {
 	// The LLM providers and the default model: process-wide too, saved beside and in the
 	// configuration. See llm.go.
 	s.llmRoutes(mux, plain)
+	s.localModelRoutes(mux, plain)
 	s.secretsRoutes(mux, plain)
 	s.evalRoutes(mux, plain)
 	s.llmLoginRoutes(mux, plain)

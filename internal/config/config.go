@@ -215,7 +215,7 @@ type Sandbox struct {
 // the validation all read this one list.
 var Providers = []string{
 	"openai", "codex", "copilot", "ollama", "ollama-cloud", "anthropic", "claude-code", "gemini", "qwen",
-	ProviderCustom,
+	ProviderCustom, ProviderLocal,
 }
 
 // TemperatureOr is the configured temperature, or def when none was set.
