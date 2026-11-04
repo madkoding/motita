@@ -93,7 +93,7 @@ func checkNothingPublished(t *testing.T, work func(dir string), want string) {
 	if len(rig.pushed) != 0 {
 		t.Errorf("pushed %v", rig.pushed)
 	}
-	for _, s := range rig.host.seen {
+	for _, s := range rig.host.requests() {
 		if strings.HasPrefix(s, pullsNew) {
 			t.Errorf("a pull request was opened: %s", s)
 		}
@@ -335,7 +335,7 @@ func TestAutopilotNotificationsReachTheSubscribedPhones(t *testing.T) {
 // createdPullRequest is the body of the pull request the autopilot asked the host to create.
 func createdPullRequest(rig *autopilotRig) map[string]any {
 	var create string
-	for _, s := range rig.host.sent {
+	for _, s := range rig.host.bodies() {
 		if strings.HasPrefix(s, pullsNew) {
 			create = s
 		}
@@ -348,7 +348,7 @@ func createdPullRequest(rig *autopilotRig) map[string]any {
 // assertNeverMerged checks the autopilot never asked the host to merge anything.
 func assertNeverMerged(t *testing.T, rig *autopilotRig) {
 	t.Helper()
-	for _, s := range rig.host.seen {
+	for _, s := range rig.host.requests() {
 		if strings.Contains(s, "/merge") {
 			t.Errorf("the autopilot asked the host to merge: %s", s)
 		}

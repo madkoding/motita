@@ -20,7 +20,12 @@ globalThis.cancelAnimationFrame = (id) => {
   cancelled.push(id);
   queue.delete(id);
 };
-let base = performance.now();
+// The clock is frozen: the typing reads performance.now() when it starts, and a frame passes
+// that same moment plus `ms`. A real clock let the render's own time leak into the count (on a
+// slow runner 2 ms more at 1000 per second typed 102 characters, not 100).
+const clock = 1000;
+Object.defineProperty(performance, "now", { configurable: true, value: () => clock });
+let base = clock;
 const startClock = () => {
   base = performance.now();
 };

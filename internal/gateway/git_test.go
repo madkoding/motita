@@ -61,6 +61,21 @@ func (g *gitHost) Do(req *http.Request) (*http.Response, error) {
 	return &http.Response{StatusCode: status, Body: io.NopCloser(strings.NewReader(body)), Header: http.Header{}}, nil
 }
 
+// requests is a copy of every request key seen so far, taken under the lock: a run's background
+// goroutines (the PR follow-up after it ends) can still be asking the host while a test reads.
+func (g *gitHost) requests() []string {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	return append([]string(nil), g.seen...)
+}
+
+// bodies is requests with each request's body, copied under the lock.
+func (g *gitHost) bodies() []string {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	return append([]string(nil), g.sent...)
+}
+
 func (g *gitHost) set(k, v string) {
 	g.mu.Lock()
 	g.routes[k] = v
