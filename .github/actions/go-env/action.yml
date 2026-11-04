@@ -11,6 +11,11 @@ inputs:
     default: |
       ~/.cache/go-build
       ~/go/pkg/mod
+  fallback-key:
+    description: >-
+      Another job's key prefix to restore from when this one has no entry yet (a new or renamed
+      job starts from a related cache instead of cold).
+    default: ""
   web-assets:
     description: Download and unpack the web UI assets (jobs that embed the UI).
     default: "true"
@@ -51,3 +56,4 @@ runs:
         restore-keys: |
           ${{ inputs.cache-key }}-${{ hashFiles('go.mod') }}-
           ${{ inputs.cache-key }}-
+          ${{ inputs.fallback-key }}

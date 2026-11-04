@@ -263,6 +263,8 @@ jobs:
       - uses: ./.github/actions/go-env
         with:
           cache-key: go-test-${{ matrix.part }}
+          # Until main has saved this part's cache, start from the race build any test job saved.
+          fallback-key: go-test-
 
       - name: go test (with race detector and coverage profile)
         env:
