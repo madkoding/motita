@@ -947,6 +947,16 @@ func DeleteBranch(ctx context.Context, dir, branch string) error {
 	return err
 }
 
+// ForceDeleteBranch deletes a local branch at dir whether or not its commits are merged anywhere
+// (`branch -D`). It is for a branch whose work is KNOWN to be elsewhere by a means git cannot see:
+// a pull request the host merged by squashing or rebasing leaves a branch `branch -d` refuses
+// for ever, although every line of it is on the base branch. The caller holds that proof; this
+// function does not ask for it, so it is never the default.
+func ForceDeleteBranch(ctx context.Context, dir, branch string) error {
+	_, err := noGitOr(ctx, "the branch was not deleted", dir, "branch", "-D", branch)
+	return err
+}
+
 // SwitchNew creates branch at the checkout's HEAD and switches to it, carrying uncommitted work
 // along. A branch that already exists is switched to as it is.
 func SwitchNew(ctx context.Context, dir, branch string) error {

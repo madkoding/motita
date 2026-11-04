@@ -299,6 +299,17 @@ func TestDeleteBranchRefusesUnmergedWork(t *testing.T) {
 	if !BranchExists(ctx, repo, "motita/s1") {
 		t.Fatal("the refused branch must still be there")
 	}
+
+	// -D takes it: the caller knows the work is elsewhere (a squash merge on the host).
+	if err := ForceDeleteBranch(ctx, repo, "motita/s1"); err != nil {
+		t.Fatalf("ForceDeleteBranch: %v", err)
+	}
+	if BranchExists(ctx, repo, "motita/s1") {
+		t.Fatal("the forced deletion must take the branch")
+	}
+	if err := ForceDeleteBranch(ctx, repo, "motita/s1"); err == nil || !strings.Contains(err.Error(), "not deleted") {
+		t.Errorf("a branch that is not there is a refusal, got %v", err)
+	}
 }
 
 // TestDeleteBranchRefusesABranchCheckedOutInAWorktree reports git's refusal of

@@ -53,6 +53,9 @@ func TestNoGitIsReportedAsItsOwnFailure(t *testing.T) {
 	if err := DeleteBranch(ctx, repo, "b"); err != ErrNoGit {
 		t.Errorf("DeleteBranch must report ErrNoGit, got %v", err)
 	}
+	if err := ForceDeleteBranch(ctx, repo, "b"); err != ErrNoGit {
+		t.Errorf("ForceDeleteBranch must report ErrNoGit, got %v", err)
+	}
 	if _, _, err := CommitsBetween(ctx, repo, "main", "b"); err != ErrNoGit {
 		t.Errorf("CommitsBetween must report ErrNoGit, got %v", err)
 	}
