@@ -91,11 +91,26 @@ func (s *Server) drainQueue(c *conversation) {
 	if s.baseCtx.Err() != nil || !runnable(c) {
 		return
 	}
+	s.requeueUnread(c)
 	next, ok := c.takeQueued()
 	if !ok {
 		return
 	}
 	s.launchRun(c, next, schedule.KindTask, "", "", s.approverFactory(c))
+}
+
+// requeueUnread queues, as one message, what the person sent to the turn that just ended and the
+// turn accepted without reading (it arrived as the turn wrote its last words). The answer to
+// /steer told the page it was taken, so it must not be lost: it becomes the next turn.
+func (s *Server) requeueUnread(c *conversation) {
+	u, ok := c.svc.(interface{ UnreadSteering() []string })
+	if !ok {
+		return
+	}
+	if notes := u.UnreadSteering(); len(notes) > 0 {
+		c.pushQueue(strings.Join(notes, "\n\n"))
+		s.saveSession(c)
+	}
 }
 
 // releaseAndDrain gives back a slot taken with takeRunSlot and starts whatever was queued while it

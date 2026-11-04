@@ -10,10 +10,11 @@ type steerer interface {
 	Steer(text string) bool
 }
 
-// handleSteer sends a message to the task in flight without stopping it: the agent reads it at
-// its next round and the turn's trail shows it. When nothing is running, or the run cannot be
-// steered (a plan, a task between rounds), the message is queued or started as /queue would, and
-// the answer says which happened.
+// handleSteer sends a message to the turn in flight (a chat or a task) without stopping it: the
+// model call it waits on is cut and asked again with the message (see package steer), and the
+// turn's trail shows it. When nothing is running, or the run cannot be steered, the message is
+// queued or started as /queue would, and the answer says which happened. A message the turn took
+// and ended without reading runs next: see requeueUnread.
 func (s *Server) handleSteer(w http.ResponseWriter, r *http.Request) {
 	var body struct {
 		Task string `json:"task"`

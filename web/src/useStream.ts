@@ -238,8 +238,9 @@ function runMessages(api: Api, rs: RunState, setToast: SetToast) {
   const { sessionRef, handoffRef } = rs;
 
   // sendWhileRunning sends a message to the session on screen while a run is in flight. The
-  // task reads it at its next step and shows it in its trail; when it cannot (a plan, a task
-  // between steps) the gateway queues it for the end of the turn, and the next run is followed.
+  // turn (a chat or a task) cuts the model's reply in progress, reads the message at once and
+  // shows it in its trail; when nothing can read it the gateway queues it for the end of the
+  // turn, and the next run is followed.
   const sendWhileRunning = (text: string) => {
     const sid = sessionRef.current;
     handoffRef.current = true;

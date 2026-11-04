@@ -26,6 +26,7 @@ import (
 	"github.com/madkoding/motita/internal/review"
 	"github.com/madkoding/motita/internal/session"
 	"github.com/madkoding/motita/internal/skills"
+	"github.com/madkoding/motita/internal/steer"
 	"github.com/madkoding/motita/internal/usage"
 )
 
@@ -126,6 +127,8 @@ type Planner struct {
 	// planner whose caller resolved a user SOUL.md passes it here, so the session
 	// is opened with the user's personality instead of the baked-in one.
 	soul string
+	// inbox is what the person writes while a turn runs: see Steer.
+	inbox steer.Inbox
 	// The window and the compaction policy, so a session created here honours the
 	// configuration rather than the package defaults.
 	model      string
@@ -504,14 +507,24 @@ func (p *Planner) Run(ctx context.Context, input string) (string, error) {
 	// without a second, unreachable clamp here.
 	loops := p.maxLoops
 	var look turnLook
+	p.inbox.Begin()
+	defer p.inbox.End()
 	for i := 1; i <= loops; i++ {
+		p.absorbSteering(sess)
 		p.tracef("[thinking...]")
 		// Bump the skill-nudge counter: each tool iteration that does NOT call
 		// save_skill brings the background review closer to firing. save_skill
 		// itself resets it (in toolSaveSkill), so a turn that saves a skill
 		// does not also trigger a review of itself.
 		p.itersSinceSkill++
-		reply, err := p.streamTools(ctx, p.withRecall(sess.Messages()))
+		reply, cut, err := p.steerableReply(ctx, sess)
+		if cut {
+			// The person wrote while the model answered: the unfinished reply is dropped, and
+			// the round is asked again with the message in front of it. It does not count
+			// against the turn's tool rounds.
+			i--
+			continue
+		}
 		if err != nil {
 			return "", fmt.Errorf("could not reach the reasoning engine: %w", err)
 		}
@@ -585,6 +598,40 @@ func (p *Planner) Run(ctx context.Context, input string) (string, error) {
 		p.review.MaybeRun(p.reviewStore(), sess.Messages(), p.itersSinceSkill)
 	}
 	return answer, nil
+}
+
+// Steer hands the turn in flight a message from the person, and cuts the model call it is waiting
+// on so the message is read at once. It reports whether a turn was there to read it; when none
+// was, the caller queues the message as a turn of its own.
+func (p *Planner) Steer(text string) bool { return p.inbox.Push(text) }
+
+// UnreadSteering returns the messages the last turn accepted and ended without reading.
+func (p *Planner) UnreadSteering() []string { return p.inbox.Unread() }
+
+// StreamReset is written to the stream when the text streamed so far is dropped: the model was
+// cut by a message from the person and starts its reply again.
+const StreamReset = "\x00reset"
+
+// absorbSteering puts the person's mid-turn messages in the conversation, as a user message.
+func (p *Planner) absorbSteering(sess *session.Session) {
+	if notes := p.inbox.Take(); len(notes) > 0 {
+		sess.Append(llm.Message{Role: "user", Content: steer.Note(notes)})
+	}
+}
+
+// steerableReply asks the model for the round's reply on a call the person's next message cuts.
+// cut reports that it was cut: the reply is then unfinished and must be dropped.
+func (p *Planner) steerableReply(ctx context.Context, sess *session.Session) (llm.Reply, bool, error) {
+	call, done := p.inbox.Call(ctx)
+	defer done()
+	reply, err := p.streamTools(call, p.withRecall(sess.Messages()))
+	// A message that arrived as a final answer was finished cuts it too: the reply the person
+	// gets must answer what they said last.
+	if steer.Interrupted(ctx, call) || (err == nil && !reply.WantsTools() && p.inbox.Pending()) {
+		p.writeStream(StreamReset)
+		return llm.Reply{}, true, nil
+	}
+	return reply, false, err
 }
 
 // sessionFor returns the conversation this planner is working in, creating one on first

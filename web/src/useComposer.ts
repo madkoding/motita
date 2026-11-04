@@ -184,9 +184,9 @@ export function useComposer({
   };
 
   // send does what the composer holds: /agents opens the agents drawer, a shell line runs in the
-  // shell, a message to a run in flight goes to the run (the agent reads it at its next step, or
-  // it waits for the end of the turn), and anything else starts a run. Stopping is Escape, or the
-  // turn's menu: typing never cuts the work off.
+  // shell, a message to a run in flight goes to the run (the model's reply in progress is cut and
+  // asked again with the message; a command already running finishes first), and anything else
+  // starts a run. Stopping is Escape, or the turn's menu: typing never throws the work away.
   const send = () => {
     const typed = composedText(input, activeTags);
     if (typed === "/agents") {

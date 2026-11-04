@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/madkoding/motita/internal/anchor"
+	"github.com/madkoding/motita/internal/steer"
 	"github.com/madkoding/motita/internal/task"
 )
 
@@ -453,8 +454,8 @@ func (r *taskRun) execute() TaskResult {
 	// A message typed while this task runs steers it (see steer.go); only the outermost task
 	// reads them, since the person talks to the turn, not to a subtask.
 	if r.depth == 0 {
-		a.steer.begin()
-		defer a.steer.end()
+		a.steer.Begin()
+		defer a.steer.End()
 	}
 	for {
 		if res, done := r.step(); done {
@@ -503,7 +504,9 @@ func (r *taskRun) step() (res TaskResult, done bool) {
 	// [7] Run in the sandbox.
 	runOutput, runErr := r.runActions(action)
 
-	if !action.isDone() {
+	// A claim of "done" made while the person wrote is weighed against the message in the next
+	// round instead of being validated as it stands.
+	if !action.isDone() || (r.depth == 0 && r.a.steer.Pending()) {
 		return r.progress(action, runOutput, runErr)
 	}
 	r.repeats, r.recent = 0, nil
@@ -607,7 +610,18 @@ func (r *taskRun) decidingLine() string {
 func (r *taskRun) decide() (action Action, usable, stop bool) {
 	a := r.a
 	a.report("%s", r.decidingLine())
+	// The person may write while the model works out the round: that cuts the call, and the
+	// round is asked again with the message in front of it (see steer.go).
+	parent := r.ctx
+	call, done := r.steerableCall()
+	r.ctx = call
 	action, err := r.actionPhase()
+	r.ctx = parent
+	cut := steer.Interrupted(parent, call)
+	done()
+	if cut {
+		return action, false, false
+	}
 	if err == nil && len(action.Actions) == 0 && !action.isDone() {
 		// Nothing to run while claiming there is work left is not a round of work: it is
 		// a reply the loop cannot act on, and the model is told so rather than being
