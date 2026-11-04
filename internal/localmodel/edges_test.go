@@ -435,12 +435,10 @@ func TestUnpackRefusals(t *testing.T) {
 			_, _ = tw.Write([]byte("f"))
 		},
 		func(tw *tar.Writer) {
-			_ = tw.WriteHeader(&tar.Header{Name: "a/l", Typeflag: tar.TypeSymlink, Linkname: "x"})
-		},
-		func(tw *tar.Writer) {
 			// A link where a folder already is cannot replace it.
 			_ = tw.WriteHeader(&tar.Header{Name: "d/", Typeflag: tar.TypeDir, Mode: 0o755})
 			_ = tw.WriteHeader(&tar.Header{Name: "d/sub/x", Typeflag: tar.TypeReg, Mode: 0o644})
+			_ = tw.WriteHeader(&tar.Header{Name: "d/y", Typeflag: tar.TypeReg, Mode: 0o644})
 			_ = tw.WriteHeader(&tar.Header{Name: "d/sub", Typeflag: tar.TypeSymlink, Linkname: "y"})
 		},
 	} {
@@ -449,8 +447,21 @@ func TestUnpackRefusals(t *testing.T) {
 			t.Errorf("blocked %d unpacked", i)
 		}
 	}
-	if err := sameFolderLink(filepath.Join(dir, "l"), ""); err != nil {
-		t.Error("an empty link is skipped")
+	// Links become copies: a chain is followed, one out of the folder, empty or to nothing is dropped.
+	p := write("links.tar.gz", tgzOf(t, map[string]string{"bin/real": "lib"}, map[string]string{
+		"bin/l1": "real", "bin/l2": "l1", "bin/up": "../real", "bin/none": "missing", "bin/empty": "",
+	}))
+	if err := unpack(p, filepath.Join(dir, "links")); err != nil {
+		t.Fatal(err)
+	}
+	for name, want := range map[string]bool{"l1": true, "l2": true, "up": false, "none": false, "empty": false} {
+		fi, err := os.Lstat(filepath.Join(dir, "links", "bin", name))
+		if got := err == nil && fi.Mode().IsRegular(); got != want {
+			t.Errorf("%s: copied %v, want %v", name, got, want)
+		}
+	}
+	if err := unpack(write("dots.zip", zipOf(t, map[string]string{"a..b": "x"})), filepath.Join(dir, "dots")); err == nil {
+		t.Error("any .. is refused")
 	}
 }
 
@@ -551,4 +562,33 @@ func TestAServerThatNeverLoadsIsStoppedAndOneThatIgnoresSIGTERMIsKilled(t *testi
 		time.Sleep(20 * time.Millisecond)
 	}
 	t.Fatal("the slow server was never stopped")
+}
+
+func TestAServerWithNobodyToTellRuns(t *testing.T) {
+	m := readyManager(t, nil)
+	if err := m.Start(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	defer m.Close()
+	deadline := time.Now().Add(20 * time.Second)
+	for !m.Status(context.Background()).Server.Running {
+		if time.Now().After(deadline) {
+			t.Fatal("never ran")
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+}
+
+func TestAbsoluteEntriesAreRefused(t *testing.T) {
+	dir := t.TempDir()
+	z := filepath.Join(dir, "abs.zip")
+	_ = os.WriteFile(z, zipOf(t, map[string]string{"/abs": "x"}), 0o600)
+	if err := unpack(z, filepath.Join(dir, "z")); err == nil {
+		t.Error("absolute zip entry")
+	}
+	g := filepath.Join(dir, "abs.tar.gz")
+	_ = os.WriteFile(g, tgzOf(t, map[string]string{"/abs": "x"}, nil), 0o600)
+	if err := unpack(g, filepath.Join(dir, "g")); err == nil {
+		t.Error("absolute tar entry")
+	}
 }

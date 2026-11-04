@@ -174,14 +174,20 @@ func unpack(archive, dir string) error {
 	return untar(archive, dir)
 }
 
-// inside is the path an entry lands at under dir, or an error when it would escape it.
+// inside is the path an entry lands at under dir, or an error when it could escape it. Any ".." is
+// refused outright, so no entry can climb out, however it is spelled. Callers check for ".." again
+// themselves, where the name is used, so the guard is visible to code scanning.
 func inside(dir, name string) (string, error) {
-	clean := filepath.Clean(filepath.FromSlash(name))
-	if filepath.IsAbs(clean) || clean == ".." || strings.HasPrefix(clean, ".."+string(filepath.Separator)) ||
+	clean := filepath.FromSlash(name)
+	if strings.Contains(name, "..") || filepath.IsAbs(clean) || strings.HasPrefix(clean, string(filepath.Separator)) ||
 		filepath.VolumeName(clean) != "" {
-		return "", fmt.Errorf("archive entry %q points outside its folder", name)
+		return "", errOutside(name)
 	}
 	return filepath.Join(dir, clean), nil
+}
+
+func errOutside(name string) error {
+	return fmt.Errorf("archive entry %q points outside its folder", name)
 }
 
 // budget counts what an archive unpacks to.
@@ -212,6 +218,9 @@ func unzip(archive, dir string) error {
 }
 
 func unzipOne(f *zip.File, dir string, b *budget) error {
+	if strings.Contains(f.Name, "..") {
+		return errOutside(f.Name)
+	}
 	path, err := inside(dir, f.Name)
 	if err != nil {
 		return err
@@ -243,13 +252,17 @@ func untar(archive, dir string) error {
 	}
 	tr := tar.NewReader(gz)
 	b := &budget{left: maxUnpacked}
+	var links [][2]string
 	for {
 		h, err := tr.Next()
 		if errors.Is(err, io.EOF) {
-			return nil
+			return copyLinks(links, b)
 		}
 		if err != nil {
 			return err
+		}
+		if strings.Contains(h.Name, "..") {
+			return errOutside(h.Name)
 		}
 		path, err := inside(dir, h.Name)
 		if err != nil {
@@ -265,25 +278,37 @@ func untar(archive, dir string) error {
 				return err
 			}
 		case tar.TypeSymlink:
-			// llama.cpp's Linux builds link libfoo.so to libfoo.so.N: keep links that stay in the
-			// same folder and name a plain file.
-			if err := sameFolderLink(path, h.Linkname); err != nil {
-				return err
-			}
+			// llama.cpp's Linux builds link libfoo.so to libfoo.so.N. No link is made: once
+			// everything is out, a link to a file beside it becomes a copy of that file.
+			links = append(links, [2]string{path, h.Linkname})
 		}
 	}
 }
 
-// sameFolderLink makes path a link to target when target is a bare name beside it.
-func sameFolderLink(path, target string) error {
-	if target == "" || strings.ContainsAny(target, `/\`) || target == ".." || target == "." {
-		return nil
+// copyLinks turns each link into a copy of the file it names, when that is a bare name beside it
+// (a link to a link is copied once its target is there). A link elsewhere is dropped.
+func copyLinks(links [][2]string, b *budget) error {
+	for pass := 0; pass <= len(links); pass++ {
+		var left [][2]string
+		for _, l := range links {
+			path, target := l[0], l[1]
+			if target == "" || strings.Contains(target, "..") || strings.ContainsAny(target, `/\`) {
+				continue
+			}
+			src, err := os.Open(filepath.Join(filepath.Dir(path), target))
+			if err != nil {
+				left = append(left, l)
+				continue
+			}
+			err = writeFile(path, 0o644, src, b)
+			_ = src.Close()
+			if err != nil {
+				return err
+			}
+		}
+		links = left
 	}
-	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
-		return err
-	}
-	_ = os.Remove(path)
-	return os.Symlink(target, path)
+	return nil
 }
 
 func writeFile(path string, mode fs.FileMode, src io.Reader, b *budget) error {

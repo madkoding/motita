@@ -319,8 +319,8 @@ func TestUnpackZipAndTar(t *testing.T) {
 	if err := unpack(tgz, filepath.Join(dir, "t")); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := os.Lstat(filepath.Join(dir, "t", "build", "bin", "libggml.so")); err != nil {
-		t.Error("a link beside its target is kept")
+	if b, err := os.ReadFile(filepath.Join(dir, "t", "build", "bin", "libggml.so")); err != nil || string(b) != "lib" {
+		t.Error("a link beside its target becomes a copy of it")
 	}
 	if _, err := os.Lstat(filepath.Join(dir, "t", "build", "bin", "evil")); err == nil {
 		t.Error("a link out of the folder is skipped")
