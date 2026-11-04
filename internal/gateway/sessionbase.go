@@ -151,27 +151,13 @@ func (s *Server) settleAfterPR(ctx context.Context, c *conversation, repo, base 
 		// A thread's worktree, or nothing to settle.
 		return
 	}
-	main := base
-	if dir == p.Dir {
-		main = cmp.Or(startBranchOf(ctx, p), base)
-	} else {
-		main = cmp.Or(startBranchOf(ctx, &Project{Dir: dir}), base)
-	}
+	main := settleBranch(ctx, p, dir, base)
 	if main == "" {
 		return
 	}
 	head := gitx.Display(ctx, dir)
-	if head != main {
-		if dirty, err := gitx.Dirty(ctx, dir); err != nil || dirty {
-			s.warn("the checkout stays on the pull request's branch: it has uncommitted changes",
-				"session", c.id, "dir", dir, "branch", head)
-			return
-		}
-		if err := gitx.Checkout(ctx, dir, main); err != nil {
-			s.warn("the checkout could not go back to the main branch after the pull request",
-				"session", c.id, "dir", dir, "branch", main, "error", err.Error())
-			return
-		}
+	if head != main && !s.returnToBranch(ctx, c, dir, head, main) {
+		return
 	}
 	if dir == p.Dir {
 		s.syncProject(ctx, c, main)
@@ -179,9 +165,39 @@ func (s *Server) settleAfterPR(ctx context.Context, c *conversation, repo, base 
 		s.warn("the repository could not be brought up to date after the pull request",
 			"session", c.id, "dir", dir, "branch", main, "error", err.Error())
 	}
-	if head == main || !merged {
-		return
+	if head != main && merged {
+		s.dropMergedBranch(ctx, c, dir, head)
 	}
+}
+
+// settleBranch is the main branch the repository at dir goes back to: the project's when dir is
+// its folder, the repository's own otherwise, and the pull request's base when neither is known.
+func settleBranch(ctx context.Context, p *Project, dir, base string) string {
+	if dir == p.Dir {
+		return cmp.Or(startBranchOf(ctx, p), base)
+	}
+	return cmp.Or(startBranchOf(ctx, &Project{Dir: dir}), base)
+}
+
+// returnToBranch checks dir out on main, and reports whether it did: a dirty checkout, or one git
+// refuses to move, stays on head with a warning.
+func (s *Server) returnToBranch(ctx context.Context, c *conversation, dir, head, main string) bool {
+	if dirty, err := gitx.Dirty(ctx, dir); err != nil || dirty {
+		s.warn("the checkout stays on the pull request's branch: it has uncommitted changes",
+			"session", c.id, "dir", dir, "branch", head)
+		return false
+	}
+	if err := gitx.Checkout(ctx, dir, main); err != nil {
+		s.warn("the checkout could not go back to the main branch after the pull request",
+			"session", c.id, "dir", dir, "branch", main, "error", err.Error())
+		return false
+	}
+	return true
+}
+
+// dropMergedBranch deletes the branch a merged pull request came from: the session's own with
+// -D (the host merged it), any other only when git agrees it is merged.
+func (s *Server) dropMergedBranch(ctx context.Context, c *conversation, dir, head string) {
 	var err error
 	if head == sessionBranch(c.id) {
 		err = gitx.ForceDeleteBranch(ctx, dir, head)

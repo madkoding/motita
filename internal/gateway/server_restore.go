@@ -214,7 +214,8 @@ func (s *Server) restoredWorkspace(rec sessionRecord) string {
 	if rec.Workspace == "" || rec.WorktreeReleased || gitx.SamePath(rec.Workspace, rec.ProjectDir) {
 		return rec.ProjectDir
 	}
-	wt, err := s.sessionWorktree(s.baseCtx, rec.ProjectDir, rec.ID, startBranchOf(s.baseCtx, &Project{Dir: rec.ProjectDir}))
+	start := startBranchOf(s.baseCtx, &Project{Dir: rec.ProjectDir})
+	wt, err := s.sessionWorktree(s.baseCtx, rec.ProjectDir, rec.ID, start)
 	if err != nil {
 		s.warn("the restored session will run in the project directory: its worktree could not be re-created",
 			"id", rec.ID, "project", rec.ProjectDir, "error", err.Error())
