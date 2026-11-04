@@ -148,6 +148,7 @@ func (s *Server) restoreSession(rec sessionRecord) bool {
 	workspace := s.restoredWorkspace(rec)
 	projectDir := rec.ProjectDir
 	conv.setProjectID(rec.ProjectID, workspace, projectDir)
+	conv.setBase(projectBase(s.baseCtx, s.projectOf(rec.ProjectID)))
 	// Restore the last task/kind so the session knows what it was doing
 	// before the restart. The running flag is restored separately by
 	// resumeInterruptedSessions, which needs the service to be fully
@@ -211,7 +212,7 @@ func (s *Server) restoredWorkspace(rec sessionRecord) string {
 	if rec.Workspace == "" || gitx.SamePath(rec.Workspace, rec.ProjectDir) {
 		return rec.ProjectDir
 	}
-	wt, err := s.sessionWorktree(s.baseCtx, rec.ProjectDir, rec.ID)
+	wt, err := s.sessionWorktree(s.baseCtx, rec.ProjectDir, rec.ID, startBranchOf(s.baseCtx, &Project{Dir: rec.ProjectDir}))
 	if err != nil {
 		s.warn("the restored session will run in the project directory: its worktree could not be re-created",
 			"id", rec.ID, "project", rec.ProjectDir, "error", err.Error())

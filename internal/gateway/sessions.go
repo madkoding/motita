@@ -132,6 +132,9 @@ type conversation struct {
 	// worktree as its workspace, and comparing its branch against ITSELF would
 	// always report "nothing to merge".
 	projectDir string
+	// baseBranch is the project's main branch as decided when the session was placed: what its
+	// work starts from and is compared with (see sessionbase.go).
+	baseBranch string
 
 	// current is the run in flight, and nil when there is none.
 	//
@@ -429,11 +432,14 @@ type SessionStatus struct {
 	Title     string `json:"title"`
 	ProjectID string `json:"project_id,omitempty"`
 	// ParentID is the id of the project's main session when this session is one of its threads.
-	ParentID string    `json:"parent_id,omitempty"`
-	Branch   string    `json:"branch,omitempty"`
-	Created  time.Time `json:"created"`
-	LastUsed time.Time `json:"last_used"`
-	Running  bool      `json:"running"`
+	ParentID string `json:"parent_id,omitempty"`
+	Branch   string `json:"branch,omitempty"`
+	// BaseBranch is the project's main branch the session's work is compared with and proposed
+	// into. Absent outside a project, or when its repository has no main branch yet.
+	BaseBranch string    `json:"base_branch,omitempty"`
+	Created    time.Time `json:"created"`
+	LastUsed   time.Time `json:"last_used"`
+	Running    bool      `json:"running"`
 	// Rev moves when a turn starts or ends in the session (see conversation.rev): a page that
 	// shows the session and did not start that turn reads the conversation again when it moves.
 	Rev uint64 `json:"rev"`
@@ -587,6 +593,13 @@ func (c *conversation) workspaceStatus(st *SessionStatus) {
 	if c.projectDir != "" {
 		base = gitx.Display(ctx, c.projectDir)
 	}
+	// The project's main branch, when it is known: the folder's own branch is only the fallback
+	// for a repository without one. A folder sitting on a session's branch would otherwise be
+	// the base every session is compared with.
+	if c.baseBranch != "" && gitx.BranchExists(ctx, c.projectDir, c.baseBranch) {
+		base = c.baseBranch
+		st.BaseBranch = base
+	}
 	if c.merged {
 		st.Merged = true
 		st.MergedSHA = c.mergedSha
@@ -666,7 +679,12 @@ func (c *conversation) branchAhead(ctx context.Context, base string) bool {
 // same session always resolves to the same directory. This is the ONLY place
 // that decides where a session runs: a second copy of that rule is how a
 // session ends up reporting one directory while running in another.
-func (s *Server) sessionWorktree(ctx context.Context, repoDir, sessionID string) (string, error) {
+//
+// start is the branch a NEW session branch starts from: the project's main branch (see
+// freshStart), never whatever the project's folder has checked out. "" lets git start from the
+// folder's HEAD, for a repository with no main branch yet. A branch the session already has is
+// reattached as it is, wherever it started.
+func (s *Server) sessionWorktree(ctx context.Context, repoDir, sessionID, start string) (string, error) {
 	if strings.TrimSpace(s.opts.WorkspaceDir) == "" {
 		// Without a workspace root there is nowhere to put a worktree, and a
 		// relative path would be resolved against the process's own directory.
@@ -692,7 +710,7 @@ func (s *Server) sessionWorktree(ctx context.Context, repoDir, sessionID string)
 	if _, ok, err := gitx.LiveWorktreeAt(ctx, repoDir, path); err == nil && ok {
 		return path, nil
 	}
-	if err := gitx.AddWorktree(ctx, repoDir, path, branch); err != nil {
+	if err := gitx.AddWorktreeFrom(ctx, repoDir, path, branch, start); err != nil {
 		return repoDir, err
 	}
 	// The checkout is complete as far as git is concerned, and that is not the same as
@@ -745,8 +763,9 @@ func applyRuntimeTo(svc Service, p *Project, workspace string) {
 	}
 	if setter, ok := svc.(interface{ SetProjectNote(string) }); ok {
 		home, _ := os.UserHomeDir()
-		setter.SetProjectNote(projectScopeNote(p, workspace) + projectReposNote(p) +
-			nestedReposNote(context.Background(), workspace) + dependenciesNote(p) +
+		ctx := context.Background()
+		setter.SetProjectNote(projectScopeNote(p, workspace) + sessionBranchNote(ctx, workspace, projectBase(ctx, p)) +
+			projectReposNote(p) + nestedReposNote(ctx, workspace) + dependenciesNote(p) +
 			projectInstructionsNote(workspace, home))
 	}
 }
@@ -1045,14 +1064,16 @@ func (s *Server) placeAndSave(conv *conversation, projectID string, project *Pro
 // run. A failure to branch falls back to the project's own directory.
 func (s *Server) placeInProject(conv *conversation, projectID string, project *Project, isolate bool) {
 	dir := project.Dir
+	ctx := context.Background()
+	conv.setBase(projectBase(ctx, project))
 	if isolate {
-		if wt, wtErr := s.sessionWorktree(context.Background(), project.Dir, conv.id); wtErr != nil {
+		if wt, wtErr := s.sessionWorktree(ctx, project.Dir, conv.id, s.freshStart(ctx, project)); wtErr != nil {
 			s.warn("the session will run in the project directory: its own worktree could not be created",
 				"id", conv.id, "project", project.Dir, "error", wtErr.Error())
 		} else {
 			dir = wt
 		}
-		s.attachProjectRepos(context.Background(), project, dir, conv.id)
+		s.attachProjectRepos(ctx, project, dir, conv.id)
 	}
 	conv.setProjectID(projectID, dir, project.Dir)
 	conv.svc.SetWorkspace(dir)

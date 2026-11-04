@@ -163,7 +163,7 @@ func TestSessionWorktreeIsCreatedOnceAndReused(t *testing.T) {
 	mustRun(t, "git", "-C", ss.Workspace, "add", "work.txt")
 	mustRun(t, "git", "-C", ss.Workspace, "commit", "-qm", "session work")
 
-	again, err := srv.sessionWorktree(ctx, p.Dir, ss.ID)
+	again, err := srv.sessionWorktree(ctx, p.Dir, ss.ID, "")
 	if err != nil {
 		t.Fatalf("sessionWorktree on an existing worktree: %v", err)
 	}

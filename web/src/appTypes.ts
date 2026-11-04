@@ -58,6 +58,8 @@ export interface SessionInfo {
   // parent_id is the project's main session when this one is a thread of it.
   parent_id?: string;
   branch?: string;
+  /** The project's main branch the session's work is compared with and proposed into. */
+  base_branch?: string;
   mergeable?: boolean;
   pr_ready?: boolean;
   merged?: boolean;

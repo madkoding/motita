@@ -325,6 +325,7 @@ func (s *Server) handleUpdateProject(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	for _, c := range s.sessionsOfProject(p.ID) {
+		c.setBase(projectBase(r.Context(), p))
 		applyRuntimeTo(c.svc, p, c.workspaceDir())
 	}
 	// With no sessions the checkout belongs on the main branch, including a main branch just chosen.
@@ -869,6 +870,7 @@ func (s *Server) continueFrom(ctx context.Context, c *conversation) (*conversati
 		dir = s.isolatedDir(ctx, p, newConv.id)
 	}
 	newConv.setProjectID(c.projectID, dir, p.Dir)
+	newConv.setBase(projectBase(ctx, p))
 	newConv.svc.SetWorkspace(dir)
 	// The title says where it came from, but only if the old session had a real one.
 	if !isPlaceholderTitle(c.title) {
@@ -884,7 +886,7 @@ func (s *Server) continueFrom(ctx context.Context, c *conversation) (*conversati
 // continues isolated. A worktree that cannot be made falls back to the project's folder.
 func (s *Server) isolatedDir(ctx context.Context, p *Project, id string) string {
 	dir := p.Dir
-	if wt, err := s.sessionWorktree(ctx, p.Dir, id); err != nil {
+	if wt, err := s.sessionWorktree(ctx, p.Dir, id, s.freshStart(ctx, p)); err != nil {
 		if s.opts.Log != nil {
 			s.opts.Log.Warn("the continued session will run in the project directory: its own worktree could not be created",
 				"id", id, "project", p.Dir, "error", err.Error())

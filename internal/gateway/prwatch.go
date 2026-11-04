@@ -545,6 +545,7 @@ func (s *Server) pollPassed(c *conversation, w *prWatchState, t prTarget) bool {
 	case gitforge.PRClosed:
 		w.status = prClosed
 		s.publishPR(c, w, number)
+		s.settleAfterPR(ctx, c, w.repo, "", false)
 		return true
 	default:
 		// Still open: watched again on the next round.
@@ -659,7 +660,7 @@ func (s *Server) finishMerge(ctx context.Context, c *conversation, repo string, 
 		c.setMerged(sha)
 	}
 	s.saveSession(c)
-	s.syncProject(ctx, c, base)
+	s.settleAfterPR(ctx, c, repo, base, true)
 	s.syncSharedRepos(ctx, s.projectOf(c.projectID))
 	s.autoContinue(ctx, c, number)
 }
