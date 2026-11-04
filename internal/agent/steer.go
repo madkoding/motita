@@ -26,7 +26,9 @@ func (a *Agent) UnreadSteering() []string {
 // writes. A subtask's calls are not cut, since only the outermost run reads the messages.
 func (r *taskRun) steerableCall() (context.Context, func()) {
 	if r.depth != 0 {
-		return r.ctx, func() {}
+		return r.ctx, func() {
+			// A subtask's call was not registered with the inbox: there is nothing to release.
+		}
 	}
 	return r.a.steer.Call(r.ctx)
 }

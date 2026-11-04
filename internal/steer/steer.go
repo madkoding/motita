@@ -100,7 +100,9 @@ func (b *Inbox) Call(ctx context.Context) (context.Context, func()) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	if !b.open {
-		return ctx, func() {}
+		return ctx, func() {
+			// Nothing was registered for a closed inbox: there is nothing to release.
+		}
 	}
 	cctx, cancel := context.WithCancelCause(ctx)
 	if len(b.notes) > 0 {

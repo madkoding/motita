@@ -541,17 +541,7 @@ func (p *Planner) Run(ctx context.Context, input string) (string, error) {
 			continue
 		}
 		if !reply.WantsTools() {
-			answer := p.finalize(reply.Content)
-			pinIfPlan(sess, input, answer)
-			// Background self-improvement: after the answer is delivered, a
-			// separate goroutine replays the transcript and patches the skill
-			// library. Best-effort: if the process exits, the review is lost.
-			// The fork runs only when enough tool-iterations elapsed without a
-			// save_skill, so a turn that already saved a skill is not re-reviewed.
-			if p.review != nil {
-				p.review.MaybeRun(p.reviewStore(), sess.Messages(), p.itersSinceSkill)
-			}
-			return answer, nil
+			return p.deliver(sess, input, reply.Content), nil
 		}
 
 		look.note(reply.Calls)
@@ -598,6 +588,20 @@ func (p *Planner) Run(ctx context.Context, input string) (string, error) {
 		p.review.MaybeRun(p.reviewStore(), sess.Messages(), p.itersSinceSkill)
 	}
 	return answer, nil
+}
+
+// deliver ends the turn with the model's answer: pinned when it is a plan, and handed to the review.
+func (p *Planner) deliver(sess *session.Session, input, content string) string {
+	answer := p.finalize(content)
+	pinIfPlan(sess, input, answer)
+	// Background self-improvement: after the answer is delivered, a separate goroutine replays
+	// the transcript and patches the skill library. Best-effort: if the process exits, the review
+	// is lost. The fork runs only when enough tool-iterations elapsed without a save_skill, so a
+	// turn that already saved a skill is not re-reviewed.
+	if p.review != nil {
+		p.review.MaybeRun(p.reviewStore(), sess.Messages(), p.itersSinceSkill)
+	}
+	return answer
 }
 
 // Steer hands the turn in flight a message from the person, and cuts the model call it is waiting
