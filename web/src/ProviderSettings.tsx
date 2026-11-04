@@ -49,7 +49,7 @@ const LOGIN_REFUSALS: Record<string, string> = {
   gemini_no_project:
     "The Google login has no Google Cloud project. Paste an AI Studio key instead.",
   gemini_expired:
-    "The Google login on this computer has expired. Paste an AI Studio key instead.",
+    "The Google login on this computer has expired. Run gcloud auth application-default login there and sign in again, or paste an AI Studio key.",
 };
 
 // failureText is what a refused request is shown as: the codes the gateway names get a sentence
@@ -257,10 +257,15 @@ function ProviderRow(
 
 // explanation says how a provider connects, for the source its key comes from.
 function explanation(p: LLMProvider): string {
-  if (p.key === "expired") {
+  if (p.key === "expired" && p.login) {
     return tf(
-      "Its own command's sign-in expired and could not be renewed: run {cmd} on the gateway's machine, as the same user, then send the message again.",
-      { cmd: p.login || "" },
+      "Its own command's sign-in expired and could not be renewed: sign in again below, or run {cmd} on the gateway's machine as the same user.",
+      { cmd: p.login },
+    );
+  }
+  if (p.key === "expired") {
+    return t(
+      "The sign-in expired and could not be renewed: sign in again below.",
     );
   }
   if (p.key === "not_needed" && p.login) {
@@ -692,7 +697,7 @@ function loginLabel(busy: boolean, p: LLMProvider): string {
     return t("Starting…");
   }
   return choose(
-    p.key === "login",
+    p.key === "login" || p.key === "expired",
     t("Sign in again"),
     t("Sign in with your account"),
   );
@@ -749,25 +754,37 @@ function PendingLogin({
               "If the page ends on an address that does not load, paste that address here.",
             )}
           </p>
-          <div class="llm-actions">
-            <input
-              class={inputCls + " font-mono flex-1"}
-              value={pasted}
-              placeholder="localhost:1455/auth/callback?code=…"
-              aria-label={t("Address the browser ended on")}
-              autocapitalize="off"
-              spellcheck={false}
-              onInput={(e) => onPasted((e.target as HTMLInputElement).value)}
-            />
-            <button
-              type="button"
-              class={smallBtn}
-              disabled={!pasted.trim() || sent}
-              onClick={() => void onPaste()}
-            >
-              {t("Send")}
-            </button>
-          </div>
+          <PasteRow
+            label={t("Address the browser ended on")}
+            placeholder="localhost:1455/auth/callback?code=…"
+            pasted={pasted}
+            sent={sent}
+            onPasted={onPasted}
+            onPaste={onPaste}
+          />
+        </div>
+      )}
+      {login.method === "paste" && (
+        <div class="llm-login-step">
+          <a
+            class="text-xs text-accent underline underline-offset-2"
+            href={login.url}
+            target="_blank"
+            rel="noopener noreferrer"
+          >
+            {t("Open the sign-in page")} ↗
+          </a>
+          <p class="text-xs text-[#9a9aaa]">
+            {t("Sign in on the page, then paste here the code it shows.")}
+          </p>
+          <PasteRow
+            label={t("Code from the sign-in page")}
+            placeholder=""
+            pasted={pasted}
+            sent={sent}
+            onPasted={onPasted}
+            onPaste={onPaste}
+          />
         </div>
       )}
       <div class="llm-actions">
@@ -779,5 +796,44 @@ function PendingLogin({
         </button>
       </div>
     </>
+  );
+}
+
+// PasteRow takes what the sign-in page gave (an address, a code) and sends it to the gateway.
+function PasteRow({
+  label,
+  placeholder,
+  pasted,
+  sent,
+  onPasted,
+  onPaste,
+}: {
+  label: string;
+  placeholder: string;
+  pasted: string;
+  sent: boolean;
+  onPasted: (v: string) => void;
+  onPaste: () => Promise<void>;
+}) {
+  return (
+    <div class="llm-actions">
+      <input
+        class={inputCls + " font-mono flex-1"}
+        value={pasted}
+        placeholder={placeholder}
+        aria-label={label}
+        autocapitalize="off"
+        spellcheck={false}
+        onInput={(e) => onPasted((e.target as HTMLInputElement).value)}
+      />
+      <button
+        type="button"
+        class={smallBtn}
+        disabled={!pasted.trim() || sent}
+        onClick={() => void onPaste()}
+      >
+        {t("Send")}
+      </button>
+    </div>
   );
 }

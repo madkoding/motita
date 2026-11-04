@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/madkoding/motita/internal/config"
+	"github.com/madkoding/motita/internal/llm"
 	"github.com/madkoding/motita/internal/oauth"
 	"github.com/madkoding/motita/internal/onboard"
 )
@@ -27,12 +28,16 @@ import (
 //   - codex is a redirect to localhost:1455 on the gateway's machine. A browser on that machine
 //     completes it on its own; any other pastes the address the browser ended on.
 //   - gemini uses gcloud's Application Default Credentials on the gateway's machine, at once.
+//   - claude-code runs `claude auth login` on the gateway's machine: the page opens Anthropic's
+//     sign-in and pastes the code it shows. claude stores its own login; motita stores nothing.
 
 // loginFlow is a started login: what the page shows, and how to wait for its end.
 type loginFlow struct {
-	Method string // device | code | instant
-	URL    string
-	Code   string
+	Method string // device | code | paste | instant
+	// External says the provider's own tool stores the login (claude): Wait returns no credential.
+	External bool
+	URL      string
+	Code     string
 	// Wait blocks until the provider answers. pasted carries what the user pasted (code flows).
 	Wait func(ctx context.Context, pasted <-chan string) (oauth.Credential, error)
 }
@@ -46,6 +51,28 @@ var llmLoginStarters = map[string]func(ctx context.Context) (loginFlow, error){
 	"copilot": copilotLogin,
 	"codex":   codexLogin,
 	"gemini":  geminiLogin,
+	// claude-code's is its own command's, which keeps its login where it always does.
+	claudeCodeID: claudeCodeLogin,
+}
+
+// startClaudeLogin is llm.StartClaudeLogin, as a variable so a test needs no claude.
+var startClaudeLogin = func(ctx context.Context) (string, func(context.Context, <-chan string) error, error) {
+	l, err := llm.StartClaudeLogin(ctx)
+	if err != nil {
+		return "", nil, err
+	}
+	return l.URL, l.Wait, nil
+}
+
+func claudeCodeLogin(ctx context.Context) (loginFlow, error) {
+	url, wait, err := startClaudeLogin(ctx)
+	if err != nil {
+		return loginFlow{}, err
+	}
+	return loginFlow{Method: "paste", URL: url, External: true,
+		Wait: func(ctx context.Context, pasted <-chan string) (oauth.Credential, error) {
+			return oauth.Credential{}, wait(ctx, pasted)
+		}}, nil
 }
 
 // startCodexLoopback is oauth.StartLoopback, as a variable so a test needs no port 1455.
@@ -115,7 +142,8 @@ func geminiLogin(ctx context.Context) (loginFlow, error) {
 	cred, err = oauth.GeminiRefresh(ctx, nil, cred)
 	if err != nil {
 		return loginFlow{}, &loginRefusal{"gemini_expired",
-			"The Google login on this computer has expired: paste an AI Studio key instead"}
+			"The Google login on this computer has expired: renew it there and sign in again, " +
+				"or paste an AI Studio key"}
 	}
 	return loginFlow{Method: "instant",
 		Wait: func(context.Context, <-chan string) (oauth.Credential, error) { return cred, nil }}, nil
@@ -217,7 +245,7 @@ func (s *Server) waitLogin(ctx context.Context, l *llmLogin, p onboard.Provider,
 	defer close(done)
 	defer l.cancel()
 	cred, err := l.flow.Wait(ctx, l.paste)
-	if err == nil {
+	if err == nil && !l.flow.External {
 		cred.Provider = p.ID
 		err = saveLogin(config.AuthDir(), cred)
 	}
@@ -225,6 +253,8 @@ func (s *Server) waitLogin(ctx context.Context, l *llmLogin, p onboard.Provider,
 		l.finish("failed", err.Error())
 		return
 	}
+	// A new sign-in is a working one: the provider is no longer shown as expired.
+	llm.NoteSignIn(p.ID, true)
 	// The sessions first: once the page reads "connected", they already run on the login.
 	s.refreshSessions(p.ID)
 	l.finish("connected", "")
@@ -262,7 +292,7 @@ func (s *Server) handleLLMLoginPaste(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	if l.flow.Method != "code" || strings.TrimSpace(body.Code) == "" {
+	if (l.flow.Method != "code" && l.flow.Method != "paste") || strings.TrimSpace(body.Code) == "" {
 		writeError(w, http.StatusBadRequest, "this login takes no pasted code")
 		return
 	}

@@ -249,10 +249,6 @@ const more: Record<string, string> = {
     "Conectado · clave en el archivo de configuración",
   "Connected · signed in": "Conectado · sesión iniciada",
   "Ready · no key needed": "Listo · no necesita clave",
-  "Sign-in expired · sign in again":
-    "Sesión caducada · vuelve a iniciar sesión",
-  "Its own command's sign-in expired and could not be renewed: run {cmd} on the gateway's machine, as the same user, then send the message again.":
-    "La sesión de su propio comando caducó y no se pudo renovar: ejecuta {cmd} en la máquina del gateway, con el mismo usuario, y vuelve a enviar el mensaje.",
   Manage: "Gestionar",
   "Set up {name}": "Configurar {name}",
   "It uses the login of its own command: run {cmd} on the gateway's machine.":
@@ -309,8 +305,6 @@ const more: Record<string, string> = {
     "No se puede usar el inicio de sesión de Google de este equipo. Pega una clave de AI Studio.",
   "The Google login has no Google Cloud project. Paste an AI Studio key instead.":
     "El inicio de sesión de Google no tiene un proyecto de Google Cloud. Pega una clave de AI Studio.",
-  "The Google login on this computer has expired. Paste an AI Studio key instead.":
-    "El inicio de sesión de Google de este equipo caducó. Pega una clave de AI Studio.",
   "The sign-in did not finish: {err}": "El inicio de sesión no terminó: {err}",
   Network: "Red",
   Security: "Seguridad",

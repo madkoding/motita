@@ -33,6 +33,7 @@ import { useRowMenus } from "./useRowMenus";
 import { useRepoGit } from "./useRepoGit";
 import { useFinishedElsewhere, useOnScreenSync } from "./sessionWatch";
 import type { Api } from "./prApi";
+import type { Tab } from "./Settings";
 import { useVoice } from "./useVoice";
 import { useSpeech } from "./useSpeech";
 import { useVoiceConversation } from "./useVoiceConversation";
@@ -58,6 +59,29 @@ function useSessionSync(
 
 // machine is the computer the page is pointed at ("" for this one), for what cannot go through api:
 // the terminal's WebSocket.
+// useSettingsDialog is whether the settings dialog is open and on which tab: the first one, or the
+// providers when a failed sign-in sends the person there.
+function useSettingsDialog() {
+  const [showSettings, setShowSettings] = useState(false);
+  const [settingsTab, setSettingsTab] = useState<Tab | undefined>(undefined);
+  const openSettings = useCallback(() => {
+    setSettingsTab(undefined);
+    setShowSettings(true);
+  }, []);
+  const openProviders = useCallback(() => {
+    setSettingsTab("providers");
+    setShowSettings(true);
+  }, []);
+  const closeSettings = useCallback(() => setShowSettings(false), []);
+  return {
+    showSettings,
+    settingsTab,
+    openSettings,
+    openProviders,
+    closeSettings,
+  };
+}
+
 export function useAppStore(api: Api, machine = "") {
   const rs = useRunState();
   const status = useToastStatus();
@@ -198,9 +222,8 @@ export function useAppStore(api: Api, machine = "") {
   const language = useLanguage(api, auth.authState, setToast);
   usePrefsSync(api, auth.authState);
   const menus = useRowMenus();
-  const [showSettings, setShowSettings] = useState(false);
-  const openSettings = useCallback(() => setShowSettings(true), []);
-  const closeSettings = useCallback(() => setShowSettings(false), []);
+  const settings = useSettingsDialog();
+  const { closeSettings } = settings;
   const repoGit = useRepoGit({
     api,
     setState,
@@ -251,9 +274,7 @@ export function useAppStore(api: Api, machine = "") {
     language,
     menus,
     repoGit,
-    showSettings,
-    openSettings,
-    closeSettings,
+    ...settings,
     selectedSession,
     isMerged: selectedSession?.merged === true,
   };

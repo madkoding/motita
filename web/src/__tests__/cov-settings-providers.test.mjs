@@ -142,7 +142,7 @@ test("failureText names the refusals the gateway codes, and passes anything else
   ]) {
     assert.match(
       failureText(new LLMError("english", 502, code)),
-      /Paste an AI Studio key instead/,
+      /AI Studio key/,
       code,
     );
   }
@@ -733,10 +733,57 @@ test("a command whose sign-in expired offers Connect and says how to sign in aga
   const form = await open(m, "claudecli");
   assert.match(
     text(form.querySelector("p")),
-    /sign-in expired and could not be renewed: run claude login on the gateway's machine/,
+    /sign in again below, or run claude login on the gateway's machine/,
   );
   assert.equal(form.querySelector("input[type=password]"), null);
   const other = await open(m, "bare");
-  assert.match(text(other.querySelector("p")), /run +on the gateway's machine/);
+  assert.match(
+    text(other.querySelector("p")),
+    /^The sign-in expired and could not be renewed: sign in again below\./,
+  );
+  await m.unmount();
+});
+
+test("an expired sign-in signs in again by pasting the code the page shows", async () => {
+  const claude = {
+    ...P.claudecli,
+    key: "expired",
+    supports_login: true,
+  };
+  const f = fakeApi({
+    "GET /v1/llm": json(200, { ...VIEW, providers: [claude] }),
+    "POST /v1/llm/providers/claudecli/login": json(200, {
+      id: "f9",
+      provider: "claudecli",
+      method: "paste",
+      status: "pending",
+      url: "https://claude.com/cai/oauth/authorize?x",
+    }),
+    "POST /v1/llm/logins/f9/paste": json(204),
+    "DELETE /v1/llm/logins/f9": json(204),
+  });
+  const m = await mount(f.api);
+  const claudeLogin = (mm) =>
+    mm.row("claudecli").querySelector("[data-testid=llm-login]");
+  await open(m, "claudecli");
+  await press(btn(claudeLogin(m), "Sign in again"));
+  const lr = claudeLogin(m);
+  assert.equal(
+    byText(lr, "a", "Open the sign-in page").getAttribute("href"),
+    "https://claude.com/cai/oauth/authorize?x",
+  );
+  assert.match(text(lr), /paste here the code it shows/);
+  const input = lr.querySelector(
+    "input[aria-label='Code from the sign-in page']",
+  );
+  type(input, " abc#def ");
+  await settle();
+  await press(btn(lr, "Send"));
+  assert.deepEqual(f.calls.at(-1), {
+    method: "POST",
+    path: "/v1/llm/logins/f9/paste",
+    body: { code: "abc#def" },
+  });
+  await press(btn(lr, "Cancel"));
   await m.unmount();
 });

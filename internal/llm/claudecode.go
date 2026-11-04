@@ -332,17 +332,9 @@ func (claudeOverrun) Unwrap() error { return context.DeadlineExceeded }
 // also the same on every call, which the prompt cache needs. With the flags claude is given it
 // reports the directory but loads nothing from it (a CLAUDE.md there is ignored, measured).
 func startClaude(ctx context.Context, idle time.Duration, args, env []string) (*claudeProcess, error) {
-	bin := os.Getenv("MOTITA_CLAUDE_BIN")
-	if bin == "" {
-		bin = "claude"
-	}
-	// Absolute, so what runs does not depend on the directory it runs in.
-	path, err := exec.LookPath(bin)
-	if err == nil {
-		path, err = filepath.Abs(path)
-	}
-	if errors.Is(err, exec.ErrNotFound) || errors.Is(err, fs.ErrNotExist) {
-		return nil, fatalError{fmt.Errorf("%s was not found (%w): install Claude Code and run `claude auth login`", bin, err)}
+	bin, path, err := claudeBinary()
+	if errors.As(err, new(fatalError)) {
+		return nil, err
 	}
 	p := &claudeProcess{idle: idle}
 	ceilingCtx, stopCeiling := context.WithTimeoutCause(ctx, claudeCeiling, claudeOverrun{claudeCeiling})
@@ -380,6 +372,24 @@ func startClaude(ctx context.Context, idle time.Duration, args, env []string) (*
 	p.out = bufio.NewScanner(stdout)
 	p.out.Buffer(make([]byte, 0, 64<<10), 64<<20)
 	return p, nil
+}
+
+// claudeBinary is the claude CLI to run (MOTITA_CLAUDE_BIN, or claude on PATH), by name and by
+// absolute path, so what runs does not depend on the directory it runs in.
+func claudeBinary() (bin, path string, err error) {
+	bin = os.Getenv("MOTITA_CLAUDE_BIN")
+	if bin == "" {
+		bin = "claude"
+	}
+	path, err = exec.LookPath(bin)
+	if err == nil {
+		path, err = filepath.Abs(path)
+	}
+	if errors.Is(err, exec.ErrNotFound) || errors.Is(err, fs.ErrNotExist) {
+		return bin, "", fatalError{fmt.Errorf(
+			"%s was not found (%w): install Claude Code and run `claude auth login`", bin, err)}
+	}
+	return bin, path, err
 }
 
 // send writes one stream-json line. A claude that died shows up as the end of its
