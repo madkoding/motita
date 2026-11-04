@@ -65,10 +65,8 @@ func geminiTextContents(messages []Message) (string, []map[string]any) {
 
 func (c *Client) callGemini(ctx context.Context, messages []Message) (string, error) {
 	system, contents := geminiTextContents(messages)
-	generation := map[string]any{
-		"maxOutputTokens": c.cfg.MaxTokens,
-		"temperature":     c.cfg.TemperatureOr(defaultTemperature),
-	}
+	generation := map[string]any{"maxOutputTokens": c.cfg.MaxTokens}
+	c.geminiSampling(generation)
 	if schema := c.schemaFor(ctx, nil); schema != nil {
 		generation["responseMimeType"] = "application/json"
 		generation["responseJsonSchema"] = schema
@@ -111,12 +109,11 @@ func (c *Client) callGemini(ctx context.Context, messages []Message) (string, er
 func (c *Client) callGeminiTools(ctx context.Context, messages []Message, tools []Tool) (Reply, error) {
 	system, contents := toGeminiContents(messages)
 
+	generation := map[string]any{"maxOutputTokens": c.cfg.MaxTokens}
+	c.geminiSampling(generation)
 	body := map[string]any{
-		"contents": contents,
-		"generationConfig": map[string]any{
-			"maxOutputTokens": c.cfg.MaxTokens,
-			"temperature":     c.cfg.TemperatureOr(defaultTemperature),
-		},
+		"contents":         contents,
+		"generationConfig": generation,
 	}
 	if len(tools) > 0 {
 		body["tools"] = []map[string]any{

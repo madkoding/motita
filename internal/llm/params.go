@@ -58,7 +58,9 @@ func (c *Client) openAIBody(messages []Message, tools []Tool) map[string]any {
 	}
 	if !reasoning || (strings.EqualFold(c.cfg.Provider, config.ProviderCustom) && c.cfg.Temperature != nil) {
 		// A custom model's temperature was asked for by name: it is sent whatever the id looks like.
-		body["temperature"] = c.cfg.TemperatureOr(defaultTemperature)
+		s := c.sampling()
+		body["temperature"] = *s.Temperature
+		c.addOpenAISampling(body, s)
 	}
 	if c.cfg.Reasoning.Enabled && c.cfg.Reasoning.Level != "off" && c.cfg.Reasoning.Level != "" {
 		// OpenAI's own chat models reject reasoning_effort; every other host (Ollama,
