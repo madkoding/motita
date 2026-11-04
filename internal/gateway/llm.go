@@ -46,8 +46,8 @@ type llmProviderView struct {
 	Name       string `json:"name"`
 	Access     string `json:"access"`
 	ConsoleURL string `json:"console_url,omitempty"`
-	// Key is where the key comes from: env, stored, config, login, not_needed or missing (see
-	// config.KeySource). KeyVariable names the variable when it is env, so the page can say which.
+	// Key is where the key comes from: env, stored, config, login, not_needed, expired or missing
+	// (see config.KeySource). KeyVariable names the variable when it is env, so the page can say which.
 	Key         string `json:"key"`
 	KeyVariable string `json:"key_variable,omitempty"`
 	// KeyHint is the key's last four characters ("…a1b2"), so a person can tell which key is in
@@ -130,6 +130,10 @@ var (
 	forgetStored  = config.ForgetStoredValue
 	forgetUsage   = llm.ForgetProviderUsage
 )
+
+// claudeSignInLost says whether claude last refused for want of a sign-in; a variable so a test can
+// say so without running claude.
+var claudeSignInLost = llm.ClaudeSignInLost
 
 // genericKey is the variable that belongs to whichever provider the configuration names.
 const genericKey = "MOTITA_LLM_API_KEY"
@@ -289,6 +293,10 @@ func (s *Server) providerView(cfg config.LLM, p onboard.Provider) llmProviderVie
 		DefaultBaseURL: p.DefaultBaseURL, FetchModels: p.FetchModels,
 		Default: strings.EqualFold(cfg.Provider, p.ID),
 		Models:  make([]llmModelView, 0, len(p.Models)),
+	}
+	if _, lost := claudeSignInLost(); lost && p.ID == "claude-code" && pv.Key == config.KeyNotNeeded {
+		// claude refused its last turn for want of a sign-in: until a turn gets through it is not ready.
+		pv.Key = config.KeyExpired
 	}
 	if p.ID == "gemini" && pv.SupportsLogin {
 		// Google's login is gcloud's, on this machine: without it the button could only fail.

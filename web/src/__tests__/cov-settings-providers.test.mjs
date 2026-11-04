@@ -166,6 +166,10 @@ test("stateText says how each provider connects, with the key's hint when it has
   assert.equal(stateText(P.groq), "Connected · key in the configuration file");
   assert.equal(stateText(P.codex), "Connected · signed in");
   assert.equal(stateText(P.ollama), "Ready · no key needed");
+  assert.equal(
+    stateText({ ...P.ollama, key: "expired" }),
+    "Sign-in expired · sign in again",
+  );
   assert.equal(stateText(P.mistral), "Not connected");
   // A hint without a connection is not shown.
   assert.equal(stateText({ ...P.mistral, key_hint: "…zz" }), "Not connected");
@@ -708,5 +712,31 @@ test("an instant sign-in ends at once; one left pending is cancelled when the fo
     path: "/v1/llm/logins/f7",
     body: undefined,
   });
+  await m.unmount();
+});
+
+test("a command whose sign-in expired offers Connect and says how to sign in again", async () => {
+  const expired = {
+    ...P.claudecli,
+    key: "expired",
+  };
+  const bare = { ...expired, id: "bare", name: "Bare", login: undefined };
+  const f = fakeApi({
+    "GET /v1/llm": json(200, { ...VIEW, providers: [expired, bare] }),
+  });
+  const m = await mount(f.api);
+  assert.match(text(m.row("claudecli")), /Sign-in expired · sign in again/);
+  assert.equal(
+    text(m.row("claudecli").querySelector("button[aria-expanded]")),
+    "Connect",
+  );
+  const form = await open(m, "claudecli");
+  assert.match(
+    text(form.querySelector("p")),
+    /sign-in expired and could not be renewed: run claude login on the gateway's machine/,
+  );
+  assert.equal(form.querySelector("input[type=password]"), null);
+  const other = await open(m, "bare");
+  assert.match(text(other.querySelector("p")), /run +on the gateway's machine/);
   await m.unmount();
 });

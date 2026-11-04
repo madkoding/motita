@@ -717,8 +717,7 @@ func (t *claudeTurn) result(ev claudeEvent) (Reply, error) {
 	// error_max_turns after tool calls is claude trying to run a denied tool once
 	// the answer was complete: the answer stands.
 	if ev.IsError && (ev.Subtype != "error_max_turns" || len(t.reply.Calls) == 0) {
-		return Reply{}, fmt.Errorf("claude failed (%s): %s",
-			ev.Subtype, strings.TrimSpace(ev.Result+" "+string(ev.Errors)))
+		return Reply{}, resultError(ev.Subtype, strings.TrimSpace(ev.Result+" "+string(ev.Errors)))
 	}
 	return t.finish(), nil
 }
@@ -736,6 +735,9 @@ func assistantError(ev claudeEvent) error {
 		text += b.Text
 	}
 	err := fmt.Errorf("claude: %s: %s", ev.Error, text)
+	if isSignInFailure(ev.Error, text) {
+		return signInError(err.Error())
+	}
 	switch ev.Error {
 	case "rate_limit", "overloaded", "server_error", "unknown":
 		return err
@@ -784,6 +786,7 @@ func (c *Client) callClaudeCode(
 		p.stop()
 		return Reply{}, err
 	}
+	noteClaudeSignIn(true)
 	// The answer is out; the subscription's limits come after it.
 	claudeDrains.Add(1)
 	go func(wait time.Duration) {
@@ -827,37 +830,12 @@ func (p *claudeProcess) drain(wait time.Duration) bool {
 	}
 }
 
-// claudeProbeTimeout bounds one ProbeClaudeQuota.
-const claudeProbeTimeout = time.Minute
-
-// claudeProbeArgs is claude's command line for ProbeClaudeQuota: the smallest model, no tools, no
-// settings, no session left behind, and a system prompt of one line instead of claude's own.
-var claudeProbeArgs = append(claudeBareArgs(), "--model", "haiku",
-	"--system-prompt", "Answer with the single word: ok", "--max-turns", "1", "--permission-mode", "dontAsk")
-
 // claudeBareArgs is the command line of a claude that only talks stream-json: no tools, no settings,
 // no MCP server, no slash command and no session left behind.
 func claudeBareArgs() []string {
 	return []string{"-p", "--input-format", streamJSON, "--output-format", streamJSON, "--verbose",
 		"--tools", "", "--setting-sources", "", "--strict-mcp-config", "--disable-slash-commands",
 		"--no-session-persistence"}
-}
-
-// ProbeClaudeQuota asks claude the smallest question there is so that it states the subscription's
-// limits, which it only does with an answer; they land in the ledger like those of any turn. The
-// question is not counted as a call. It fails when claude cannot run or states no limits.
-func ProbeClaudeQuota(ctx context.Context) error {
-	p, err := startClaude(ctx, claudeProbeTimeout, claudeProbeArgs, claudeEnv(config.LLM{MaxTokens: 16}))
-	if err != nil {
-		return err
-	}
-	// One frame, so nothing waits on claude; a claude that died shows up as the end of its output.
-	_, frames, _ := claudeFrames([]Message{{Role: "user", Content: "ok"}})
-	_ = p.replay(frames)
-	if !p.drain(claudeProbeTimeout) {
-		return errors.New("claude stated no subscription limits")
-	}
-	return nil
 }
 
 // callClaudeCodeText is Complete's single call: text only, no tools.
