@@ -27,18 +27,17 @@ env:
 jobs:
   # The web UI is built ONCE and every job that embeds it downloads the same assets: twelve
   # identical `npm ci && npm run build` runs became one, and every binary of a run embeds the
-  # exact bundle the web tests ran against.
+  # exact bundle the web tests ran against. The build is its own job, apart from the web tests:
+  # the Go jobs need only the bundle (ready in ~20 s), not the ~80 s of web tests, so they start
+  # that much sooner.
   web:
-    name: web UI · build · test · typecheck
+    name: web UI · build
     runs-on: ubuntu-latest
-    # A web test that hangs (an open handle, a promise nobody settles) once held this job for 55
-    # minutes; the whole job normally takes about two.
-    timeout-minutes: 15
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
-      # Node 22 runs the web tests' TypeScript imports as they are (type stripping). The npm
-      # download cache is keyed on the lockfile; `npm ci` still installs from the lockfile.
+      # The npm download cache is keyed on the lockfile; `npm ci` still installs from the lockfile.
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: 22
@@ -47,6 +46,39 @@ jobs:
 
       - name: Build web UI (Vite + Preact + Tailwind)
         run: cd web && npm ci && npm run build
+
+      # One tar instead of ~1400 loose files: the emoji set alone is 1285 of them, and an
+      # artifact uploads and downloads file by file.
+      - name: Pack the embedded assets
+        run: tar -C internal/webui -cf webui-assets.tar assets
+
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: webui-assets
+          path: webui-assets.tar
+          retention-days: 1
+          if-no-files-found: error
+
+  # The web tests read the sources, not the bundle, so they run beside the build and the Go jobs
+  # instead of in front of them.
+  web-test:
+    name: web UI · test · typecheck
+    runs-on: ubuntu-latest
+    # A web test that hangs (an open handle, a promise nobody settles) once held this job for 55
+    # minutes; the whole job normally takes about two.
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      # Node 22 runs the web tests' TypeScript imports as they are (type stripping).
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+
+      - name: Install web dependencies
+        run: cd web && npm ci
 
       # The same 100 % bar as the Go packages, lines and branches, file by file: a file no test
       # loads fails as surely as one at 0 %.
@@ -65,18 +97,6 @@ jobs:
 
       - name: Web UI type check
         run: cd web && npm run typecheck
-
-      # One tar instead of ~1400 loose files: the emoji set alone is 1285 of them, and an
-      # artifact uploads and downloads file by file.
-      - name: Pack the embedded assets
-        run: tar -C internal/webui -cf webui-assets.tar assets
-
-      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
-        with:
-          name: webui-assets
-          path: webui-assets.tar
-          retention-days: 1
-          if-no-files-found: error
 
   # Checks that read the source alone start at once, beside the web build: formatting, the
   # unsafe ban, the Go floor and both installers need neither the embedded UI nor a compile.
@@ -224,101 +244,84 @@ jobs:
         with:
           cache-key: go-govulncheck
 
+  # The race run is split over three runners: internal/gateway alone takes ~95 s under -race,
+  # longer than every other package together, so its tests are halved (`gateway-a` runs the odd
+  # names of a sorted list, `gateway-b` SKIPS that same list, so a test the list misses still runs
+  # there) and the rest of the module runs beside them. Each part writes a coverage profile; the
+  # gate below adds them up. Coverage instrumentation does not change what a test does.
   test:
-    name: go test -race · coverage gate (100% per package)
+    name: go test -race · ${{ matrix.part }}
     needs: web
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        part: [rest, gateway-a, gateway-b]
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - uses: ./.github/actions/go-env
         with:
-          cache-key: go-test
+          cache-key: go-test-${{ matrix.part }}
+          # Until main has saved this part's cache, start from the race build any test job saved.
+          fallback-key: go-test-
 
-      # One run gives both answers: the race detector and each package's own coverage.
-      # Coverage instrumentation does not change what a test does, and the per-package figure
-      # `go test -cover ./...` prints is the same one `go test -cover <pkg>` printed when the
-      # gate below ran every package again, one at a time, after this step.
-      - name: go test (with race detector and per-package coverage)
+      - name: go test (with race detector and coverage profile)
+        env:
+          PART: ${{ matrix.part }}
         run: |
           set -o pipefail
-          go test -count=1 -race -cover ./... 2>&1 | tee test.log
+          gw=github.com/madkoding/motita/internal/gateway
+          half="^($(grep -ho '^func Test[A-Za-z0-9_]*' internal/gateway/*_test.go | sed 's/^func //' \
+            | grep -vx TestMain | sort -u | awk 'NR % 2 == 1' | paste -sd'|' -))\$"
+          case "$PART" in
+            rest)      args=$(go list ./... | grep -vx "$gw") ;;
+            gateway-a) args="-run $half $gw" ;;
+            gateway-b) args="-skip $half $gw" ;;
+          esac
+          # $args is word-split on purpose: a package list, or a flag and its pattern (no spaces).
+          # shellcheck disable=SC2086
+          go test -count=1 -race -cover -coverprofile="coverage-$PART.out" $args 2>&1 | tee "test-$PART.log"
 
-      - name: coverage gate (100% per package)
-        run: |
-          # Every package with tests must be fully covered: the gate is what keeps
-          # the suite honest, and it is checked package by package so a gap cannot
-          # hide behind the aggregate. The figures come from the run above (test.log).
-          MIN_PER_PACKAGE=100.0
-          failed=0
-          coverage_of() {
-            awk -v p="$1" '$1 == "ok" && $2 == p {
-              for (i = 3; i < NF; i++) if ($i == "coverage:") { sub("%", "", $(i + 1)); print $(i + 1); exit }
-            }' test.log
-          }
-          for pkg in $(go list ./internal/... ./cmd/... ./tools/...); do
-            # "does this package have tests" is asked of the package, not of go test's
-            # report: the wording changed under Go 1.26 ("no test files" is gone), and a
-            # string match on it silently stopped skipping the test-less harnesses and
-            # started gating them at 0.0%.
-            if [ "$(go list -f '{{len .TestGoFiles}}{{len .XTestGoFiles}}' "$pkg" 2>/dev/null)" = "00" ]; then
-              echo "::warning::$pkg has no test files"
-              continue
-            fi
-            cov="$(coverage_of "$pkg")"
-            cov="${cov:-0}"
-            # A TEST-SUPPORT package cannot meet this bar, and demanding it is asking for
-            # tests of the tests: the only statements left uncovered are its own failure
-            # and skip branches (t.Skip, t.Fatal, t.Errorf), which run when a test has
-            # already failed. The exemption is derived from a property — does the package
-            # import "testing" in non-test source? — rather than listed by name, so it
-            # cannot be widened by adding a name and cannot go stale when a directory
-            # moves. It matches exactly one package today: tools/clitest.
-            if grep -rqs '"testing"' --include='*.go' $(go list -f '{{.Dir}}' "$pkg") 2>/dev/null \
-               && [ -n "$(grep -l '"testing"' $(go list -f '{{.Dir}}' "$pkg")/*.go 2>/dev/null | grep -v '_test.go')" ]; then
-              printf '%-52s %s%% (test-support: its own failure branches)\n' "$pkg" "$cov"
-              continue
-            fi
-            printf '%-52s %s%%\n' "$pkg" "$cov"
-            if awk -v c="$cov" -v m="$MIN_PER_PACKAGE" 'BEGIN { if (c < m) exit 1 }'; then
-              :
-            else
-              echo "::error::$pkg coverage ${cov}% is below the ${MIN_PER_PACKAGE}% gate"
-              failed=1
-            fi
-          done
-          [ "$failed" -eq 0 ] || exit 1
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: go-profile-${{ matrix.part }}
+          path: coverage-${{ matrix.part }}.out
+          retention-days: 1
+          if-no-files-found: error
 
       - uses: ./.github/actions/go-cache-save
         with:
-          cache-key: go-test
+          cache-key: go-test-${{ matrix.part }}
 
-  # The cross-package figure (-coverpkg=./...) needs a run of its own: with -coverpkg every
-  # package reports the coverage of ALL packages, so it cannot share the gate's run. It runs
-  # beside the race run instead of after it.
+  # Every package with tests must be fully covered by its own tests, checked package by package so
+  # a gap cannot hide behind the aggregate. The figures come from the race run's profiles, added
+  # up (scripts/go-coverage-gate.sh), so nothing runs a second time. The merged profile is what
+  # Sonar reads: it is per package (no -coverpkg), and the packages below 100 % on their own
+  # (tools/seccomptrap, with no tests, and the test-support tools/clitest) are both in
+  # sonar.coverage.exclusions.
   coverage:
-    name: aggregate coverage
-    needs: web
+    name: go coverage gate (100% per package)
+    needs: test
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
-      - uses: ./.github/actions/go-env
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
-          cache-key: go-coverage
+          go-version-file: go.mod
+          cache: false
 
-      - name: aggregate coverage
-        run: |
-          # The output is kept rather than thrown away: when this run fails, the log has to name
-          # the test that failed, not just the exit code.
-          if ! go test -count=1 -coverpkg=./... -coverprofile=coverage.out -covermode=atomic ./... >aggregate.log 2>&1; then
-            grep -E -B2 -A20 '^(--- FAIL|FAIL|panic:)' aggregate.log || tail -n 100 aggregate.log
-            exit 1
-          fi
-          printf 'aggregate: '; go tool cover -func=coverage.out | tail -1
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          pattern: go-profile-*
+          path: profiles
+          merge-multiple: true
 
-      # The Sonar analysis on main reads this profile instead of running the suite a third time.
-      # Kept even when a test failed: the analysis only reports coverage, the gate is above.
+      - name: coverage gate (100% per package)
+        run: ./scripts/go-coverage-gate.sh coverage.out profiles/*.out
+
+      # The Sonar analysis on main reads this profile instead of running the suite again.
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         if: ${{ !cancelled() }}
         with:
@@ -326,10 +329,6 @@ jobs:
           path: coverage.out
           retention-days: 1
           if-no-files-found: warn
-
-      - uses: ./.github/actions/go-cache-save
-        with:
-          cache-key: go-coverage
 
   # The Windows side of the agent: the shell it runs lines through (PowerShell), the policy that
   # judges those lines and the procedures served there. The Linux jobs cover the same code, but
@@ -343,10 +342,16 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
-      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+      # The same restore-on-PR / save-on-main build cache as the Linux jobs, at the Windows
+      # paths: most of this job was compiling the five packages from nothing. The tests embed
+      # the placeholder page the repository carries, not the built UI.
+      - uses: ./.github/actions/go-env
         with:
-          go-version-file: go.mod
-          cache: false
+          cache-key: go-windows
+          cache-paths: |
+            ~/AppData/Local/go-build
+            ~/go/pkg/mod
+          web-assets: "false"
 
       - name: the shell runs a line under PowerShell
         run: go test -count=1 -run 'Shell|PowerShell|Quote|IsCmd' ./internal/execx/
@@ -363,6 +368,13 @@ jobs:
       - name: the desktop steps parse and run under Windows PowerShell
         run: go test -count=1 -run 'WindowsScripts' ./internal/desktop/
 
+      - uses: ./.github/actions/go-cache-save
+        with:
+          cache-key: go-windows
+          cache-paths: |
+            ~/AppData/Local/go-build
+            ~/go/pkg/mod
+
   # The name branch protection requires. The checks it stood for are now jobs that run in
   # parallel, so this job carries the old name and passes only when all of them passed.
   # `always()` plus the explicit check matter: a required job that is SKIPPED counts as
@@ -370,7 +382,7 @@ jobs:
   verify:
     name: fmt · vet · test
     if: always()
-    needs: [hygiene, audit-report, vet, staticcheck, govulncheck, test, coverage, windows]
+    needs: [web, web-test, hygiene, audit-report, vet, staticcheck, govulncheck, test, coverage, windows]
     runs-on: ubuntu-latest
     steps:
       - name: every quality job passed
@@ -395,11 +407,11 @@ jobs:
   # The full Sonar analysis, on main and by hand only: Sonar Community keeps a single branch and
   # every analysis replaces the previous one, so a pull request only gets sast's new-code checks.
   # Nothing is built or run again here: the Go profile comes from `coverage`, the web report from
-  # `web` and the SARIF from `sast`. Secrets: SONAR_TOKEN and SONAR_HOST_URL.
+  # `web-test` and the SARIF from `sast`. Secrets: SONAR_TOKEN and SONAR_HOST_URL.
   sonar:
     name: sonar · quality gate
     if: ${{ !cancelled() && needs.sast.result == 'success' && (github.ref == 'refs/heads/main' || github.event_name == 'workflow_dispatch') }}
-    needs: [sast, web, coverage]
+    needs: [sast, web-test, coverage]
     runs-on: ubuntu-latest
     # One analysis at a time: a newer one waits instead of racing the older to the server.
     concurrency:
@@ -419,7 +431,7 @@ jobs:
         run: echo "paths=$(ls sarif/*.sarif | paste -sd, -)" >> "$GITHUB_OUTPUT"
 
       # The profiles the gates produced. A failing test does not stop the analysis (the gate is
-      # `coverage` / `web`), but a missing report does: Sonar would read it as 0 %.
+      # `coverage` / `web-test`), but a missing report does: Sonar would read it as 0 %.
       - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           name: go-coverage
@@ -459,7 +471,7 @@ jobs:
 
   # Platform builds (the 10-target matrix and the android seccomp build) run only when a
   # release tag is pushed, or by hand. PRs and main keep the quality checks: hygiene, vet,
-  # staticcheck, govulncheck, tests, coverage, windows tests and the gateway e2e. Nothing
+  # staticcheck, govulncheck, tests with coverage, windows tests and the gateway e2e. Nothing
   # required by branch protection depends on these jobs: `verify` does not need them.
   build:
     name: build ${{ matrix.goos }}/${{ matrix.goarch }}

@@ -4,13 +4,18 @@ description: >-
   Go build cache restored. Pair it with go-cache-save as the job's last step.
 inputs:
   cache-key:
-    description: Cache key prefix, per job (and per target); the hash of go.mod and the Go files is appended.
+    description: Cache key prefix, per job (and per target); the hash of go.mod and the ISO week are appended.
     required: true
   cache-paths:
     description: Paths the cache holds.
     default: |
       ~/.cache/go-build
       ~/go/pkg/mod
+  fallback-key:
+    description: >-
+      Another job's key prefix to restore from when this one has no entry yet (a new or renamed
+      job starts from a related cache instead of cold).
+    default: ""
   web-assets:
     description: Download and unpack the web UI assets (jobs that embed the UI).
     default: "true"
@@ -33,11 +38,22 @@ runs:
         cache: false
 
     # Restored on every ref but tags, saved only from main (go-cache-save): a pull request
-    # starts from main's cache and cannot write one, and a release is built cold.
+    # starts from main's cache and cannot write one, and a release is built cold. The key is
+    # per go.mod (the toolchain) and per ISO week, not per commit: a per-commit key made every
+    # push to main upload ~1 GB per job, and those uploads pushed each other out of the
+    # repository's cache quota. Go rebuilds only the packages that changed since the save.
+    - id: week
+      if: ${{ !startsWith(github.ref, 'refs/tags/') }}
+      shell: bash
+      run: echo "week=$(date -u +%G-%V)" >> "$GITHUB_OUTPUT"
+
     - name: Restore the Go build cache
       if: ${{ !startsWith(github.ref, 'refs/tags/') }}
       uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
       with:
         path: ${{ inputs.cache-paths }}
-        key: ${{ inputs.cache-key }}-${{ hashFiles('go.mod', '**/*.go') }}
-        restore-keys: ${{ inputs.cache-key }}-
+        key: ${{ inputs.cache-key }}-${{ hashFiles('go.mod') }}-${{ steps.week.outputs.week }}
+        restore-keys: |
+          ${{ inputs.cache-key }}-${{ hashFiles('go.mod') }}-
+          ${{ inputs.cache-key }}-
+          ${{ inputs.fallback-key }}
