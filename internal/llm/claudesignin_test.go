@@ -36,13 +36,13 @@ func TestClaudeCodeExpiredSignInSaysWhatToDo(t *testing.T) {
 			if retryable(err) {
 				t.Errorf("err = %v: a lost sign-in cannot be retried away", err)
 			}
-			since, lost := ClaudeSignInLost()
+			since, lost := SignInLost(claudeCodeID)
 			if !lost || time.Since(since) > time.Minute {
 				t.Fatalf("lost = %v since %v, want it recorded now", lost, since)
 			}
 			// A second refusal keeps the first time.
 			_, _ = c.callClaudeCode(context.Background(), hi, nil, nil)
-			if again, _ := ClaudeSignInLost(); !again.Equal(since) {
+			if again, _ := SignInLost(claudeCodeID); !again.Equal(since) {
 				t.Errorf("since moved from %v to %v", since, again)
 			}
 		})
@@ -57,7 +57,7 @@ func TestClaudeCodeAnswerClearsALostSignIn(t *testing.T) {
 	if _, err := c.callClaudeCode(context.Background(), hi, nil, nil); err != nil {
 		t.Fatal(err)
 	}
-	if _, lost := ClaudeSignInLost(); lost {
+	if _, lost := SignInLost(claudeCodeID); lost {
 		t.Error("the sign-in is still marked lost after an answer")
 	}
 }

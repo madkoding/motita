@@ -803,8 +803,8 @@ func TestLLMShowsAnExpiredClaudeSignIn(t *testing.T) {
 	svc.cfg = config.Default()
 	svc.cfg.LLM.Provider, svc.cfg.LLM.Model = "anthropic", "claude-sonnet-5-5"
 	srv := newTestServer(t, svc)
-	claudeSignInLost = func() (time.Time, bool) { return time.Now(), true }
-	t.Cleanup(func() { claudeSignInLost = llm.ClaudeSignInLost })
+	signInLost = func(string) (time.Time, bool) { return time.Now(), true }
+	t.Cleanup(func() { signInLost = llm.SignInLost })
 	v := decodeLLM(t, get(t, srv, "/v1/llm", testToken))
 	if p := providerOf(v, "claude-code"); p.Key != config.KeyExpired || p.Login == "" {
 		t.Errorf("claude-code after a lost sign-in = %+v", p)

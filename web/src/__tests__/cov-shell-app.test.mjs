@@ -275,7 +275,9 @@ function makeStore(log) {
     },
     menus: {},
     showSettings: false,
+    settingsTab: undefined,
     openSettings: noop,
+    openProviders: fn("openProviders"),
     closeSettings: fn("closeSettings"),
     selectedSession: undefined,
     isMerged: false,
@@ -545,6 +547,7 @@ test("the settings dialog is wired to the language, the voice, the speech and th
     };
   });
   const p = lastProps("SettingsModal");
+  assert.equal(p.tab, undefined);
   assert.equal(p.langSetting, "auto");
   assert.equal(p.langAvailable, true);
   assert.deepEqual(p.voice.phrases, ["hey motita"]);
@@ -873,6 +876,27 @@ test("notes: the empty conversation is a card, a kind note is translated, other 
   assert.equal(text(notes[1]), "Stopped");
   assert.equal(notes[2].className, "msg activity progress");
   assert.equal(text(notes[2]), "raw progress");
+  await ctl.done();
+});
+
+test("a failed sign-in in the chat offers to reconnect; other errors are as given", async () => {
+  const lost =
+    "could not reach the reasoning engine: claude: authentication_failed: OAuth session expired " +
+    "(sign in again in Settings → Providers, or run `claude auth login`)";
+  const ctl = await mountApp((s) => {
+    s.rs.messages = [
+      msg(1, "agent", lost, { kind: "error" }),
+      msg(2, "agent", "the provider is down", { kind: "error" }),
+    ];
+  });
+  const notes = [...ctl.root.querySelectorAll(".msg")];
+  assert.match(text(notes[0]), /OAuth session expired/);
+  const btn = notes[0].querySelector(".signin-notice button");
+  assert.equal(text(btn), "Reconnect the provider");
+  btn.click();
+  assert.equal(ctl.log.at(-1)[0], "openProviders");
+  assert.equal(notes[1].querySelector(".signin-notice"), null);
+  assert.equal(text(notes[1]), "the provider is down");
   await ctl.done();
 });
 

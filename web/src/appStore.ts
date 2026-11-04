@@ -33,6 +33,7 @@ import { useRowMenus } from "./useRowMenus";
 import { useRepoGit } from "./useRepoGit";
 import { useFinishedElsewhere, useOnScreenSync } from "./sessionWatch";
 import type { Api } from "./prApi";
+import type { Tab } from "./Settings";
 import { useVoice } from "./useVoice";
 import { useSpeech } from "./useSpeech";
 import { useVoiceConversation } from "./useVoiceConversation";
@@ -199,7 +200,17 @@ export function useAppStore(api: Api, machine = "") {
   usePrefsSync(api, auth.authState);
   const menus = useRowMenus();
   const [showSettings, setShowSettings] = useState(false);
-  const openSettings = useCallback(() => setShowSettings(true), []);
+  // settingsTab is the tab the dialog opens on: the first one, or the providers when a failed
+  // sign-in sends the person there.
+  const [settingsTab, setSettingsTab] = useState<Tab | undefined>(undefined);
+  const openSettings = useCallback(() => {
+    setSettingsTab(undefined);
+    setShowSettings(true);
+  }, []);
+  const openProviders = useCallback(() => {
+    setSettingsTab("providers");
+    setShowSettings(true);
+  }, []);
   const closeSettings = useCallback(() => setShowSettings(false), []);
   const repoGit = useRepoGit({
     api,
@@ -252,7 +263,9 @@ export function useAppStore(api: Api, machine = "") {
     menus,
     repoGit,
     showSettings,
+    settingsTab,
     openSettings,
+    openProviders,
     closeSettings,
     selectedSession,
     isMerged: selectedSession?.merged === true,

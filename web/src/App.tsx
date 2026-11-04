@@ -17,6 +17,7 @@ import "./report.css";
 import { copyText } from "./clipboard";
 import { t, useLang, type LangSetting } from "./i18n";
 import { SettingsModal } from "./Settings";
+import { isSignInFailure, SignInNotice } from "./SignInNotice";
 import { FolderBrowser } from "./FolderBrowser";
 import { GitConnectModal } from "./GitConnect";
 import { PRBar, usePullRequest, type PullRequest } from "./PullRequestBar";
@@ -169,10 +170,14 @@ function groupsOf(messages: Message[]): Group[] {
 function MessageBody({ m, auto }: { m: Message; auto?: boolean }) {
   const loadEvidenceImage = useContext(EvidenceCtx);
   const { running, lastUserId, answerSuggestions, answerQuestions } = useTurn();
+  const { openProviders } = useApp();
   if (m.role !== "agent" || m.kind) {
     // A user's message is never here: each one opens its turn and is drawn by TurnHead.
     if (isEmptyNote(m)) {
       return <EmptyNote />;
+    }
+    if (m.kind === "error" && isSignInFailure(m.text)) {
+      return <SignInNotice text={m.text} onReconnect={openProviders} />;
     }
     return <span>{choose(m.kind === "kind", t(m.text), m.text)}</span>;
   }
@@ -694,6 +699,7 @@ function MainColumn({ pr }: { pr: PullRequest }) {
 function SettingsHost() {
   const {
     closeSettings,
+    settingsTab,
     language,
     projects,
     api: request,
@@ -711,6 +717,7 @@ function SettingsHost() {
   );
   return (
     <SettingsModal
+      tab={settingsTab}
       langSetting={language.uiLangSetting}
       langAvailable={language.uiLangAvailable}
       onLang={onLang}

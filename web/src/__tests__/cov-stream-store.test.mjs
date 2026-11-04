@@ -73,8 +73,16 @@ test("the store gathers the page's state and hands it down", async () => {
   assert.equal(store.showSettings, false);
   await act(() => store.openSettings());
   assert.equal(store.showSettings, true);
+  assert.equal(store.settingsTab, undefined);
   await act(() => store.closeSettings());
   assert.equal(store.showSettings, false);
+  // A failed sign-in opens them on the providers; the plain button on the first tab again.
+  await act(() => store.openProviders());
+  assert.equal(store.showSettings, true);
+  assert.equal(store.settingsTab, "providers");
+  await act(() => store.openSettings());
+  assert.equal(store.settingsTab, undefined);
+  await act(() => store.closeSettings());
 
   // The open session is looked up in the list; a merged one says so.
   await act(() => {

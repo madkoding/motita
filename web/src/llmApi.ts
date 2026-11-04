@@ -352,7 +352,7 @@ export function sameThinking(
 export interface LoginView {
   id: string;
   provider: string;
-  method: "device" | "code" | "instant";
+  method: "device" | "code" | "paste" | "instant";
   url?: string;
   code?: string;
   status: "pending" | "connected" | "failed";

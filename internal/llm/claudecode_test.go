@@ -28,6 +28,9 @@ import (
 // it and prints the script in that variable instead of talking to a model.
 func TestMain(m *testing.M) {
 	if script, ok := os.LookupEnv("MOTITA_FAKE_CLAUDE"); ok {
+		if len(os.Args) > 1 && os.Args[1] == "auth" {
+			fakeClaudeLogin(script)
+		}
 		fakeClaude(script)
 		os.Exit(0)
 	}

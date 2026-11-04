@@ -156,9 +156,11 @@ func (s *loginState) credential(ctx context.Context, force bool) (oauth.Credenti
 		if s.adoptStored() {
 			return s.cred, nil
 		}
-		return oauth.Credential{}, fatalError{fmt.Errorf(
-			"the %s login could not be renewed: %w (log in again with `motita config`)", s.provider, err)}
+		NoteSignIn(s.provider, false)
+		return oauth.Credential{}, fatalError{fmt.Errorf("the %s sign-in expired and could not be renewed: %w "+
+			"(sign in again in Settings → Providers, or with `motita config`)", s.provider, err)}
 	}
+	NoteSignIn(s.provider, true)
 	s.cred = fresh
 	if s.dir != "" {
 		if err := oauth.SaveCredential(s.dir, fresh); err != nil {
@@ -293,6 +295,9 @@ func (c *Client) send(ctx context.Context, path string, body any, stream bool) (
 			return nil, t, Explain(err) // network error: retryable
 		}
 		if resp.StatusCode == http.StatusOK {
+			if t.login {
+				NoteSignIn(c.login.provider, true)
+			}
 			if r, ok := limitsFrom(resp.Header, time.Now()); ok {
 				totals.limits(c.source(), r)
 			}
@@ -300,9 +305,13 @@ func (c *Client) send(ctx context.Context, path string, body any, stream bool) (
 		}
 		b, _ := io.ReadAll(io.LimitReader(resp.Body, 8<<20))
 		resp.Body.Close()
-		if resp.StatusCode == http.StatusUnauthorized && t.login && !renewed {
-			renewed, renew = true, true
-			continue
+		if resp.StatusCode == http.StatusUnauthorized && t.login {
+			if !renewed {
+				renewed, renew = true, true
+				continue
+			}
+			// Refused again with a token just renewed: the login itself was revoked.
+			NoteSignIn(c.login.provider, false)
 		}
 		if fixes.repair(c, &data, resp.StatusCode, b) {
 			continue
