@@ -126,6 +126,8 @@ func TestAFollowedErrorEndsTheFollowWithTheReason(t *testing.T) {
 // is a separate, explicit act by the user (CancelRun), and conflating the two would make Ctrl+C
 // kill a turn the user only meant to stop watching.
 func TestCancellingAFollowOnlyStopsReading(t *testing.T) {
+	// Parallel: the wait below is real time by design, so it overlaps the package's other waits.
+	t.Parallel()
 	// The stream stays open until the test says so, which is what makes the cancellation happen
 	// while the follow is genuinely in flight.
 	release := make(chan struct{})

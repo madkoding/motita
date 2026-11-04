@@ -125,6 +125,8 @@ func TestTheHeartbeatLoopGivesUpWithoutAnAck(t *testing.T) {
 	if testing.Short() {
 		t.Skip("waits out wsHeartbeatTimeout, which is 10s by design")
 	}
+	// Parallel: the wait below is real time by design, so it overlaps the package's other waits.
+	t.Parallel()
 	server, client := net.Pipe()
 	defer server.Close()
 	defer client.Close()

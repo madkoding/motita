@@ -421,6 +421,9 @@ func TestAFailureMidStreamBecomesAnError(t *testing.T) {
 // reason, and that reason is what the user can act on. The slot is held by a REAL run here rather
 // than by an injected error, so the refusal the client sees is the one a busy gateway sends.
 func TestARefusalBeforeTheStreamKeepsItsReason(t *testing.T) {
+	// The second run is refused while the first holds the slot; waiting the production 15 s for
+	// the slot to free proves nothing more than a short wait does.
+	fastSlot(t, 50*time.Millisecond)
 	release := make(chan struct{})
 	started := make(chan struct{})
 	var once sync.Once

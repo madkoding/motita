@@ -446,6 +446,8 @@ func TestWSDispatchAnswersAClientHeartbeat(t *testing.T) {
 // The heartbeat loop gives up when no ack arrives: a client that cannot answer a keepalive is
 // either gone or stuck, and holding the connection is a resource leak.
 func TestWSHeartbeatClosesWhenTheAckNeverComes(t *testing.T) {
+	// Parallel: the wait below is real time by design, so it overlaps the package's other waits.
+	t.Parallel()
 	cl, client, ackCh := wsPair(t, &fakeService{}, "the-token")
 	cl.heartbeat = 5 * time.Millisecond
 	ctx, cancel := context.WithCancel(context.Background())
