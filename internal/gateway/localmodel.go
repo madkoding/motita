@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"path/filepath"
 	"strconv"
+	"sync"
 
 	"github.com/madkoding/motita/internal/config"
 	"github.com/madkoding/motita/internal/localmodel"
@@ -49,22 +50,28 @@ func (s *Server) localModelRoutes(mux *http.ServeMux, plain func(http.HandlerFun
 	mux.Handle("DELETE /v1/local-model", plain(s.handleLocalDelete))
 }
 
+// localSlot holds the manager once made.
+type localSlot struct {
+	mu sync.Mutex
+	m  localModeler
+}
+
 // localModel is the manager, made on first use so a gateway that never opens the page reads
 // nothing and starts nothing.
 func (s *Server) localModel() localModeler {
-	s.localMu.Lock()
-	defer s.localMu.Unlock()
-	if s.local == nil {
-		s.local = newLocalModel(localDir(), s.localReady)
+	s.local.mu.Lock()
+	defer s.local.mu.Unlock()
+	if s.local.m == nil {
+		s.local.m = newLocalModel(localDir(), s.localReady)
 	}
-	return s.local
+	return s.local.m
 }
 
 // closeLocalModel stops the server with the gateway.
 func (s *Server) closeLocalModel() {
-	s.localMu.Lock()
-	m := s.local
-	s.localMu.Unlock()
+	s.local.mu.Lock()
+	m := s.local.m
+	s.local.mu.Unlock()
 	if m != nil {
 		m.Close()
 	}
@@ -121,6 +128,8 @@ func (s *Server) handleLocalStart(w http.ResponseWriter, r *http.Request) {
 			code = "not_eligible"
 		case errors.Is(err, localmodel.ErrBusy):
 			code = "busy"
+		default:
+			// Any other failure keeps start_failed.
 		}
 		writeRefusal(w, http.StatusConflict, code, err.Error())
 		return

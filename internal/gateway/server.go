@@ -332,8 +332,7 @@ type Server struct {
 	// claudeProbe is the question that keeps Claude's quotas fresh.
 	claudeProbe claudeProbe
 	// local is Motita's own local model (localmodel.go), made on first use.
-	localMu sync.Mutex
-	local   localModeler
+	local localSlot
 
 	// baseCtx is cancelled when this server closes, and every run derives its context from it.
 	//
@@ -895,7 +894,6 @@ func (s *Server) routes() *http.ServeMux {
 	// The LLM providers and the default model: process-wide too, saved beside and in the
 	// configuration. See llm.go.
 	s.llmRoutes(mux, plain)
-	s.localModelRoutes(mux, plain)
 	s.secretsRoutes(mux, plain)
 	s.evalRoutes(mux, plain)
 	s.llmLoginRoutes(mux, plain)

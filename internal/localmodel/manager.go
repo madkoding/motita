@@ -257,6 +257,8 @@ func (m *Manager) install(ctx context.Context, installing chan struct{}) {
 		m.task.Error = "cancelled: what was downloaded is kept, install again to resume"
 	} else if err != nil {
 		m.task.Error = err.Error()
+	} else {
+		m.task.Error = ""
 	}
 }
 
@@ -353,6 +355,8 @@ func (m *Manager) Start(ctx context.Context) error {
 		return ErrNotEligible
 	case !st.ModelPresent || !st.RuntimePresent:
 		return errors.New("install the local model first")
+	default:
+		// Eligible and installed: go on.
 	}
 	bin, _, _ := m.serverBinary()
 	m.mu.Lock()

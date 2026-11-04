@@ -86,7 +86,8 @@ func TestLocalReportsEveryState(t *testing.T) {
 	})}
 	tu := localTUI(r)
 	tu.runLocal(context.Background(), "")
-	if got := messagesOf(tu); !strings.Contains(got, "Last download: 404") || !strings.Contains(got, "Server: out of memory") {
+	got := messagesOf(tu)
+	if !strings.Contains(got, "Last download: 404") || !strings.Contains(got, "Server: out of memory") {
 		t.Errorf("errors: %q", got)
 	}
 }

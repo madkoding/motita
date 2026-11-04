@@ -20,15 +20,23 @@ type fakeLocal struct {
 }
 
 func (f *fakeLocal) Status(context.Context) localmodel.Status { return f.st }
-func (f *fakeLocal) Install() error                           { f.calls = append(f.calls, "install"); return f.installErr }
-func (f *fakeLocal) Cancel()                                  { f.calls = append(f.calls, "cancel") }
+func (f *fakeLocal) Install() error {
+	f.calls = append(f.calls, "install")
+	return f.installErr
+}
+
+func (f *fakeLocal) Cancel() { f.calls = append(f.calls, "cancel") }
 func (f *fakeLocal) Start(context.Context) error {
 	f.calls = append(f.calls, "start")
 	return f.startErr
 }
-func (f *fakeLocal) Stop()         { f.calls = append(f.calls, "stop") }
-func (f *fakeLocal) Delete() error { f.calls = append(f.calls, "delete"); return f.delErr }
-func (f *fakeLocal) Close()        { f.calls = append(f.calls, "close") }
+func (f *fakeLocal) Stop() { f.calls = append(f.calls, "stop") }
+func (f *fakeLocal) Delete() error {
+	f.calls = append(f.calls, "delete")
+	return f.delErr
+}
+
+func (f *fakeLocal) Close() { f.calls = append(f.calls, "close") }
 
 // withLocal makes every server of the test use f, in a folder of the test's own.
 func withLocal(t *testing.T, f *fakeLocal) {
@@ -119,7 +127,9 @@ func TestLocalReadyConnectsTheProvider(t *testing.T) {
 	withLocal(t, &fakeLocal{})
 	path := llmEnv(t, openAIConfig)
 	srv, _ := modelsServer(t, path)
-	if err := srv.localReady(localmodel.Ready{BaseURL: "http://127.0.0.1:8471/v1", APIKey: "motita-local-0123456789abcdef", Context: 8192}); err != nil {
+	ready := localmodel.Ready{BaseURL: "http://127.0.0.1:8471/v1", APIKey: "motita-local-0123456789abcdef",
+		Context: 8192}
+	if err := srv.localReady(ready); err != nil {
 		t.Fatal(err)
 	}
 	p := providerOf(decodeLLM(t, get(t, srv, "/v1/llm", testToken)), config.ProviderLocal)

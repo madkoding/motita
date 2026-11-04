@@ -93,12 +93,13 @@ func fetchRelease(ctx context.Context, client *http.Client, tag string) (release
 	if tag != "" {
 		url = releasesAPI + "/tags/" + tag
 	}
+	// #nosec G704 -- releasesAPI is a fixed GitHub API address
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 	if err != nil {
 		return release{}, err
 	}
 	req.Header.Set("Accept", "application/vnd.github+json")
-	resp, err := client.Do(req)
+	resp, err := client.Do(req) // #nosec G704 -- releasesAPI is a fixed GitHub API address
 	if err != nil {
 		return release{}, err
 	}
@@ -116,13 +117,16 @@ func fetchRelease(ctx context.Context, client *http.Client, tag string) (release
 	return r, nil
 }
 
+// tagChars are the characters a release tag may use.
+const tagChars = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789.-_"
+
 // safeName is a tag that can be a folder name.
 func safeName(s string) bool {
 	if s == "" || len(s) > 64 {
 		return false
 	}
 	for _, c := range s {
-		if !(c >= 'a' && c <= 'z' || c >= 'A' && c <= 'Z' || c >= '0' && c <= '9' || c == '.' || c == '-' || c == '_') {
+		if !strings.ContainsRune(tagChars, c) {
 			return false
 		}
 	}
@@ -153,7 +157,7 @@ var lookPath = exec.LookPath
 func findServer(dir, goos string) string {
 	want := serverName(goos)
 	found := ""
-	_ = filepath.WalkDir(dir, func(path string, d fs.DirEntry, err error) error {
+	_ = filepath.WalkDir(dir, func(path string, d fs.DirEntry, err error) error { // #nosec G703 -- dir is Motita's own runtime folder
 		if err != nil {
 			return nil
 		}
@@ -274,13 +278,15 @@ func untar(archive, dir string) error {
 				return err
 			}
 		case tar.TypeReg:
-			if err := writeFile(path, fs.FileMode(h.Mode), tr, b); err != nil {
+			if err := writeFile(path, h.FileInfo().Mode(), tr, b); err != nil {
 				return err
 			}
 		case tar.TypeSymlink:
 			// llama.cpp's Linux builds link libfoo.so to libfoo.so.N. No link is made: once
 			// everything is out, a link to a file beside it becomes a copy of that file.
 			links = append(links, [2]string{path, h.Linkname})
+		default:
+			// Hard links, devices and the like are not part of a llama.cpp build: skipped.
 		}
 	}
 }

@@ -80,6 +80,8 @@ func (p probe) detect(ctx context.Context) *GPU {
 		}
 	case "darwin":
 		found = p.mac(ctx)
+	default:
+		// No probe for this system: nothing is found, and the mode is not offered.
 	}
 	return best(found)
 }
@@ -169,7 +171,8 @@ func (p probe) readInt(path string) int64 {
 }
 
 // windowsRegistryScript prints "name|bytes" for each display adapter the registry knows.
-const windowsRegistryScript = `Get-ItemProperty -Path 'HKLM:\SYSTEM\ControlSet001\Control\Class\{4d36e968-e325-11ce-bfc1-08002be10318}\0*' ` +
+const windowsRegistryScript = `Get-ItemProperty -Path ` +
+	`'HKLM:\SYSTEM\ControlSet001\Control\Class\{4d36e968-e325-11ce-bfc1-08002be10318}\0*' ` +
 	`-ErrorAction SilentlyContinue | ForEach-Object { '{0}|{1}' -f $_.DriverDesc, $_.'HardwareInformation.qwMemorySize' }`
 
 func (p probe) windowsRegistry(ctx context.Context) []GPU {

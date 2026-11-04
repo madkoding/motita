@@ -82,6 +82,141 @@ function serverText(s: LocalStatus): string {
   );
 }
 
+// serverUp is a server that runs or is loading.
+function serverUp(s: LocalStatus): boolean {
+  return !!(s.server.running || s.server.starting);
+}
+
+// LocalFacts is what the card says: the GPU, why not, the download, the server.
+function LocalFacts({ st }: { st: LocalStatus }) {
+  return (
+    <>
+      <p>
+        {tf(
+          "Runs {model} on this computer's GPU, as one more provider. Nothing is downloaded or started until you press a button.",
+          { model: st.model_name },
+        )}
+      </p>
+      <p class="text-[#e8e8ea]" data-testid="llm-local-gpu">
+        {gpuText(st)}
+      </p>
+      {!st.eligible && (
+        <p class="text-warning" data-testid="llm-local-reason">
+          {reasonText(st)}
+        </p>
+      )}
+      {st.task.running && (
+        <div data-testid="llm-local-progress">
+          <p>{phaseText(st)}</p>
+          <progress
+            class="settings-progress"
+            max={100}
+            value={percent(st.task)}
+          />
+        </div>
+      )}
+      {st.task.error && (
+        <p class="text-danger" role="alert">
+          {st.task.error}
+        </p>
+      )}
+      {installed(st) && (
+        <p class="text-[#e8e8ea]" data-testid="llm-local-server">
+          {serverText(st)}
+        </p>
+      )}
+      {serverProblem(st.server) && (
+        <pre class="text-danger whitespace-pre-wrap" role="alert">
+          {serverProblem(st.server)}
+        </pre>
+      )}
+    </>
+  );
+}
+
+type Act = (
+  fn: (api: Api) => Promise<LocalStatus>,
+  done?: string,
+) => () => void;
+
+// LocalSteps are the buttons that move the model along: download, cancel, start, stop.
+function LocalSteps({
+  st,
+  writable,
+  act,
+}: {
+  st: LocalStatus;
+  writable: boolean;
+  act: Act;
+}) {
+  const blocked = !st.eligible || !writable;
+  if (st.task.running) {
+    return (
+      <button type="button" class={btn} onClick={act(localCancel)}>
+        {t("Cancel")}
+      </button>
+    );
+  }
+  if (!installed(st)) {
+    return (
+      <button
+        type="button"
+        class={primary}
+        disabled={blocked}
+        onClick={act(localInstall)}
+      >
+        {tf("Download ({size})", { size: gigabytes(st.size) })}
+      </button>
+    );
+  }
+  if (serverUp(st)) {
+    return (
+      <button type="button" class={btn} onClick={act(localStop)}>
+        {t("Stop")}
+      </button>
+    );
+  }
+  return (
+    <button
+      type="button"
+      class={primary}
+      disabled={blocked}
+      onClick={act(localStart)}
+    >
+      {t("Start")}
+    </button>
+  );
+}
+
+// LocalDelete asks once, then deletes the model and its runtime.
+function LocalDelete({
+  st,
+  confirming,
+  onAsk,
+  onDelete,
+}: {
+  st: LocalStatus;
+  confirming: boolean;
+  onAsk: () => void;
+  onDelete: () => void;
+}) {
+  if (confirming) {
+    return (
+      <button type="button" class={btn + " text-danger"} onClick={onDelete}>
+        {tf("Delete {size} from this computer", { size: gigabytes(st.size) })}
+      </button>
+    );
+  }
+  if (st.task.running || !removable(st)) {
+    return null;
+  }
+  return (
+    <button type="button" class={btn} onClick={onAsk}>
+      {t("Delete")}
+    </button>
+  );
+}
+
 // LocalModelSettings is Motita's own local model: one model on this computer's GPU, downloaded,
 // started, stopped and deleted from here. Nothing happens until a button is pressed.
 export function LocalModelSettings({
@@ -120,7 +255,7 @@ export function LocalModelSettings({
     const id = setInterval(read, POLL_MS);
     return () => clearInterval(id);
   }, [polling, read]);
-  const act = (fn: (api: Api) => Promise<LocalStatus>, done?: string) => () => {
+  const act: Act = (fn, done) => () => {
     setConfirming(false);
     fn(api)
       .then((s) => {
@@ -150,96 +285,15 @@ export function LocalModelSettings({
         )}
         {st && (
           <div class="flex flex-col gap-2">
-            <p>
-              {tf(
-                "Runs {model} on this computer's GPU, as one more provider. Nothing is downloaded or started until you press a button.",
-                { model: st.model_name },
-              )}
-            </p>
-            <p class="text-[#e8e8ea]" data-testid="llm-local-gpu">
-              {gpuText(st)}
-            </p>
-            {!st.eligible && (
-              <p class="text-warning" data-testid="llm-local-reason">
-                {reasonText(st)}
-              </p>
-            )}
-            {st.task.running && (
-              <div data-testid="llm-local-progress">
-                <p>{phaseText(st)}</p>
-                <progress
-                  class="settings-progress"
-                  max={100}
-                  value={percent(st.task)}
-                />
-              </div>
-            )}
-            {st.task.error && (
-              <p class="text-danger" role="alert">
-                {st.task.error}
-              </p>
-            )}
-            {installed(st) && (
-              <p class="text-[#e8e8ea]" data-testid="llm-local-server">
-                {serverText(st)}
-              </p>
-            )}
-            {serverProblem(st.server) && (
-              <pre class="text-danger whitespace-pre-wrap" role="alert">
-                {serverProblem(st.server)}
-              </pre>
-            )}
+            <LocalFacts st={st} />
             <div class="flex flex-wrap gap-2">
-              {st.task.running && (
-                <button type="button" class={btn} onClick={act(localCancel)}>
-                  {t("Cancel")}
-                </button>
-              )}
-              {!st.task.running && !installed(st) && (
-                <button
-                  type="button"
-                  class={primary}
-                  disabled={!st.eligible || !writable}
-                  onClick={act(localInstall)}
-                >
-                  {tf("Download ({size})", { size: gigabytes(st.size) })}
-                </button>
-              )}
-              {installed(st) && !st.server.running && !st.server.starting && (
-                <button
-                  type="button"
-                  class={primary}
-                  disabled={!st.eligible || !writable}
-                  onClick={act(localStart)}
-                >
-                  {t("Start")}
-                </button>
-              )}
-              {(st.server.running || st.server.starting) && (
-                <button type="button" class={btn} onClick={act(localStop)}>
-                  {t("Stop")}
-                </button>
-              )}
-              {!st.task.running && removable(st) && !confirming && (
-                <button
-                  type="button"
-                  class={btn}
-                  onClick={() => setConfirming(true)}
-                >
-                  {t("Delete")}
-                </button>
-              )}
-              {confirming && (
-                <button
-                  type="button"
-                  class={btn + " text-danger"}
-                  onClick={remove}
-                >
-                  {tf("Delete {size} from this computer", {
-                    size: gigabytes(st.size),
-                  })}
-                </button>
-              )}
+              <LocalSteps st={st} writable={writable} act={act} />
+              <LocalDelete
+                st={st}
+                confirming={confirming}
+                onAsk={() => setConfirming(true)}
+                onDelete={remove}
+              />
             </div>
             <p class="text-[#7a7a8c]">
               {tf("Saved in {dir}", { dir: st.dir })}

@@ -143,6 +143,8 @@ func TestDownloadFinishedAndAWrongRange(t *testing.T) {
 	body := []byte("0123456789")
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
+		default:
+			http.NotFound(w, r)
 		case "/416":
 			w.WriteHeader(http.StatusRequestedRangeNotSatisfiable)
 		case "/wrong":
@@ -197,7 +199,8 @@ func TestDownloadFinishedAndAWrongRange(t *testing.T) {
 }
 
 func TestAssetPatternsForEverySystem(t *testing.T) {
-	for _, sys := range []string{"linux/amd64", "linux/arm64", "windows/amd64", "windows/arm64", "darwin/arm64", "darwin/amd64"} {
+	systems := []string{"linux/amd64", "linux/arm64", "windows/amd64", "windows/arm64", "darwin/arm64", "darwin/amd64"}
+	for _, sys := range systems {
 		goos, goarch, _ := strings.Cut(sys, "/")
 		if len(assetPatterns(goos, goarch)) == 0 {
 			t.Errorf("%s has no build", sys)
@@ -279,8 +282,8 @@ func assetServer(t *testing.T, name string, archive []byte) {
 	srv := httptest.NewServer(mux)
 	t.Cleanup(srv.Close)
 	mux.HandleFunc("/latest", func(w http.ResponseWriter, _ *http.Request) {
-		fmt.Fprintf(w, `{"tag_name":"b1","assets":[{"name":%q,"browser_download_url":"%s/a","size":%d,"digest":"sha256:%s"}]}`,
-			name, srv.URL, len(archive), sum(archive))
+		fmt.Fprintf(w, `{"tag_name":"b1","assets":[{"name":%q,"browser_download_url":"%s/a",`+
+			`"size":%d,"digest":"sha256:%s"}]}`, name, srv.URL, len(archive), sum(archive))
 	})
 	mux.HandleFunc("/a", func(w http.ResponseWriter, r *http.Request) {
 		http.ServeContent(w, r, "a", time.Time{}, bytes.NewReader(archive))
@@ -411,7 +414,8 @@ func TestUnpackRefusals(t *testing.T) {
 	if err := unpack(write("notar.tar.gz", gz.Bytes()), filepath.Join(dir, "o3")); err == nil {
 		t.Error("not a tar")
 	}
-	if err := unpack(write("slip.tar.gz", tgzOf(t, map[string]string{"../x": "x"}, nil)), filepath.Join(dir, "o4")); err == nil {
+	slip := write("slip.tar.gz", tgzOf(t, map[string]string{"../x": "x"}, nil))
+	if err := unpack(slip, filepath.Join(dir, "o4")); err == nil {
 		t.Error("tar slip")
 	}
 	// A file where a folder must go, for a folder entry, a file entry and a link.

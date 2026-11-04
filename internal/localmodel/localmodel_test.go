@@ -57,7 +57,8 @@ func TestDetectNvidiaPicksTheLargestCard(t *testing.T) {
 		"nvidia-smi": "NVIDIA GeForce GTX 1650, 4096, 3900\nNVIDIA RTX 3060, 12288, 11000\nbroken line\n",
 	}, nil)
 	g := p.detect(context.Background())
-	if g == nil || g.Name != "NVIDIA RTX 3060" || g.TotalMB != 12288 || g.FreeMB != 11000 || g.Vendor != "nvidia" {
+	want := GPU{Name: "NVIDIA RTX 3060", Vendor: "nvidia", TotalMB: 12288, FreeMB: 11000, Source: "nvidia-smi"}
+	if g == nil || *g != want {
 		t.Fatalf("gpu = %+v", g)
 	}
 }
@@ -69,7 +70,7 @@ func TestDetectAMDOnLinuxReadsSysfs(t *testing.T) {
 		"/sys/class/drm/card0/device/product_name":        "Radeon RX 6600\n",
 	})
 	g := p.detect(context.Background())
-	if g == nil || g.Vendor != "amd" || g.TotalMB != 8192 || g.FreeMB != 7168 || g.Name != "Radeon RX 6600" {
+	if g == nil || *g != (GPU{Name: "Radeon RX 6600", Vendor: "amd", TotalMB: 8192, FreeMB: 7168, Source: "sysfs"}) {
 		t.Fatalf("gpu = %+v", g)
 	}
 }
@@ -188,7 +189,8 @@ func TestDownloadDeletesAMismatch(t *testing.T) {
 	var hits atomic.Int32
 	srv := rangeServer(t, body, &hits)
 	dest := filepath.Join(t.TempDir(), "m.gguf")
-	d := download{client: http.DefaultClient, url: srv.URL, dest: dest, size: int64(len(body)), sha256: sum([]byte("other"))}
+	d := download{client: http.DefaultClient, url: srv.URL, dest: dest, size: int64(len(body)),
+		sha256: sum([]byte("other"))}
 	if err := d.run(context.Background(), nil); !errors.Is(err, errDigest) {
 		t.Fatalf("err = %v", err)
 	}
@@ -208,7 +210,8 @@ func TestDownloadRestartsWhenTheServerIgnoresRange(t *testing.T) {
 	defer srv.Close()
 	dest := filepath.Join(t.TempDir(), "f")
 	_ = os.WriteFile(dest+".part", []byte("whole"), 0o600)
-	if err := (download{client: http.DefaultClient, url: srv.URL, dest: dest, size: int64(len(body)), sha256: sum(body)}).run(context.Background(), nil); err != nil {
+	d := download{client: http.DefaultClient, url: srv.URL, dest: dest, size: int64(len(body)), sha256: sum(body)}
+	if err := d.run(context.Background(), nil); err != nil {
 		t.Fatal(err)
 	}
 	if got, _ := os.ReadFile(dest); !bytes.Equal(got, body) {
@@ -219,7 +222,8 @@ func TestDownloadRestartsWhenTheServerIgnoresRange(t *testing.T) {
 func TestDownloadReportsAFailedServer(t *testing.T) {
 	srv := httptest.NewServer(http.NotFoundHandler())
 	defer srv.Close()
-	err := (download{client: http.DefaultClient, url: srv.URL, dest: filepath.Join(t.TempDir(), "f"), sha256: sum(nil)}).run(context.Background(), nil)
+	d := download{client: http.DefaultClient, url: srv.URL, dest: filepath.Join(t.TempDir(), "f"), sha256: sum(nil)}
+	err := d.run(context.Background(), nil)
 	if err == nil || !strings.Contains(err.Error(), "404") {
 		t.Fatalf("err = %v", err)
 	}
@@ -263,7 +267,8 @@ func TestInsideRefusesEscapes(t *testing.T) {
 			t.Errorf("%q accepted", bad)
 		}
 	}
-	if p, err := inside("/base", "build/bin/llama-server"); err != nil || p != filepath.Join("/base", "build", "bin", "llama-server") {
+	want := filepath.Join("/base", "build", "bin", "llama-server")
+	if p, err := inside("/base", "build/bin/llama-server"); err != nil || p != want {
 		t.Errorf("%q %v", p, err)
 	}
 }
@@ -409,7 +414,8 @@ func TestStartRefusesWithoutGPUOrFiles(t *testing.T) {
 
 func TestServerArgsStayOnLoopback(t *testing.T) {
 	args := strings.Join(serverArgs("/m.gguf", 8471, "k", 8192, 99), " ")
-	for _, want := range []string{"--host 127.0.0.1", "--port 8471", "--api-key k", "-c 8192", "-ngl 99", "--alias " + ModelID} {
+	wants := []string{"--host 127.0.0.1", "--port 8471", "--api-key k", "-c 8192", "-ngl 99", "--alias " + ModelID}
+	for _, want := range wants {
 		if !strings.Contains(args, want) {
 			t.Errorf("args %q lack %q", args, want)
 		}

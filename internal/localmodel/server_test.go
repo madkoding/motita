@@ -74,7 +74,10 @@ func readyManager(t *testing.T, onReady func(Ready) error) *Manager {
 
 func TestStartServesThenStops(t *testing.T) {
 	ready := make(chan Ready, 1)
-	m := readyManager(t, func(r Ready) error { ready <- r; return nil })
+	m := readyManager(t, func(r Ready) error {
+		ready <- r
+		return nil
+	})
 	if err := m.Start(context.Background()); err != nil {
 		t.Fatal(err)
 	}
@@ -87,7 +90,8 @@ func TestStartServesThenStops(t *testing.T) {
 	case <-time.After(20 * time.Second):
 		t.Fatal("the server never became ready")
 	}
-	if !strings.HasPrefix(r.BaseURL, "http://127.0.0.1:") || !strings.HasPrefix(r.APIKey, "motita-local-") || r.Context != 16384 {
+	local := strings.HasPrefix(r.BaseURL, "http://127.0.0.1:") && strings.HasPrefix(r.APIKey, "motita-local-")
+	if !local || r.Context != 16384 {
 		t.Fatalf("ready = %+v", r)
 	}
 	st := m.Status(context.Background())

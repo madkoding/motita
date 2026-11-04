@@ -17,6 +17,8 @@ func (c *Client) LocalModel(ctx context.Context, action string) (localmodel.Stat
 		method, path = http.MethodGet, "/v1/local-model"
 	case "delete":
 		method, path = http.MethodDelete, "/v1/local-model"
+	default:
+		// The other actions are POSTs to their own path.
 	}
 	var st localmodel.Status
 	err := c.do(ctx, method, path, nil, &st)
