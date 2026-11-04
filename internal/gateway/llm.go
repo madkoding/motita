@@ -157,6 +157,7 @@ const testTimeout = 20 * time.Second
 // llmRoutes registers the provider endpoints.
 func (s *Server) llmRoutes(mux *http.ServeMux, plain func(http.HandlerFunc) http.Handler) {
 	mux.Handle("GET /v1/llm", plain(s.handleLLM))
+	s.localModelRoutes(mux, plain) // Motita's own local model: localmodel.go
 	mux.Handle("GET /v1/llm/usage", plain(s.handleLLMUsage))
 	mux.Handle("PUT /v1/llm/default", plain(s.handleLLMDefault))
 	mux.Handle("PUT /v1/llm/tasks", plain(s.handleLLMTasks))

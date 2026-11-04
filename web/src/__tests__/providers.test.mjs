@@ -665,6 +665,7 @@ test("every string of the providers tab has a Spanish translation", () => {
     "EvalSettings.tsx",
     "ModelPicker.tsx",
     "InsecureWarning.tsx",
+    "LocalModelSettings.tsx",
   ]) {
     for (const m of src(f).matchAll(
       /\bt[fc]?\(\s*(['"])((?:(?!\1)[^\\]|\\.)*)\1/g,

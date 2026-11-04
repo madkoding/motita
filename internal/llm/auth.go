@@ -34,6 +34,8 @@ const (
 	// qwenKeyBaseURL is DashScope's international OpenAI-compatible endpoint, the one
 	// a key from the Model Studio console works with outside mainland China.
 	qwenKeyBaseURL = "https://dashscope-intl.aliyuncs.com/compatible-mode/v1"
+	// localBaseURL is where Motita's own local server listens when its preferred port is free.
+	localBaseURL = "http://127.0.0.1:8471/v1"
 )
 
 // DefaultBaseURL is the endpoint a provider is reached at when nothing else names one.
@@ -51,6 +53,8 @@ func DefaultBaseURL(provider string) string {
 		return copilotBaseURL
 	case "qwen":
 		return qwenKeyBaseURL
+	case "local":
+		return localBaseURL
 	default:
 		return ""
 	}

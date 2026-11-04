@@ -508,6 +508,7 @@ var providerKeyAliases = map[string]string{
 	"gemini":       "GEMINI_API_KEY",
 	"qwen":         "DASHSCOPE_API_KEY",
 	ProviderCustom: "MOTITA_CUSTOM_API_KEY",
+	ProviderLocal:  "MOTITA_LOCAL_API_KEY",
 }
 
 // speaksOpenAIKey reports whether OPENAI_API_KEY is a key for this provider. Codex has a key of
@@ -635,6 +636,9 @@ func KeyForEndpoint(provider, baseURL, key string) string {
 // ReportsUsage says whether the usage of provider is worth following: a self-hosted Ollama has
 // no quota and no bill, so it is not (Ollama Cloud, and every other provider, is).
 func ReportsUsage(provider string) bool {
+	if isLocalProvider(provider) {
+		return false // Motita's own local model: nothing to bill
+	}
 	return !IsSelfHostedOllama(LLM{Provider: provider, BaseURL: StoredBaseURL(provider)})
 }
 
