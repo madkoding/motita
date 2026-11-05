@@ -343,6 +343,8 @@ function useCreateProject(
 
 // What a main branch update says when it fails.
 const MAIN_FAILED = "could not update the main branch";
+// What a return to the main branch says when it fails.
+const RETURN_FAILED = "could not return to the main branch";
 
 // useProjectAdmin changes and deletes projects that already exist.
 function useProjectAdmin(api: Api, lists: SessionList, setState: SetStatus) {
@@ -352,6 +354,41 @@ function useProjectAdmin(api: Api, lists: SessionList, setState: SetStatus) {
   // only way it moves since nothing updates it by itself. The notice that remains comes with the
   // list. With `repo` it is the main branch of that repository inside the project's folder, whose
   // notice is not kept: it comes back in the answer and is shown at once.
+  // returnProjectMain checks the project's folder out on its main branch, by the user's word: the
+  // folder a pull request left on another branch with uncommitted changes, which nothing moves by
+  // itself. git carries the changes when it can and refuses otherwise, and the refusal is shown.
+  const returnProjectMain = useCallback(
+    async (id: string) => {
+      beginGitActivity(
+        t("Returning to the main branch"),
+        t(
+          "git checkout of the main branch, then a fast-forward from origin; nothing is forced.",
+        ),
+      );
+      try {
+        const res = await api(PROJECTS_PATH + id + "/main/return", {
+          method: "POST",
+        });
+        const done = await res.json().catch(() => ({}));
+        if (!res.ok) {
+          setState(done.error || RETURN_FAILED, true);
+          endGitActivity(false, done.error || t(RETURN_FAILED), "");
+          return;
+        }
+        endGitActivity(
+          !done.main_warning,
+          done.main_warning || t("Back on the main branch"),
+          "",
+        );
+        await fetchProjects();
+      } catch {
+        setState(RETURN_FAILED, true);
+        endGitActivity(false, t(RETURN_FAILED), "");
+      }
+    },
+    [fetchProjects],
+  );
+
   const refreshProjectMain = useCallback(
     async (id: string, repo = "") => {
       beginGitActivity(
@@ -453,7 +490,7 @@ function useProjectAdmin(api: Api, lists: SessionList, setState: SetStatus) {
     [fetchProjects, fetchSessions],
   );
 
-  return { refreshProjectMain, acceptTests, deleteProject };
+  return { refreshProjectMain, returnProjectMain, acceptTests, deleteProject };
 }
 
 export function useProjects({ api, lists, setState, setToast }: Deps) {
@@ -498,6 +535,7 @@ export function useProjects({ api, lists, setState, setToast }: Deps) {
     ...edit,
     ...git,
     refreshProjectMain: admin.refreshProjectMain,
+    returnProjectMain: admin.returnProjectMain,
     acceptTests: admin.acceptTests,
     creatingProject: form.creatingProject,
     createProject,

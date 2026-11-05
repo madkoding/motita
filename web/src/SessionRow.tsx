@@ -297,6 +297,31 @@ function RenameField({ s }: { s: SessionInfo }) {
 function SessionFacts({ s }: { s: SessionInfo }) {
   return (
     <div class="session-facts flex items-center gap-x-1.5 gap-y-1 flex-wrap mt-1 text-[10px]">
+      {!!s.branch && (
+        <span
+          class="inline-flex items-center gap-1 flex-none min-w-0 px-1 py-px rounded-sm bg-accent/10"
+          data-testid="session-branch"
+        >
+          <span class="text-accent/50 uppercase tracking-wide text-[9px]">
+            {t("branch")}
+          </span>
+          <span class="truncate text-accent">{s.branch}</span>
+          {!!s.base_branch && s.base_branch !== s.branch && (
+            <span class="truncate text-accent/60">{"→ " + s.base_branch}</span>
+          )}
+        </span>
+      )}
+      {!!s.worktree_released && (
+        <span
+          class="inline-flex items-center gap-1 flex-none px-1 py-px rounded-sm bg-[#8a8a9a]/10"
+          data-testid="session-released"
+        >
+          <span class="text-[#8a8a9a]/60 uppercase tracking-wide text-[9px]">
+            {t("worktree")}
+          </span>
+          <span class="text-[#8a8a9a]">{t("released")}</span>
+        </span>
+      )}
       {!!s.changes && (
         <span class="inline-flex items-center gap-1 flex-none px-1 py-px rounded-sm bg-[#f0a040]/10">
           <span class="text-[#f0a040]/50 uppercase tracking-wide text-[9px]">

@@ -126,6 +126,7 @@ test("a row shows the title, when it was used and its labelled facts", async () 
     agents_running: 2,
     awaiting_approval: true,
     branch: "motita/s1abcdefghij",
+    base_branch: "main",
     worktree: "s9zzzzzzzzz",
     model: "gpt-x",
     provider: "p",
@@ -147,12 +148,15 @@ test("a row shows the title, when it was used and its labelled facts", async () 
     [...r.querySelectorAll(".session-facts > span")].map((f) =>
       [...f.children].map(text).join(" "),
     );
-  assert.deepEqual(facts(root), ["change 1"]);
+  assert.deepEqual(facts(root), [
+    "branch motita/s1abcdefghij → main",
+    "change 1",
+  ]);
   const hit = root.querySelector(".row-hit");
   assert.equal(hit.getAttribute("aria-label"), "Fix the build");
   assert.match(
     hit.getAttribute("title"),
-    /^Last used .*\n2 background agents running\nWaiting for your approval\n1 uncommitted change/,
+    /^Last used .*\n2 background agents running\nWaiting for your approval\n1 uncommitted change in this working tree\nOn branch motita\/s1abcdefghij\nProposed into main$/,
   );
   await click(hit);
   assert.deepEqual(v.calls, [["switchSession", "s1abcdefghij"]]);
@@ -187,6 +191,35 @@ test("a row shows the title, when it was used and its labelled facts", async () 
   assert.equal(text(bare.root.querySelector(".session-facts")), "");
   assert.equal(bare.root.querySelector(".row-hit").getAttribute("title"), null);
   await bare.done();
+  // On the base branch itself, no arrow; a merged session whose worktree was given back says so.
+  const released = await row(
+    {
+      id: "s4",
+      title: "Done",
+      branch: "main",
+      base_branch: "main",
+      merged: true,
+      worktree_released: true,
+    },
+    store(),
+  );
+  assert.deepEqual(facts(released.root), ["branch main", "worktree released"]);
+  // A base branch with no branch read: nothing to propose from.
+  const baseOnly = await row(
+    { id: "s5", title: "B", base_branch: "main" },
+    store(),
+  );
+  assert.equal(text(baseOnly.root.querySelector(".session-facts")), "");
+  assert.equal(
+    baseOnly.root.querySelector(".row-hit").getAttribute("title"),
+    "Proposed into main",
+  );
+  await baseOnly.done();
+  assert.equal(
+    released.root.querySelector(".row-hit").getAttribute("title"),
+    "On branch main\nWorktree released after the merge",
+  );
+  await released.done();
 });
 
 test("the ⋯ button opens the row's menu, and the menu offers rename and delete", async () => {

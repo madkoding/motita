@@ -133,6 +133,7 @@ func (s *Server) restoreSession(rec sessionRecord) bool {
 	conv.setAutoApprove(rec.AutoApprove)
 	conv.setMerged(rec.MergedSHA)
 	conv.setParent(rec.ParentID)
+	conv.worktreeReleased = rec.WorktreeReleased
 	// A session in a project gets its worktree back. The branch outlives the
 	// worktree, so re-attaching it restores the session's own work rather
 	// than starting over; a failure falls back to the project's directory,
@@ -148,6 +149,7 @@ func (s *Server) restoreSession(rec sessionRecord) bool {
 	workspace := s.restoredWorkspace(rec)
 	projectDir := rec.ProjectDir
 	conv.setProjectID(rec.ProjectID, workspace, projectDir)
+	conv.setBase(projectBase(s.baseCtx, s.projectOf(rec.ProjectID)))
 	// Restore the last task/kind so the session knows what it was doing
 	// before the restart. The running flag is restored separately by
 	// resumeInterruptedSessions, which needs the service to be fully
@@ -208,10 +210,12 @@ func (s *Server) restoredWorkspace(rec sessionRecord) string {
 	if rec.ProjectDir == "" {
 		return s.restoredFreeWorkspace(rec)
 	}
-	if rec.Workspace == "" || gitx.SamePath(rec.Workspace, rec.ProjectDir) {
+	// A worktree given back after a merge is not recreated: the session's work is on the base branch.
+	if rec.Workspace == "" || rec.WorktreeReleased || gitx.SamePath(rec.Workspace, rec.ProjectDir) {
 		return rec.ProjectDir
 	}
-	wt, err := s.sessionWorktree(s.baseCtx, rec.ProjectDir, rec.ID)
+	start := startBranchOf(s.baseCtx, &Project{Dir: rec.ProjectDir})
+	wt, err := s.sessionWorktree(s.baseCtx, rec.ProjectDir, rec.ID, start)
 	if err != nil {
 		s.warn("the restored session will run in the project directory: its worktree could not be re-created",
 			"id", rec.ID, "project", rec.ProjectDir, "error", err.Error())

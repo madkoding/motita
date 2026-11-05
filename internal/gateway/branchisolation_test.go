@@ -44,7 +44,7 @@ func TestSessionWorktreeSurvivesTheSessionMovingToAnotherBranch(t *testing.T) {
 	mustRun(t, "git", "-C", ss.Workspace, "checkout", "-q", "feature")
 
 	// What a gateway restart does: the worktree is resolved again.
-	got, err := srv.sessionWorktree(ctx, project, ss.ID)
+	got, err := srv.sessionWorktree(ctx, project, ss.ID, "")
 	if err != nil {
 		t.Fatalf("sessionWorktree after the session moved branch: %v", err)
 	}
@@ -75,7 +75,7 @@ func TestSessionWorktreeIsStillTheSessionsAfterTheProjectTookItsBranch(t *testin
 	// The project takes the branch, which git allows now.
 	mustRun(t, "git", "-C", p.Dir, "checkout", "-q", sessionBranch(ss.ID))
 
-	got, err := srv.sessionWorktree(ctx, p.Dir, ss.ID)
+	got, err := srv.sessionWorktree(ctx, p.Dir, ss.ID, "")
 	if err != nil {
 		t.Fatalf("sessionWorktree: %v", err)
 	}
@@ -97,7 +97,7 @@ func TestSessionWorktreeRunsInTheProjectWhenThereIsNoWorktreeRoot(t *testing.T) 
 	// What a gateway started without a workspace root looks like: nowhere to put
 	// a worktree, so the project directory is the answer.
 	srv.opts.WorkspaceDir = ""
-	got, err := srv.sessionWorktree(context.Background(), p.Dir, "s-whatever")
+	got, err := srv.sessionWorktree(context.Background(), p.Dir, "s-whatever", "")
 	if err != nil {
 		t.Fatalf("sessionWorktree without a workspace root: %v", err)
 	}
@@ -126,7 +126,7 @@ func TestSessionWorktreeRecreatesAWorktreeRemovedByHand(t *testing.T) {
 	if err := os.RemoveAll(ss.Workspace); err != nil {
 		t.Fatal(err)
 	}
-	got, err := srv.sessionWorktree(ctx, p.Dir, ss.ID)
+	got, err := srv.sessionWorktree(ctx, p.Dir, ss.ID, "")
 	if err != nil {
 		t.Fatalf("sessionWorktree over a removed worktree: %v", err)
 	}
@@ -150,7 +150,7 @@ func TestSessionWorktreeReportsAProjectThatCannotHaveOne(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	got, err := srv.sessionWorktree(context.Background(), plain, "s-1")
+	got, err := srv.sessionWorktree(context.Background(), plain, "s-1", "")
 	if err == nil {
 		t.Fatal("a project that is not a repository cannot have a worktree")
 	}

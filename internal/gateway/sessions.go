@@ -132,6 +132,12 @@ type conversation struct {
 	// worktree as its workspace, and comparing its branch against ITSELF would
 	// always report "nothing to merge".
 	projectDir string
+	// baseBranch is the project's main branch as decided when the session was placed: what its
+	// work starts from and is compared with (see sessionbase.go).
+	baseBranch string
+	// worktreeReleased marks a merged session whose worktree was given back (see
+	// releaseMergedWorktree): it runs in the project's folder now, and continues isolated.
+	worktreeReleased bool
 
 	// current is the run in flight, and nil when there is none.
 	//
@@ -429,11 +435,14 @@ type SessionStatus struct {
 	Title     string `json:"title"`
 	ProjectID string `json:"project_id,omitempty"`
 	// ParentID is the id of the project's main session when this session is one of its threads.
-	ParentID string    `json:"parent_id,omitempty"`
-	Branch   string    `json:"branch,omitempty"`
-	Created  time.Time `json:"created"`
-	LastUsed time.Time `json:"last_used"`
-	Running  bool      `json:"running"`
+	ParentID string `json:"parent_id,omitempty"`
+	Branch   string `json:"branch,omitempty"`
+	// BaseBranch is the project's main branch the session's work is compared with and proposed
+	// into. Absent outside a project, or when its repository has no main branch yet.
+	BaseBranch string    `json:"base_branch,omitempty"`
+	Created    time.Time `json:"created"`
+	LastUsed   time.Time `json:"last_used"`
+	Running    bool      `json:"running"`
 	// Rev moves when a turn starts or ends in the session (see conversation.rev): a page that
 	// shows the session and did not start that turn reads the conversation again when it moves.
 	Rev uint64 `json:"rev"`
@@ -465,6 +474,9 @@ type SessionStatus struct {
 	// Continuable is true when a merged session belongs to a project: the user
 	// can open a fresh session from the project's up-to-date base branch.
 	Continuable bool `json:"continuable"`
+	// WorktreeReleased marks a merged session whose own checkout was given back once its pull
+	// request was merged: the work is on the base branch, and nothing of it is left on disk.
+	WorktreeReleased bool `json:"worktree_released,omitempty"`
 	// Workspace is the directory this session actually runs in. For a session
 	// in a git project that is its OWN worktree, not the project's checkout,
 	// which is what lets two sessions work at once without editing each
@@ -587,10 +599,18 @@ func (c *conversation) workspaceStatus(st *SessionStatus) {
 	if c.projectDir != "" {
 		base = gitx.Display(ctx, c.projectDir)
 	}
+	// The project's main branch, when it is known: the folder's own branch is only the fallback
+	// for a repository without one. A folder sitting on a session's branch would otherwise be
+	// the base every session is compared with.
+	if c.baseBranch != "" && gitx.BranchExists(ctx, c.projectDir, c.baseBranch) {
+		base = c.baseBranch
+		st.BaseBranch = base
+	}
 	if c.merged {
 		st.Merged = true
 		st.MergedSHA = c.mergedSha
 		st.Continuable = c.projectDir != "" && c.projectID != ""
+		st.WorktreeReleased = c.worktreeReleased
 		return
 	}
 	// Integrate: the session's branch exists and has commits the base
@@ -640,80 +660,6 @@ func (c *conversation) branchAhead(ctx context.Context, base string) bool {
 	return err == nil && len(ahead) > 0
 }
 
-// sessionWorktree gives a session its own checkout of a project, so two
-//
-// It returns the directory the session should run in. When a worktree cannot be
-// made it returns the PROJECT's directory and the reason, because worktrees
-// need git: a project folder that is not a repository, or one with no commits
-// yet, must keep working exactly as it did before rather than failing to start
-// a session. Turning "this project is not a repo" into "this session cannot
-// start" would be a far worse answer than running in the directory the user
-// actually pointed at.
-//
-// It is IDEMPOTENT, and that is not a convenience: the common case is a session
-// whose worktree already exists - one restored after a gateway restart, or one
-// the caller asked about twice - and `git worktree add` REFUSES a directory it
-// has already registered. Measured: it fails with "Preparing worktree (checking
-// out 'motita/<id>')" and a non-zero status, which would turn every restored
-// session into one that could not run.
-//
-// The session's branch is the unit of isolation, and it OUTLIVES the worktree:
-// a session whose worktree is removed and recreated finds its own commits again
-// rather than starting over. That is why AddWorktree attaches an existing
-// branch instead of insisting on a new one.
-//
-// The path is derived from the workspace root and the session id alone, so the
-// same session always resolves to the same directory. This is the ONLY place
-// that decides where a session runs: a second copy of that rule is how a
-// session ends up reporting one directory while running in another.
-func (s *Server) sessionWorktree(ctx context.Context, repoDir, sessionID string) (string, error) {
-	if strings.TrimSpace(s.opts.WorkspaceDir) == "" {
-		// Without a workspace root there is nowhere to put a worktree, and a
-		// relative path would be resolved against the process's own directory.
-		// The project directory is a correct answer and needs no extra state.
-		return repoDir, nil
-	}
-	path := filepath.Join(s.opts.WorkspaceDir, "worktrees", sessionID)
-	branch := sessionBranch(sessionID)
-	// A plain folder holding repositories: a worktree of each one (see sessionnested.go).
-	if !projectIsRepo(ctx, repoDir) {
-		return nestedSessionWorktree(ctx, repoDir, path, branch)
-	}
-	// Already ours: a LIVE worktree of this repository at this path is the
-	// worktree asked for, whatever created it.
-	//
-	// The test is the PATH, deliberately, and not the branch. A session whose
-	// worktree the user moved to a feature branch is still working in its own
-	// tree - and asking about the branch instead answers "not ours" for it,
-	// which then sends this function down the add below. Measured: that add
-	// fails ("already exists", non-zero), the error propagates as the fallback
-	// to the PROJECT's directory, and two sessions end up editing one checkout -
-	// the exact collision worktrees exist to prevent.
-	if _, ok, err := gitx.LiveWorktreeAt(ctx, repoDir, path); err == nil && ok {
-		return path, nil
-	}
-	if err := gitx.AddWorktree(ctx, repoDir, path, branch); err != nil {
-		return repoDir, err
-	}
-	// The checkout is complete as far as git is concerned, and that is not the same as
-	// being able to RUN.
-	//
-	// `git worktree add` copies nothing git ignores, so a project whose dependencies live
-	// in an ignored directory - `node_modules/` is the common one - gets a checkout where
-	// `npm run lint`, `tsc` and `vitest` do not exist. The anchor then runs the project's
-	// own gate and reports "failed checks: npm lint, npm typecheck, npm test", which
-	// reads as broken CODE and is really a missing TOOLCHAIN. Measured on a real session:
-	// the agent spent round after round discovering this, and the user's report was
-	// "demasiado determinista?" about a gate that was simply running in an empty tree.
-	//
-	// Linking is what makes the checkout runnable without a fresh install per session
-	// (measured: 860 MB and ~30 s for one project). It is a LINK and not a copy: the
-	// dependencies are the same bytes, npm reads them without writing, and a copy per
-	// session would multiply the disk by the number of sessions.
-	gitx.LinkDependencyDirs(repoDir, path)
-	return path, nil
-}
-
 // scopeProceduresTo points a session's procedure library at its project, when the service
 // behind it can carry a scope.
 //
@@ -745,8 +691,9 @@ func applyRuntimeTo(svc Service, p *Project, workspace string) {
 	}
 	if setter, ok := svc.(interface{ SetProjectNote(string) }); ok {
 		home, _ := os.UserHomeDir()
-		setter.SetProjectNote(projectScopeNote(p, workspace) + projectReposNote(p) +
-			nestedReposNote(context.Background(), workspace) + dependenciesNote(p) +
+		ctx := context.Background()
+		setter.SetProjectNote(projectScopeNote(p, workspace) + sessionBranchNote(ctx, workspace, projectBase(ctx, p)) +
+			projectReposNote(p) + nestedReposNote(ctx, workspace) + dependenciesNote(p) +
 			projectInstructionsNote(workspace, home))
 	}
 }
@@ -1045,14 +992,16 @@ func (s *Server) placeAndSave(conv *conversation, projectID string, project *Pro
 // run. A failure to branch falls back to the project's own directory.
 func (s *Server) placeInProject(conv *conversation, projectID string, project *Project, isolate bool) {
 	dir := project.Dir
+	ctx := context.Background()
+	conv.setBase(projectBase(ctx, project))
 	if isolate {
-		if wt, wtErr := s.sessionWorktree(context.Background(), project.Dir, conv.id); wtErr != nil {
+		if wt, wtErr := s.sessionWorktree(ctx, project.Dir, conv.id, s.freshStart(ctx, project)); wtErr != nil {
 			s.warn("the session will run in the project directory: its own worktree could not be created",
 				"id", conv.id, "project", project.Dir, "error", wtErr.Error())
 		} else {
 			dir = wt
 		}
-		s.attachProjectRepos(context.Background(), project, dir, conv.id)
+		s.attachProjectRepos(ctx, project, dir, conv.id)
 	}
 	conv.setProjectID(projectID, dir, project.Dir)
 	conv.svc.SetWorkspace(dir)

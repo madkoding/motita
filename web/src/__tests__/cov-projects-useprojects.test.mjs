@@ -424,6 +424,38 @@ test("updating the main branch reads the projects again, or says why it could no
   await s.m.unmount();
 });
 
+test("returning to the main branch says what git answered", async () => {
+  let n = 0;
+  const s = await setup({
+    "POST /v1/projects/p1/main/return": () => {
+      n++;
+      if (n === 1) {
+        return res(200, { branch: "main", main_warning: "" });
+      }
+      if (n === 2) {
+        return res(200, { branch: "main", main_warning: "main: offline" });
+      }
+      if (n === 3) {
+        return res(409, { error: "could not check out main: f.txt" });
+      }
+      if (n === 4) {
+        return res(500, new Error("not json"));
+      }
+      throw new Error("down");
+    },
+  });
+  for (let i = 0; i < 5; i++) {
+    await run(() => s.p.returnProjectMain("p1"));
+  }
+  assert.equal(s.counts.projects, 2);
+  assert.deepEqual(s.states, [
+    ["could not check out main: f.txt", true],
+    ["could not return to the main branch", true],
+    ["could not return to the main branch", true],
+  ]);
+  await s.m.unmount();
+});
+
 test("updating a repository inside the project names it, and shows the notice it comes back with", async () => {
   let n = 0;
   const s = await setup({

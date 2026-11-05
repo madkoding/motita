@@ -58,6 +58,7 @@ function store({
       projects: {
         openEditProject: rec("edit"),
         refreshProjectMain: rec("refreshMain"),
+        returnProjectMain: rec("returnMain"),
         acceptTests: rec("acceptTests"),
       },
       repoGit: {
@@ -206,6 +207,24 @@ test("the menu updates the main branch: nothing else does it by itself", async (
   const m = await mount(AppCtx, s.value, h(ProjectGroup, { p: git }));
   await click(m.q("[data-testid=refresh-main]"));
   assert.deepEqual(s.log, [["refreshMain", "p1"], ["closeMenu"]]);
+  // On its main branch, or with no branch read, there is nowhere to return to.
+  assert.equal(m.q("[data-testid=return-main]"), null);
+  await m.unmount();
+  const onMain = await mount(
+    AppCtx,
+    s.value,
+    h(ProjectGroup, { p: { ...git, branch: "main" } }),
+  );
+  assert.equal(onMain.q("[data-testid=return-main]"), null);
+  await onMain.unmount();
+});
+
+test("the menu returns a folder left on another branch to the main branch", async () => {
+  const s = store({ rowMenu: { id: "p1" } });
+  const away = { ...P, main_branch: "main", branch: "motita/s1" };
+  const m = await mount(AppCtx, s.value, h(ProjectGroup, { p: away }));
+  await click(m.q("[data-testid=return-main]"));
+  assert.deepEqual(s.log, [["returnMain", "p1"], ["closeMenu"]]);
   await m.unmount();
 });
 

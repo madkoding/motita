@@ -224,6 +224,11 @@ export function sessionTooltip(s: SessionInfo): string | undefined {
       ),
     !!s.awaiting_approval && t("Waiting for your approval"),
     !!s.changes && changesTitle(s.changes),
+    !!s.branch && tf("On branch {branch}", { branch: s.branch }),
+    !!s.base_branch &&
+      s.base_branch !== s.branch &&
+      tf("Proposed into {base}", { base: s.base_branch }),
+    !!s.worktree_released && t("Worktree released after the merge"),
   ]);
 }
 

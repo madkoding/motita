@@ -32,4 +32,5 @@ func (s *Server) projectRoutes(mux *http.ServeMux, plain func(http.HandlerFunc) 
 	mux.Handle("GET /v1/projects/{id}/branches", plain(s.handleProjectBranches))
 	mux.Handle("DELETE /v1/projects/{id}", plain(s.handleDeleteProject))
 	mux.Handle("POST /v1/projects/{id}/main/refresh", plain(s.handleRefreshProjectMain))
+	mux.Handle("POST /v1/projects/{id}/main/return", plain(s.handleReturnProjectMain))
 }

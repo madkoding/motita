@@ -441,7 +441,7 @@ func (s *Server) releaseWorktree(c *conversation, discard bool) error {
 		return fmt.Errorf("the session's checkout at %s could not be removed (%v): "+
 			"remove it with `git worktree remove %s` and delete the session again", workspace, err, workspace)
 	}
-	dropSessionBranches(context.Background(), c.id, release)
+	dropSessionBranches(context.Background(), c.id, release, c.isMerged())
 	if s.opts.Log != nil {
 		s.opts.Log.Info("the session's worktree was released with it",
 			"id", c.id, "worktree", workspace, "branch", sessionBranch(c.id))
@@ -453,8 +453,10 @@ func (s *Server) releaseWorktree(c *conversation, discard bool) error {
 // that worktree is gone: a branch per opened session would otherwise pile up in the project's
 // repository, and in every shared or user's repository, for ever. Only a branch with nothing
 // unmerged goes (`git branch -d`): commits that exist nowhere else are work, and the branch that
-// holds them stays.
-func dropSessionBranches(ctx context.Context, sessionID string, release worktreeRelease) {
+// holds them stays - unless the session was INTEGRATED: its pull request was merged, or its work
+// merged into the project, and a squash or a rebase on the way leaves a branch `-d` refuses for
+// ever although every line of it is on the base. That one goes with -D.
+func dropSessionBranches(ctx context.Context, sessionID string, release worktreeRelease, merged bool) {
 	branch := sessionBranch(sessionID)
 	dirs := []string{release.ProjectDir}
 	for _, wt := range release.Repos {
@@ -462,6 +464,10 @@ func dropSessionBranches(ctx context.Context, sessionID string, release worktree
 	}
 	for _, dir := range distinctDirs(dirs) {
 		// Advisory: unmerged work, or a branch the repository never had, keeps it.
+		if merged {
+			_ = gitx.ForceDeleteBranch(ctx, dir, branch)
+			continue
+		}
 		_ = gitx.DeleteBranch(ctx, dir, branch)
 	}
 }

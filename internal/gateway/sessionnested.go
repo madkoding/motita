@@ -33,7 +33,8 @@ func nestedSessionWorktree(ctx context.Context, projectDir, path, branch string)
 			made++
 			continue
 		}
-		if err := gitx.AddWorktree(ctx, repo, dest, branch); err != nil {
+		// Each repository's branch starts from that repository's own main branch (see freshStart).
+		if err := gitx.AddWorktreeFrom(ctx, repo, dest, branch, startBranchOf(ctx, &Project{Dir: repo})); err != nil {
 			firstErr = cmp.Or(firstErr, err)
 			continue
 		}
