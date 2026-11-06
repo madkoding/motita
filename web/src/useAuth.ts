@@ -82,6 +82,9 @@ export function useAuth({
   // the gateway did not answer at all, 'ok' when the credential is valid. The
   // blocking modal is rendered whenever authState !== 'ok'.
   const [authState, setAuthState] = useState<AuthState>("checking");
+  // authStateRef is what the 401 listener reads: it is set once and must not see a stale state.
+  const authStateRef = useRef(authState);
+  authStateRef.current = authState;
   const [authInput, setAuthInput] = useState("");
   const [authError, setAuthError] = useState("");
   const [authBusy, setAuthBusy] = useState(false);
@@ -180,6 +183,11 @@ export function useAuth({
   // reappears and local state is reset so nothing stale is shown.
   useEffect(() => {
     const handler = () => {
+      // The modal is already up: a late 401 (a poll that was in flight) must not wipe the token
+      // the person is typing.
+      if (authStateRef.current === "needed") {
+        return;
+      }
       setAuthState("needed");
       setAuthInput("");
       setAuthError("");
