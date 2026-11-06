@@ -249,6 +249,11 @@ func (r *taskRun) closeGoal(sub TaskResult, subs []string) TaskResult {
 	if r.depth > 0 || !r.a.isGoal() || r.ctx.Err() != nil {
 		return sub
 	}
+	// The closing round judges the goal against the tree and the gate the TURN started with. It
+	// used to take them again here, after the subtasks: a check a subtask broke was then in the
+	// snapshot, "already failing before this change" passed the goal, and a gate a subtask
+	// rewrote became the gate it was held to.
+	defer func() { r.pinned = nil }()
 	r.a.report("goal: the subtasks ran; checking the whole goal and finishing what is left")
 	r.a.log.Info(r.prefix+"goal: closing round after the subtasks", "subtasks", len(subs), "pass", sub.Pass)
 	r.seed = &roundRecord{
@@ -282,4 +287,42 @@ func goalSubtasksNote(subs []string, sub TaskResult) string {
 		"(including the subtasks that did not run), verify it, and report \"done\": true only when the " +
 		"WHOLE goal is met.")
 	return b.String()
+}
+
+// goalBaseline is what a goal's turn started with: the sources, the anchor's snapshot of the tree
+// and the project's gate. The subtasks each take their own on the way (they are runs of their
+// own), so the closing round, which is the one that decides whether the GOAL passed, would
+// otherwise measure itself against what the subtasks left.
+type goalBaseline struct {
+	sources   string
+	sourcesOK bool
+	before    *runBaseline
+	gate      string
+	gateTests int
+}
+
+// holdGoalBaseline takes the baseline of a goal's turn before its subtasks run. Anything that is
+// not the top level of a goal has no closing round, and holds nothing.
+func (r *taskRun) holdGoalBaseline() *goalBaseline {
+	a := r.a
+	if r.depth > 0 || !a.isGoal() {
+		return nil
+	}
+	b := &goalBaseline{before: a.startBaseline(r.ctx), gate: a.gate, gateTests: a.gateTests}
+	b.sources, b.sourcesOK = treeFingerprint(a.cfg.Agent.WorkspaceDir, true)
+	if !a.isChild || a.gate == "" {
+		b.gate, b.gateTests = a.gateFingerprint(), max(a.testCount(), a.gateTests)
+	}
+	return b
+}
+
+// runThenCloseGoal runs a goal's subtasks and closes the goal after them, measured against the
+// baseline taken before they ran.
+func (r *taskRun) runThenCloseGoal(subs []string, run func() TaskResult) TaskResult {
+	pin := r.holdGoalBaseline()
+	if pin != nil {
+		defer pin.before.close(r.ctx)
+		r.pinned = pin
+	}
+	return r.closeGoal(run(), subs)
 }

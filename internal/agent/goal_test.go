@@ -382,3 +382,52 @@ func TestACycleIsAStall(t *testing.T) {
 		t.Fatalf("a cycle must stop as a stall: attempts=%d reason=%q", r.Attempts, r.Reason)
 	}
 }
+
+// A goal's closing round is held to the tree the TURN started with. A subtask broke the project's
+// gate and gave up; the closing round claims "done" without fixing it. The gate passed before the
+// goal began, so the failure is the goal's own: measured against what the subtasks left, it was
+// "already failing before this change" and the goal ended in PASS.
+func TestAGoalCannotPassOnAFailureItsSubtaskIntroduced(t *testing.T) {
+	s := &scriptServer{
+		plan: func(p string) string {
+			if strings.Contains(p, "subtask 1 of") || strings.Contains(p, "subtask 2 of") {
+				return `{"plan":[{"step":1,"action":"do it"}],"subtasks":[]}`
+			}
+			return `{"plan":[],"subtasks":["write a.txt","write b.txt"]}`
+		},
+		execute: func(_ int, p string) string {
+			switch {
+			case strings.Contains(p, "This GOAL was split"):
+				return step(true, "true") // claims done, fixes nothing
+			case strings.Contains(p, "[THIS ONE] write a.txt"):
+				return step(true, "touch broken.flag")
+			default:
+				return step(true, "touch b.txt")
+			}
+		},
+	}
+	_, r := goalScript(t, s, "exit 0", "/goal write both", func(c *config.Config) {
+		c.Agent.SubtaskRetries = 0
+		projectGate(t, "test ! -f broken.flag")(c)
+	})
+	if r.Pass {
+		t.Fatalf("the goal broke the gate and must not pass: %+v", r)
+	}
+	if strings.Contains(r.Reason, "ALREADY FAILING") {
+		t.Errorf("a failure the goal introduced is not an old one: %s", r.Reason)
+	}
+}
+
+// The turn's baseline is held only by the top level of a goal.
+func TestOnlyTheTopOfAGoalHoldsABaseline(t *testing.T) {
+	a := &Agent{}
+	r := &taskRun{a: a, ctx: context.Background()}
+	if r.holdGoalBaseline() != nil {
+		t.Error("a plain task has no closing round to hold a baseline for")
+	}
+	a.goal = &goalState{}
+	r.depth = 1
+	if r.holdGoalBaseline() != nil {
+		t.Error("a subtask has no closing round to hold a baseline for")
+	}
+}
