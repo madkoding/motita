@@ -119,6 +119,12 @@ func envProgram(args []string) (int, string) {
 			// the directory the program runs in, -P replaces the PATH it is found through.
 			return 0, unknownOption(a)
 		case strings.ContainsRune(a, '='):
+			// `env GIT_SSH_COMMAND=x git fetch` hands git a program to run: the same names
+			// that make an export a question make this env one.
+			v, _, _ := strings.Cut(a, "=")
+			if reason, runs := RunnerVariable(v); runs {
+				return 0, "env sets " + reason + ", so the program after it cannot be judged by its arguments"
+			}
 			options = false
 		default:
 			return i, ""

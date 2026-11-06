@@ -109,18 +109,14 @@ func xargsProgram(rest []string) (Decision, bool) {
 		"xargs-reader", false}, true
 }
 
-// exportedRunners are the variables that change which program runs or what a shell runs on its
-// own, so exporting one is a question: the commands after it on the line run with it.
-var exportedRunners = map[string]bool{"PATH": true, "BASH_ENV": true, "ENV": true, "IFS": true,
-	"PROMPT_COMMAND": true, "SHELLOPTS": true, "BASHOPTS": true, "CDPATH": true}
-
 // exportVar is a NAME or NAME=value an export sets.
 var exportVar = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*(=.*)?$`)
 
 // exportDecision answers `export NAME=value`, which only sets a variable for the rest of the line
 // - as the `NAME=value cmd` in front of a command already does without a question. A variable
-// that changes which program runs (PATH, the dynamic loader's LD_*/DYLD_*, the shell's start-up
-// files) and an export with options are still asked about.
+// that changes which program runs or what one loads (readonly.RunnerVariable: PATH, the dynamic
+// loader's LD_*/DYLD_*, the shell's start-up files, GIT_*, NODE_OPTIONS...) and an export with
+// options are still asked about.
 func exportDecision(name string, args []string) (Decision, bool) {
 	if name != "export" || len(args) == 0 {
 		return Decision{}, false
@@ -129,9 +125,11 @@ func exportDecision(name string, args []string) (Decision, bool) {
 		if !exportVar.MatchString(a) {
 			return Decision{}, false
 		}
-		v, _, _ := strings.Cut(a, "=")
-		if exportedRunners[v] || strings.HasPrefix(v, "LD_") || strings.HasPrefix(v, "DYLD_") {
-			return Decision{}, false
+		// `export NAME` alone publishes the value NAME already has; only `NAME=value` sets one.
+		if v, _, set := strings.Cut(a, "="); set {
+			if _, runs := readonly.RunnerVariable(v); runs {
+				return Decision{}, false
+			}
 		}
 	}
 	return Decision{Allow, "export only sets a variable for the commands after it", "export", false}, true

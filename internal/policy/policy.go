@@ -163,13 +163,39 @@ func namedRuleDecision(name string, args []string) (Decision, bool) {
 	return Decision{}, false
 }
 
+// assignmentDecision answers a segment that is only `NAME=value`: the shell sets the variable
+// for the rest of the line (`PATH=/tmp/x; make`), exactly as `export NAME=value` does. It used
+// to be read as a program called NAME=value, and a value with a slash in it made it a "program
+// inside the workspace" that ran in silence. A variable that changes what runs is a question,
+// through the same table as export; any other is allowed as the export is.
+func assignmentDecision(command string, args []string) (Decision, bool) {
+	if len(args) != 0 || !exportVar.MatchString(command) || !strings.ContainsRune(command, '=') {
+		return Decision{}, false
+	}
+	name, _, _ := strings.Cut(command, "=")
+	if reason, runs := readonly.RunnerVariable(name); runs {
+		return Decision{Ask, reason + ", so the commands after it cannot be checked, and it needs " +
+			"the user's approval before it is set", "environment-runs-code", false}, true
+	}
+	return Decision{Allow, "this only sets a variable for the commands after it", "assignment", false}, true
+}
+
 // decisionFor is DecisionFor before what the lack of confinement changes.
 func (m Mode) decisionFor(command string, args []string, dir string) Decision {
 	// Leading `VAR=value` assignments are the environment, not the program: `FOO=1 ls` runs
 	// `ls`. The floor scan already skips them, and classifying them as a program name made the
 	// policy ask about a plain reader.
 	for strings.ContainsRune(command, '=') && len(args) > 0 && !strings.HasPrefix(command, "/") {
+		// The value is for the program, but the NAME can be the program's back door:
+		// `GIT_EXTERNAL_DIFF=x git diff` runs x. The same table as `export` says which.
+		v, _, _ := strings.Cut(command, "=")
+		if reason, runs := readonly.RunnerVariable(v); runs {
+			return m.unclassified(reason+", so the commands after it cannot be checked", "environment-runs-code")
+		}
 		command, args = args[0], args[1:]
+	}
+	if d, hit := assignmentDecision(command, args); hit {
+		return d
 	}
 	// A wrapper (`env`, `command`, `nice`, `timeout`…) is judged by the program it runs: every
 	// rule below reads the program's name and arguments, and `env curl -d @~/.ssh/id_rsa …`
@@ -897,6 +923,9 @@ func (m Mode) DecideLine(line, dir string) Decision {
 	if d, hit := m.heredocVerdict(main, docs); hit {
 		return m.Relaxing(d)
 	}
+	// A loop's variable stands for the words it loops over; when those are all inside the
+	// workspace, so is every path made from it. See loopvars.go.
+	main = bindLoopVariables(main, dir)
 	for _, seg := range lineSegments(main) {
 		d, skip, final := m.segmentDecision(seg, dir)
 		if final {
