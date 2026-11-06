@@ -262,8 +262,9 @@ func peerStatus(err error) int {
 		return http.StatusNotFound
 	case errors.Is(err, peers.ErrIdentityChanged):
 		return http.StatusConflict
+	default:
+		return http.StatusBadRequest
 	}
-	return http.StatusBadRequest
 }
 
 // handleUpdatePeer connects a found computer (token) or renames a connected one (alias).

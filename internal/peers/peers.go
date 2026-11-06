@@ -642,30 +642,37 @@ func (r *Registry) Ask(id, name, address, cert string) (string, error) {
 			delete(r.requests, fp)
 		}
 	}
-	// The ID in a request is claimed, not proven: a request under the same ID but another
-	// certificate does not replace one that waits, it is refused. (Replacing it let anyone push
-	// a computer's own request off the list by asking under its ID.) The same certificate asking
-	// again refreshes its request, and one already answered can be asked over.
-	origin, waitingFromOrigin := originOf(address), 0 // "" when the address is not known: no per-origin limit
-	for fp, q := range r.requests {
-		if q.state != AskWaiting || fp == cert {
-			continue
-		}
-		if q.ID == id {
-			return "", ErrBusy
-		}
-		if origin != "" && originOf(q.Address) == origin {
-			waitingFromOrigin++
-		}
-	}
-	if _, again := r.requests[cert]; !again &&
-		(len(r.requests) >= MaxRequests || waitingFromOrigin >= MaxRequestsPerOrigin) {
-		return "", ErrBusy
+	if err := r.crowded(id, address, cert); err != nil {
+		return "", err
 	}
 	code := PairCode(r.fp, cert)
 	r.requests[cert] = &pending{Request: Request{ID: id, Name: name, Address: address, Code: code},
 		cert: cert, at: now, state: AskWaiting}
 	return code, nil
+}
+
+// crowded says whether a request from cert, claiming id from address, must be refused (lock held).
+// The ID in a request is claimed, not proven: a request under the same ID but another
+// certificate does not replace one that waits, it is refused. (Replacing it let anyone push
+// a computer's own request off the list by asking under its ID.) The same certificate asking
+// again refreshes its request, and one already answered can be asked over.
+func (r *Registry) crowded(id, address, cert string) error {
+	origin, fromOrigin := originOf(address), 0 // "" when the address is not known: no per-origin limit
+	for fp, q := range r.requests {
+		if q.state != AskWaiting || fp == cert {
+			continue
+		}
+		if q.ID == id {
+			return ErrBusy
+		}
+		if origin != "" && originOf(q.Address) == origin {
+			fromOrigin++
+		}
+	}
+	if _, again := r.requests[cert]; !again && (len(r.requests) >= MaxRequests || fromOrigin >= MaxRequestsPerOrigin) {
+		return ErrBusy
+	}
+	return nil
 }
 
 // Requests are the computers waiting for an answer, oldest first.
