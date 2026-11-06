@@ -287,7 +287,8 @@ type Server struct {
 	// mainRefresh tracks the background updates of projects' main branches: which are running
 	// (so a second request for the same project is dropped) and why the last one of each failed.
 	mainRefresh mainRefreshState
-	// remoteWatch is what the periodic look at origin found; remoteWG tracks that goroutine. See remotewatch.go.
+	// remoteWatch is what the periodic look at origin found; remoteWG tracks that goroutine and the pull request
+	// watchers (a watch settling a merge has git running, which Close waits for). See remotewatch.go.
 	remoteWatch remoteWatchState
 	remoteWG    sync.WaitGroup
 	// sessionFeed tells open pages a session changed (sessionfeed.go).

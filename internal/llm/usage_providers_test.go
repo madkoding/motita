@@ -198,14 +198,19 @@ func TestAnOpenAIStreamWithoutItsUsageStillEnds(t *testing.T) {
 // TestOtherOpenAICompatibleServersAreNotAskedForUsage: the field is not sent where it may be
 // refused, and the stream still ends at finish_reason there.
 func TestOtherOpenAICompatibleServersAreNotAskedForUsage(t *testing.T) {
-	var body map[string]any
+	// The handler runs on the server's goroutine: the body travels back over a channel, so the
+	// test reads it only after the handler wrote it (the race detector caught a plain variable).
+	got := make(chan map[string]any, 1)
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var body map[string]any
 		_ = json.NewDecoder(r.Body).Decode(&body)
+		got <- body
 		fmt.Fprint(w, "data: {\"choices\":[{\"delta\":{\"content\":\"hi\"},\"finish_reason\":\"stop\"}]}\n\n")
 	}))
 	t.Cleanup(srv.Close)
 	c := clientFor(t, srv.URL, func(cfg *config.LLM) { cfg.Provider = "ollama" })
 	_ = streamReply(t, c, context.Background())
+	body := <-got
 	if _, ok := body["stream_options"]; ok {
 		t.Errorf("stream_options must not be sent to %s: %v", srv.URL, body)
 	}

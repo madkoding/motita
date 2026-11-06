@@ -311,7 +311,7 @@ func (s *Server) startPRWatch(c *conversation, from *prWatchState) {
 	if every <= 0 {
 		every = defaultPRPollEvery
 	}
-	go func() {
+	s.remoteWG.Go(func() {
 		defer func() {
 			s.prMu.Lock()
 			delete(s.prWatching, key)
@@ -328,7 +328,7 @@ func (s *Server) startPRWatch(c *conversation, from *prWatchState) {
 				return
 			}
 		}
-	}()
+	})
 }
 
 // followOpenedPR starts following the session's pull request when a run ends with one open that is

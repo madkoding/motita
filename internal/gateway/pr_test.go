@@ -53,6 +53,10 @@ func prSessionOf(t *testing.T, origin string, isolate bool, opts ...func(*Option
 		// `git remote get-url` still reports the URL as written.
 		mustRun(t, "git", "-C", ss.Workspace, "config", "protocol.https.allow", "never")
 	}
+	// Registered after the folders above, so it runs BEFORE they are removed: a watch settling a
+	// merge still has git running in the project's folder, and Close waits for it. (The server's
+	// own cleanup closes it too, once; a second Close is a no-op.)
+	t.Cleanup(func() { _ = srv.Close(context.Background()) })
 	return srv, host, ss
 }
 
