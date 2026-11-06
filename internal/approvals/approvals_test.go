@@ -17,7 +17,7 @@ func TestKeyOfReadsTheShapeOfACommand(t *testing.T) {
 		{"shell", "CI=1 npm install --save x", "npm install", true},
 		{"shell", "/usr/bin/go test ./...", "go test", true},
 		{"shell", "rm -rf build", "rm", true},
-		{"shell", "python3 ./setup.py", "python3", true},
+		{"shell", "python3 ./setup.py", "", false},
 		{"shell", "docker-compose up", "docker-compose up", true},
 		{"shell", "cat a.txt", "cat", true},
 		{"shell", "cp report /tmp/x", "cp", true},
@@ -178,5 +178,19 @@ func TestAlwaysAllowCoversTheNextLineMadeOfTheSamePrograms(t *testing.T) {
 	other, _ := KeysOf("leaves-workspace", "git push")
 	if s.AllowedAll("p", other) || s.AllowedAll("q", first) || s.AllowedAll("p", nil) {
 		t.Error("allowed only under its rule and scope, and never for no shape at all")
+	}
+}
+
+// "Always allow" on a shell, an interpreter or a wrapper would allow whatever they run next, so
+// those lines have no shape to keep, alone or inside a chain.
+func TestInterpretersAndWrappersHaveNoShapeToKeep(t *testing.T) {
+	for _, command := range []string{
+		"python3 build.py", "python3.12 -m http.server", "/usr/bin/python x.py", "Python.exe x.py",
+		"node app.js", "bash run.sh", "sh -c 'rm x'", "sudo apt install x", "env FOO=1 make",
+		"xargs rm", "git add . && python3 x.py", "cd /tmp && bash x.sh",
+	} {
+		if keys, ok := KeysOf("shell", command); ok || keys != nil {
+			t.Errorf("KeysOf(%q) = %v, %v", command, keys, ok)
+		}
 	}
 }

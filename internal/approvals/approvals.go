@@ -53,6 +53,9 @@ func KeysOf(rule, command string) ([]Key, bool) {
 		if !ok {
 			continue
 		}
+		if runsAnythingElse(k.Program) {
+			return nil, false // one "always" must not cover whatever that program is handed next
+		}
 		list := &keys
 		if policy.IsBuiltin(k.Program) {
 			list = &builtins
@@ -65,6 +68,26 @@ func KeysOf(rule, command string) ([]Key, bool) {
 		keys = builtins
 	}
 	return keys, len(keys) > 0
+}
+
+// opaquePrograms run whatever they are handed: a shell or an interpreter runs the script or the
+// code of its argument, a wrapper runs another command. The shape of such a line is only the
+// program, so "always allow `python3 build.py`" would allow every later `python3` line, and
+// `sudo` or `env` every command behind them. They are asked about each time.
+var opaquePrograms = map[string]bool{
+	"sh": true, "bash": true, "zsh": true, "dash": true, "ksh": true, "fish": true,
+	"pwsh": true, "powershell": true, "cmd": true,
+	"node": true, "ruby": true, "perl": true, "php": true, "deno": true, "ts-node": true, "tsx": true,
+	"sudo": true, "doas": true, "env": true, "nohup": true, "command": true, "nice": true,
+	"ionice": true, "time": true, "stdbuf": true, "setsid": true, "exec": true, "eval": true,
+	"builtin": true, "busybox": true, "xargs": true, "ssh": true, "watch": true, "timeout": true,
+}
+
+// runsAnythingElse says a program is one of opaquePrograms, in any spelling (python3.12,
+// Python.exe).
+func runsAnythingElse(program string) bool {
+	name := strings.TrimSuffix(strings.ToLower(program), ".exe")
+	return opaquePrograms[name] || strings.HasPrefix(name, "python")
 }
 
 // keyOfWords is the shape of one command: its program, with the subcommand when it has one.
