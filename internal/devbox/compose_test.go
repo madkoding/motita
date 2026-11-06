@@ -69,13 +69,20 @@ func TestCheckCompose(t *testing.T) {
 		"label colon":   {`{"services":{"web":{"security_opt":["label:disable"]}}}`, "security profile"},
 		"new privs":     {`{"services":{"web":{"security_opt":["no-new-privileges=false"]}}}`, "security profile"},
 		"build out":     {`{"services":{"web":{"build":{"context":"/etc"}}}}`, "builds from /etc"},
-		"build extra":   {`{"services":{"web":{"build":{"context":"/p","additional_contexts":{"x":"/root"}}}}}`, "builds from /root"},
-		"build image":   {`{"services":{"web":{"build":{"context":"/p/app","additional_contexts":{"x":"docker-image://alpine"}}}}}`, ""},
-		"other net":     {`{"services":{"web":{"networks":{"front":null}}}}`, "network front"},
-		"bind out":      {`{"services":{"web":{"volumes":[{"type":"bind","source":"/etc"}]}}}`, "outside the project"},
-		"bind parent":   {`{"services":{"web":{"volumes":[{"type":"bind","source":"/"}]}}}`, "outside the project"},
-		"config out":    {`{"services":{"web":{}},"configs":{"c":{"file":"/etc/passwd"}}}`, "outside the project"},
-		"secret out":    {`{"services":{"web":{}},"secrets":{"s":{"file":"/root/.ssh/id"}}}`, "outside the project"},
+		"build extra": {
+			`{"services":{"web":{"build":{"context":"/p","additional_contexts":{"x":"/root"}}}}}`,
+			"builds from /root",
+		},
+		"build image": {
+			`{"services":{"web":{"build":{"context":"/p/app",` +
+				`"additional_contexts":{"x":"docker-image://alpine"}}}}}`,
+			"",
+		},
+		"other net":   {`{"services":{"web":{"networks":{"front":null}}}}`, "network front"},
+		"bind out":    {`{"services":{"web":{"volumes":[{"type":"bind","source":"/etc"}]}}}`, "outside the project"},
+		"bind parent": {`{"services":{"web":{"volumes":[{"type":"bind","source":"/"}]}}}`, "outside the project"},
+		"config out":  {`{"services":{"web":{}},"configs":{"c":{"file":"/etc/passwd"}}}`, "outside the project"},
+		"secret out":  {`{"services":{"web":{}},"secrets":{"s":{"file":"/root/.ssh/id"}}}`, "outside the project"},
 	}
 	for name, c := range cases {
 		var cfg composeConfig
@@ -264,10 +271,10 @@ func TestComposeFollowsLinksOutOfTheProject(t *testing.T) {
 		t.Fatal(err)
 	}
 	for name, c := range map[string]struct{ json, want string }{
-		"bind link":   {`{"services":{"web":{"volumes":[{"type":"bind","source":"` + dir + `/escape"}]}}}`, "outside the project"},
-		"bind below":  {`{"services":{"web":{"volumes":[{"type":"bind","source":"` + dir + `/escape/new"}]}}}`, "outside the project"},
+		"bind link":   {bindOf(dir + "/escape"), "outside the project"},
+		"bind below":  {bindOf(dir + "/escape/new"), "outside the project"},
 		"build link":  {`{"services":{"web":{"build":{"context":"` + dir + `/escape"}}}}`, "builds from"},
-		"bind inside": {`{"services":{"web":{"volumes":[{"type":"bind","source":"` + dir + `/src"}]}}}`, ""},
+		"bind inside": {bindOf(dir + "/src"), ""},
 	} {
 		var cfg composeConfig
 		if err := jsonUnmarshal(c.json, &cfg); err != nil {
@@ -280,4 +287,9 @@ func TestComposeFollowsLinksOutOfTheProject(t *testing.T) {
 	if got := resolveReal("/no-such-folder-here/x"); got != "/no-such-folder-here/x" {
 		t.Errorf("a missing path stays as it is: %q", got)
 	}
+}
+
+// bindOf is a resolved compose file whose web service bind-mounts source.
+func bindOf(source string) string {
+	return `{"services":{"web":{"volumes":[{"type":"bind","source":"` + source + `"}]}}}`
 }

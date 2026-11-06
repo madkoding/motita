@@ -146,7 +146,7 @@ func Open(path string) (*Store, error) {
 	if path == "" {
 		return s, nil
 	}
-	raw, err := os.ReadFile(path)
+	raw, err := os.ReadFile(filepath.Clean(path))
 	if errors.Is(err, os.ErrNotExist) {
 		return s, nil
 	}
