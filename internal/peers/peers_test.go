@@ -224,7 +224,7 @@ func TestPairRenameTargetAndForget(t *testing.T) {
 	}
 	// A new name, version and address are written down.
 	h := hello("peer0001", "desk2")
-	h.Version = "v2"
+	h.Version, h.Cert = "v2", "fp" // the certificate it was connected with
 	r.Saw(h, ap("192.168.1.6:7477"), SourceLAN)
 	again, _ := Open(path, "box")
 	p, ok := again.Find("peer0001")
@@ -445,5 +445,121 @@ func TestRequestsExpireAndAreBounded(t *testing.T) {
 	}
 	if _, err := r.Ask("peer0099", "x", "", "fp99"); err != nil {
 		t.Fatalf("after expiry: %v", err)
+	}
+}
+
+// A beacon is unauthenticated and the ID in it is public: one that names a connected computer with
+// another certificate is not that computer, and neither moves its address nor shows it online.
+func TestABeaconWithAnotherCertificateDoesNotMoveAConnectedComputer(t *testing.T) {
+	r, c := newReg(t)
+	h := hello("peer0001", "desk")
+	h.Cert = "fp"
+	r.Saw(h, ap("192.168.1.5:7477"), SourceLAN)
+	if err := r.Pair("peer0001", "tok", "fp"); err != nil {
+		t.Fatal(err)
+	}
+	fake := hello("peer0001", "evil")
+	fake.Cert = "attacker"
+	if r.Saw(fake, ap("192.168.1.99:7477"), SourceLAN) {
+		t.Fatal("a beacon against the pin was taken as a new computer")
+	}
+	p, _ := r.Find("peer0001")
+	if p.Name != "desk" || p.Address != "192.168.1.5:7477" {
+		t.Fatalf("the connected computer moved: %+v", p)
+	}
+	if tg, _ := r.Target("peer0001"); tg.Address != "192.168.1.5:7477" {
+		t.Fatalf("target moved: %+v", tg)
+	}
+	// The same certificate may move it: the address changed, the computer did not.
+	c.t = c.t.Add(time.Second) // the newest sighting of equal rank wins
+	r.Saw(h, ap("192.168.1.6:7477"), SourceLAN)
+	if p, _ = r.Find("peer0001"); p.Address != "192.168.1.6:7477" {
+		t.Fatalf("a beacon with the pinned certificate must move it: %+v", p)
+	}
+}
+
+// The certificate a computer was connected with is its identity: pairing again under another one
+// is refused (and CheckPin says so before a token is sent), until the computer is forgotten.
+func TestPairingAgainUnderAnotherCertificateIsRefused(t *testing.T) {
+	r, _ := newReg(t)
+	r.Saw(hello("peer0001", "desk"), ap("192.168.1.5:7477"), SourceLAN)
+	if err := r.CheckPin("peer0001", "anything"); err != nil {
+		t.Fatalf("nothing pinned yet: %v", err)
+	}
+	if err := r.CheckPin("nobody00", "x"); err != nil {
+		t.Fatalf("an unknown computer has no pin: %v", err)
+	}
+	if err := r.Pair("peer0001", "tok", "fp"); err != nil {
+		t.Fatal(err)
+	}
+	if err := r.Pair("peer0001", "tok2", "fp"); err != nil {
+		t.Fatalf("the same certificate refreshes the token: %v", err)
+	}
+	if err := r.CheckPin("peer0001", "other"); !errors.Is(err, ErrIdentityChanged) {
+		t.Fatalf("CheckPin = %v", err)
+	}
+	if err := r.Pair("peer0001", "tok3", "other"); !errors.Is(err, ErrIdentityChanged) {
+		t.Fatalf("Pair = %v", err)
+	}
+	if tg, _ := r.Target("peer0001"); tg.Token != "tok2" || tg.Cert != "fp" {
+		t.Fatalf("a refused pairing changed the target: %+v", tg)
+	}
+	if err := r.Forget("peer0001"); err != nil {
+		t.Fatal(err)
+	}
+	again := hello("peer0001", "desk")
+	again.Cert = "other"
+	r.Saw(again, ap("192.168.1.5:7477"), SourceLAN) // it is seen again, as it would be
+	if err := r.Pair("peer0001", "tok3", "other"); err != nil {
+		t.Fatalf("after forgetting, the new identity can be trusted: %v", err)
+	}
+}
+
+// A request under the ID of one that waits is refused instead of replacing it, so a computer's own
+// request cannot be pushed off the list by asking under its ID; one machine cannot take every slot.
+func TestARequestUnderAWaitingIDDoesNotReplaceIt(t *testing.T) {
+	r, _ := newReg(t)
+	if _, err := r.Ask("peer0001", "real", "192.168.1.5:1", "fpReal"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := r.Ask("peer0001", "real", "192.168.1.66:1", "fpEvil"); !errors.Is(err, ErrBusy) {
+		t.Fatalf("same ID, other certificate: %v", err)
+	}
+	if q := r.Requests(); len(q) != 1 || q[0].Address != "192.168.1.5:1" {
+		t.Fatalf("the waiting request was displaced: %+v", q)
+	}
+	// The same certificate asking again refreshes it.
+	if _, err := r.Ask("peer0001", "real", "192.168.1.5:2", "fpReal"); err != nil {
+		t.Fatalf("refresh: %v", err)
+	}
+	// Once answered, the ID can be asked under again.
+	if err := r.Decide("peer0001", false); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := r.Ask("peer0001", "real", "192.168.1.66:1", "fpNew"); err != nil {
+		t.Fatalf("after the answer: %v", err)
+	}
+	// One address holds at most MaxRequestsPerOrigin waiting requests.
+	for i := range MaxRequestsPerOrigin {
+		if _, err := r.Ask(fmt.Sprintf("flood%03d", i), "x", "10.0.0.7:5", fmt.Sprintf("fpF%d", i)); err != nil {
+			t.Fatalf("flood %d: %v", i, err)
+		}
+	}
+	if _, err := r.Ask("flood999", "x", "10.0.0.7:6", "fpF9"); !errors.Is(err, ErrBusy) {
+		t.Fatalf("one machine took every slot: %v", err)
+	}
+	if _, err := r.Ask("other001", "x", "10.0.0.8:6", "fpO"); err != nil {
+		t.Fatalf("another machine is not limited by it: %v", err)
+	}
+}
+
+func TestOriginOfIsTheHostWhateverThePort(t *testing.T) {
+	for in, want := range map[string]string{
+		"192.168.1.5:7477": "192.168.1.5", "[fe80::1]:7": "fe80::1", "[::ffff:10.0.0.1]:9": "10.0.0.1",
+		"10.0.0.1": "10.0.0.1", "": "",
+	} {
+		if got := originOf(in); got != want {
+			t.Errorf("originOf(%q) = %q, want %q", in, got, want)
+		}
 	}
 }

@@ -211,7 +211,7 @@ func (s *Server) handleAddPeer(w http.ResponseWriter, r *http.Request) {
 		s.askPeer(w, r, h, at, addr)
 		return
 	}
-	if !s.connectPeer(w, r, addr, h.Cert, body.Token) {
+	if !s.pinHolds(w, h) || !s.connectPeer(w, r, addr, h.Cert, body.Token) {
 		return
 	}
 	s.peers.Saw(h, at, peers.SourceManual)
@@ -257,8 +257,11 @@ func (s *Server) connectPeer(w http.ResponseWriter, r *http.Request, addr, cert,
 
 // peerStatus is the status for a registry error.
 func peerStatus(err error) int {
-	if errors.Is(err, peers.ErrUnknown) {
+	switch {
+	case errors.Is(err, peers.ErrUnknown):
 		return http.StatusNotFound
+	case errors.Is(err, peers.ErrIdentityChanged):
+		return http.StatusConflict
 	}
 	return http.StatusBadRequest
 }
@@ -280,7 +283,8 @@ func (s *Server) handleUpdatePeer(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		h, _, ok := s.reach(w, r, p.Address, id)
-		if !ok || !s.connectPeer(w, r, p.Address, h.Cert, *body.Token) || !s.pairPeer(w, id, *body.Token, h.Cert) {
+		if !ok || !s.pinHolds(w, h) || !s.connectPeer(w, r, p.Address, h.Cert, *body.Token) ||
+			!s.pairPeer(w, id, *body.Token, h.Cert) {
 			return
 		}
 	}
@@ -291,6 +295,18 @@ func (s *Server) handleUpdatePeer(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	writeJSON(w, http.StatusOK, s.peersView())
+}
+
+// pinHolds checks that the computer that answered presents the certificate it was connected with,
+// before a token is sent to it. The hello it answered with is plain and unauthenticated, so
+// without this a computer taking over the address would be handed the token and then become the
+// pinned identity. It writes the refusal and returns false when the identity changed.
+func (s *Server) pinHolds(w http.ResponseWriter, h peers.Hello) bool {
+	if err := s.peers.CheckPin(h.ID, h.Cert); err != nil {
+		writeError(w, http.StatusConflict, err.Error())
+		return false
+	}
+	return true
 }
 
 // pairPeer keeps the token and the certificate it is good with, or writes why it could not.
