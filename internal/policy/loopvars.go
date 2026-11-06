@@ -69,5 +69,10 @@ func replaceVariable(line, name, value string) string {
 
 // isNameRune says c can continue a variable's name.
 func isNameRune(c byte) bool {
-	return c == '_' || (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9')
+	switch {
+	case c >= 'a' && c <= 'z', c >= 'A' && c <= 'Z', c >= '0' && c <= '9':
+		return true
+	default:
+		return c == '_'
+	}
 }

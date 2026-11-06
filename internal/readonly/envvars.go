@@ -28,6 +28,13 @@ func RunnerVariable(name string) (string, bool) {
 	return "", false
 }
 
+// The reasons several names share.
+const (
+	findsPython       = "changes where python finds modules"
+	loadsJava         = "loads code into java"
+	namesCargoProgram = "names a program cargo runs"
+)
+
 // runnerVariables are the exact names, with what each one changes.
 var runnerVariables = map[string]string{
 	// The shell's own.
@@ -46,15 +53,15 @@ var runnerVariables = map[string]string{
 	"RUBYOPT": "loads code into ruby", "RUBYLIB": "changes where ruby finds code",
 	"PERL5OPT": "loads code into perl", "PERL5LIB": "changes where perl finds code",
 	"PERLLIB": "changes where perl finds code", "PYTHONSTARTUP": "names a file python runs first",
-	"PYTHONPATH": "changes where python finds modules", "PYTHONHOME": "changes where python finds modules",
-	"PYTHONUSERBASE": "changes where python finds modules",
-	"_JAVA_OPTIONS":  "loads code into java", "JAVA_TOOL_OPTIONS": "loads code into java",
-	"JDK_JAVA_OPTIONS": "loads code into java", "CLASSPATH": "changes where java finds code",
+	"PYTHONPATH": findsPython, "PYTHONHOME": findsPython,
+	"PYTHONUSERBASE": findsPython,
+	"_JAVA_OPTIONS":  loadsJava, "JAVA_TOOL_OPTIONS": loadsJava,
+	"JDK_JAVA_OPTIONS": loadsJava, "CLASSPATH": "changes where java finds code",
 	"MAVEN_OPTS": "loads code into maven", "GRADLE_OPTS": "loads code into gradle",
 	"GOFLAGS": "can name a program go runs for every tool", "GOROOT": "changes which go toolchain runs",
-	"RUSTC": "names the compiler cargo runs", "RUSTC_WRAPPER": "names a program cargo runs",
-	"RUSTC_WORKSPACE_WRAPPER": "names a program cargo runs", "CARGO_BUILD_RUSTC": "names the compiler cargo runs",
-	"CARGO_BUILD_RUSTC_WRAPPER": "names a program cargo runs",
+	"RUSTC": "names the compiler cargo runs", "RUSTC_WRAPPER": namesCargoProgram,
+	"RUSTC_WORKSPACE_WRAPPER": namesCargoProgram, "CARGO_BUILD_RUSTC": "names the compiler cargo runs",
+	"CARGO_BUILD_RUSTC_WRAPPER": namesCargoProgram,
 	// The C library.
 	"GCONV_PATH": "loads code into every program", "LOCPATH": "loads data into every program",
 	"NLSPATH": "loads data into every program",

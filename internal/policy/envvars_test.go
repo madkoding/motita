@@ -16,7 +16,7 @@ func TestAVariableThatChangesWhatRunsIsAQuestionHoweverItIsSet(t *testing.T) {
 	}{
 		{"export GIT_SSH_COMMAND=/tmp/evil; git fetch origin", Ask, "unclassified"},
 		{"export GIT_EXTERNAL_DIFF=/tmp/evil; git diff", Ask, "unclassified"},
-		{"export GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=core.fsmonitor GIT_CONFIG_VALUE_0=/tmp/evil; git status", Ask, "unclassified"},
+		{"export GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=core.fsmonitor; git status", Ask, "unclassified"},
 		{"export NODE_OPTIONS=--require=/tmp/evil.js; npm test", Ask, "unclassified"},
 		{"GIT_EXTERNAL_DIFF=/tmp/evil.sh git diff", Ask, "environment-runs-code"},
 		{"GIT_SEQUENCE_EDITOR=/tmp/evil git rebase -i HEAD~2", Ask, "environment-runs-code"},

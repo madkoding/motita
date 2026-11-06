@@ -241,11 +241,16 @@ func isInsideWorkspace(path, dir string) bool {
 // (`"end$"`) is the character.
 func expandsVariable(word string) bool {
 	for i := strings.IndexByte(word, '$'); i >= 0 && i+1 < len(word); i = strings.IndexByte(word, '$') {
-		if r := word[i+1]; r == '_' || r == '{' || (r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z') ||
-			(r >= '0' && r <= '9') || strings.IndexByte("@*#?!$-", r) >= 0 {
+		if startsExpansion(word[i+1]) {
 			return true
 		}
 		word = word[i+1:]
 	}
 	return false
+}
+
+// startsExpansion says c, right after a `$`, makes the shell expand something: a name, a brace, a
+// positional parameter or one of the special parameters (`$@ $* $# $? $! $$ $-`).
+func startsExpansion(c byte) bool {
+	return isNameRune(c) || c == '{' || strings.IndexByte("@*#?!$-", c) >= 0
 }
