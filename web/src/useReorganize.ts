@@ -16,19 +16,29 @@ export function useReorganize(api: Api, reload: () => Promise<void>) {
   const [status, setStatus] = useState<ReorgStatus | null>(null);
   const [failed, setFailed] = useState("");
   const timer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
-  const stopPolling = () => clearTimeout(timer.current);
+  // round counts the times polling was stopped or restarted: a read that was in flight when the
+  // window closed (or the page went away) finds its round over and does nothing.
+  const round = useRef(0);
+  const stopPolling = () => {
+    round.current++;
+    clearTimeout(timer.current);
+  };
   useEffect(() => stopPolling, []);
 
   // read asks how the reorganization goes; while it runs it asks again, and once it ends the list
   // is read again, since entries moved.
   const read = useCallback(async (): Promise<void> => {
     stopPolling();
+    const mine = round.current;
     try {
       const res = await api(REORG_PATH);
-      if (!res.ok) {
+      if (!res.ok || mine !== round.current) {
         return;
       }
       const st: ReorgStatus = await res.json();
+      if (mine !== round.current) {
+        return;
+      }
       setStatus(st);
       if (st.running) {
         timer.current = setTimeout(() => void read(), REORG_POLL.ms);
@@ -38,7 +48,9 @@ export function useReorganize(api: Api, reload: () => Promise<void>) {
         await reload();
       }
     } catch {
-      setFailed(t("could not read how the reorganization goes"));
+      if (mine === round.current) {
+        setFailed(t("could not read how the reorganization goes"));
+      }
     }
   }, [api, reload]);
 

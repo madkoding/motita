@@ -184,6 +184,7 @@ function gateway({
   startStatus = 202,
   undoStatus = 200,
   failRead = false,
+  hold = null,
 } = {}) {
   const calls = [];
   let reads = 0;
@@ -278,6 +279,9 @@ function gateway({
       }
       if (method === "DELETE") {
         return json({});
+      }
+      if (hold) {
+        await hold;
       }
       if (failRead) {
         throw new Error("network");
@@ -469,6 +473,50 @@ test("a running reorganization shows its step and stops", async () => {
   assert.ok(g.calls.includes("DELETE /v1/memory/reorganize"));
   await m.run((n) => n.reorg.hide());
   assert.equal(qd("reorg-dialog"), null);
+  await m.done();
+});
+
+// F105: a read that was in flight when the window closed must not schedule another one, nor
+// reload the list under a window that is not there.
+test("closing the window while a read is in flight ends the polling", async () => {
+  let release = () => {};
+  const hold = new Promise((r) => {
+    release = r;
+  });
+  const g = gateway({
+    reorg: [
+      { running: true, progress: { step: "classify", done: 1, total: 2 } },
+    ],
+    hold,
+  });
+  const m = await mount(g);
+  await m.run((n) => n.openMemory());
+  await openReorg(m);
+  await m.run((n) => n.reorg.hide());
+  const reads = () => g.calls.filter((c) => c === "GET /v1/memory/reorganize");
+  assert.equal(reads().length, 1, "the read is in flight");
+  const lists = g.calls.filter((c) => c === "GET /v1/memory").length;
+  release();
+  await act(() => new Promise((r) => setTimeout(r, 30)));
+  assert.equal(reads().length, 1, "no read follows it");
+  assert.equal(g.calls.filter((c) => c === "GET /v1/memory").length, lists);
+  assert.equal(qd("reorg-dialog"), null);
+  await m.done();
+});
+
+test("a read that fails after the window closed says nothing", async () => {
+  let fail = () => {};
+  const hold = new Promise((_, reject) => {
+    fail = () => reject(new Error("network"));
+  });
+  const g = gateway({ reorg: [{ running: false }], hold });
+  const m = await mount(g);
+  await m.run((n) => n.openMemory());
+  await openReorg(m);
+  await m.run((n) => n.reorg.hide());
+  fail();
+  await act(() => new Promise((r) => setTimeout(r, 10)));
+  assert.equal(m.hook.current.reorg.failed, "");
   await m.done();
 });
 
