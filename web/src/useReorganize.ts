@@ -32,11 +32,11 @@ export function useReorganize(api: Api, reload: () => Promise<void>) {
     const mine = round.current;
     try {
       const res = await api(REORG_PATH);
-      if (!res.ok || mine !== round.current) {
-        return;
+      let st: ReorgStatus | null = null;
+      if (res.ok) {
+        st = await res.json();
       }
-      const st: ReorgStatus = await res.json();
-      if (mine !== round.current) {
+      if (!st || mine !== round.current) {
         return;
       }
       setStatus(st);
