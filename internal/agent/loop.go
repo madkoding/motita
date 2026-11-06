@@ -33,12 +33,14 @@ type taskRun struct {
 	proceededOnAssumption string
 
 	// The execution cycle: see execute for what each of these is.
-	journal        []roundRecord
-	mem            *workMemory
-	baseline       string
-	baselineOK     bool
-	lastSources    string
-	before         *runBaseline
+	journal     []roundRecord
+	mem         *workMemory
+	baseline    string
+	baselineOK  bool
+	lastSources string
+	before      *runBaseline
+	// pinned is what a goal's closing round measures against instead of taking a new baseline.
+	pinned         *goalBaseline
 	readOnlyRounds int
 	// singleActionRounds counts the progress rounds in a row that proposed exactly one action.
 	singleActionRounds int
@@ -147,9 +149,13 @@ func (a *Agent) loop(ctx context.Context, t task.Task, depth int) TaskResult {
 		case depth >= a.cfg.Agent.SubtaskDepth:
 			// The limit is reached: the warning below, then the task runs as one.
 		case a.parallelSubtasks(ctx, r.plan, subs):
-			return r.closeGoal(a.runSubtasksParallel(ctx, t, r.analysis, subs, depth, r.start, r.prefix), subs)
+			return r.runThenCloseGoal(subs, func() TaskResult {
+				return a.runSubtasksParallel(ctx, t, r.analysis, subs, depth, r.start, r.prefix)
+			})
 		default:
-			return r.closeGoal(a.runSubtasks(ctx, t, r.analysis, subs, depth, r.start, r.prefix), subs)
+			return r.runThenCloseGoal(subs, func() TaskResult {
+				return a.runSubtasks(ctx, t, r.analysis, subs, depth, r.start, r.prefix)
+			})
 		}
 		a.log.Warn(r.prefix+"subtask splitting reached the configured limit; continuing as a single task",
 			"depth", depth, "limit", a.cfg.Agent.SubtaskDepth,
@@ -430,17 +436,24 @@ func (r *taskRun) execute() TaskResult {
 	// The sources as the run found them. It is what a claim of "done" is measured against: a
 	// project's own checks are green on a tree nobody touched, so the anchor alone cannot tell
 	// "finished" from "never started". See tree.go.
-	r.baseline, r.baselineOK = treeFingerprint(a.cfg.Agent.WorkspaceDir, true)
-	r.lastSources = r.baseline
-	// The same tree as a commit, for the anchor: a check that fails on a claim is run again on
-	// it to tell a failure the run caused from one that was already there. See baseline.go.
-	r.before = a.startBaseline(r.ctx)
-	defer r.before.close(r.ctx)
-	// The project's gate as the task found it: a PASS from a gate the run itself rewrote is not
-	// taken without the user's word. A background agent keeps the one its main agent started with.
-	if !a.isChild || a.gate == "" {
-		a.gate, a.gateTests = a.gateFingerprint(), max(a.testCount(), a.gateTests)
+	// A goal's closing round starts from what the TURN started with, not from what its subtasks
+	// left: see goalBaseline.
+	if p := r.pinned; p != nil {
+		r.baseline, r.baselineOK, r.before = p.sources, p.sourcesOK, p.before
+		a.gate, a.gateTests = p.gate, p.gateTests
+	} else {
+		r.baseline, r.baselineOK = treeFingerprint(a.cfg.Agent.WorkspaceDir, true)
+		// The same tree as a commit, for the anchor: a check that fails on a claim is run again
+		// on it to tell a failure the run caused from one that was already there. See baseline.go.
+		r.before = a.startBaseline(r.ctx)
+		defer r.before.close(r.ctx)
+		// The project's gate as the task found it: a PASS from a gate the run itself rewrote is not
+		// taken without the user's word. A background agent keeps the one its main agent started with.
+		if !a.isChild || a.gate == "" {
+			a.gate, a.gateTests = a.gateFingerprint(), max(a.testCount(), a.gateTests)
+		}
 	}
+	r.lastSources = r.baseline
 	defer r.logRoundSummary()
 	r.resume()
 	if r.seed != nil {
