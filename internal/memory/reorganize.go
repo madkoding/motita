@@ -198,14 +198,22 @@ func (j *journal) writeManifest(dir string) error {
 func (v *Store) restoreTouched(touched []string, saved map[string]string) error {
 	var errs []error
 	for _, p := range touched {
-		if body, ok := saved[p]; ok {
-			_, err := v.Write(p, body, false)
-			errs = append(errs, err)
-		} else if err := v.Delete(p); err != nil && !errors.Is(err, ErrNotFound) {
-			errs = append(errs, err)
-		}
+		errs = append(errs, v.putBack(p, saved))
 	}
 	return errors.Join(errs...)
+}
+
+// putBack writes the entry p as the copy holds it, or removes it when the copy has none.
+func (v *Store) putBack(p string, saved map[string]string) error {
+	body, ok := saved[p]
+	if !ok {
+		if err := v.Delete(p); !errors.Is(err, ErrNotFound) {
+			return err
+		}
+		return nil
+	}
+	_, err := v.Write(p, body, false)
+	return err
 }
 
 // Reorganize puts the memory in order (see the top of this file). judge may be nil: without a

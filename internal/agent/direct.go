@@ -229,11 +229,14 @@ func (r *directRun) shrinkOutputs() {
 			continue
 		}
 		seen++
-		limit := roundDetailOutput
-		if seen > directOlderOutputs {
+		var limit int
+		switch {
+		case seen > directOlderOutputs:
 			limit = directOldestOutputs
-		} else if seen > directWholeOutputs {
+		case seen > directWholeOutputs:
 			limit = roundDetailOlder
+		default:
+			limit = roundDetailOutput
 		}
 		r.msgs[i].Content = truncateMiddle(r.msgs[i].Content, limit)
 	}
