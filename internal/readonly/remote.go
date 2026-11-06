@@ -141,10 +141,8 @@ func ghRule(args []string) (string, bool) {
 			break
 		}
 	}
-	for _, a := range args {
-		if a == "--web" || a == "-w" {
-			return "gh " + a + " opens a browser", true
-		}
+	if why, bad := ghFlagRule(sub, args); bad {
+		return why, true
 	}
 	for _, v := range verbs {
 		if verb == v {
@@ -152,6 +150,19 @@ func ghRule(args []string) (string, bool) {
 		}
 	}
 	return fmt.Sprintf("gh %s %s can change GitHub; only %s is read-only", sub, verb, strings.Join(verbs, ", ")), true
+}
+
+// ghFlagRule refuses the options that open a browser or print the token.
+func ghFlagRule(sub string, args []string) (string, bool) {
+	for _, a := range args {
+		if a == "--web" || a == "-w" {
+			return "gh " + a + " opens a browser", true
+		}
+		if a == "--show-token" || (sub == "auth" && a == "-t") {
+			return "gh " + a + " prints the GitHub token, which would reach the transcript and the model", true
+		}
+	}
+	return "", false
 }
 
 // ghAPIBody are the `gh api` options that send a body, which makes the request a POST.

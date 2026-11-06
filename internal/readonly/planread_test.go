@@ -83,6 +83,17 @@ func TestPlanReadsAreAllowedAndTheirWritingFormsAreNot(t *testing.T) {
 		"pytest -p evilplugin", "pytest -c evil.ini", "pytest --junitxml=x", "pytest --basetemp=/etc",
 		"python -m pytest -p evil", "python -m http.server", "python -m", "jest --config evil.js", "jest -c x",
 		"jest --watch", "vitest", "vitest --watch", "vitest run --junit-xml=x", "phpunit --plugin x",
+		// F93: the options that hand a test runner code to load.
+		"vitest run --config /tmp/evil.mjs", "vitest run -c /tmp/evil.mjs", "jest --globalSetup /tmp/evil.js",
+		"jest --reporters /tmp/evil.js", "jest --testEnvironment /tmp/evil.js",
+		"cargo test --config build.rustc=\"/tmp/evil\"", "gradle test --init-script /tmp/evil.gradle",
+		"gradle test -I /tmp/evil.gradle", "gradle test -Pfoo=bar", "mvn test -Dexec.executable=/tmp/evil",
+		"mvn test -f /tmp/evil/pom.xml", "rspec -r /tmp/evil.rb", "phpunit --bootstrap /tmp/evil.php",
+		"npm test --script-shell=/tmp/evil", "pnpm test -C /tmp/other", "npm test -- --config /tmp/evil.js",
+		"go test -overlay=/tmp/o.json ./...", "go test ./... -args -test.coverprofile=/tmp/x",
+		"go test -cover -test.coverprofile=/tmp/x", "pytest -o addopts=-p", "dotnet test -o /tmp/out",
+		// F106: the GitHub token must not reach the transcript.
+		"gh auth status --show-token", "gh auth status -t", "gh auth token",
 	}
 	for _, line := range refused {
 		if d := check(t, line); d.Allowed {
@@ -136,5 +147,16 @@ func TestVerbSetMessagesAreStable(t *testing.T) {
 	}
 	if got := joinKeys(map[string]bool{"b": true, "a": true, "c": true}); got != "a, b, c" {
 		t.Errorf("joinKeys = %q", got)
+	}
+}
+
+// The usual ways to run the tests stay allowed after the F93 flag checks.
+func TestPlanTestRunsStayAllowed(t *testing.T) {
+	for _, line := range []string{"mvn test -Dtest=FooTest", "gradle test", "npm test -- --coverage",
+		"pnpm test", "vitest run src/a.test.ts", "rspec spec/a_spec.rb", "go test -cover -run X ./...",
+		"gh auth status"} {
+		if d := check(t, line); !d.Allowed {
+			t.Errorf("%q only runs the tests or reports, and must be allowed: %s", line, d.Reason)
+		}
 	}
 }
