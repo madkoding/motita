@@ -259,3 +259,33 @@ test("syncing waits while a save is still on its way", async () => {
   assert.equal(await prefs.syncPrefs(g.fn), true);
   prefs.bindPrefs(null);
 });
+
+// F127: a save leaves `pending` when it is sent, not when it is answered: a sync in between must
+// not bring the gateway's older value over the one just saved.
+test("syncing waits while a save is in flight, not only while one is queued", async () => {
+  localStorage.clear();
+  const g = gateway({ [THEME]: '{"mode":"light"}' });
+  let release = () => {};
+  const slow = async (path, init) => {
+    if (init?.method === "PUT") {
+      await new Promise((r) => {
+        release = r;
+      });
+    }
+    return g.fn(path, init);
+  };
+  prefs.bindPrefs(slow);
+  ui.saveNotify(false);
+  prefs.flushPrefs();
+  assert.equal(await prefs.syncPrefs(g.fn), false, "the PUT has not answered");
+  assert.equal(localStorage.getItem(THEME), null);
+  release();
+  await flush();
+  assert.equal(g.puts.length, 1);
+  assert.equal(
+    await prefs.syncPrefs(g.fn),
+    true,
+    "answered: syncing works again",
+  );
+  prefs.bindPrefs(null);
+});

@@ -169,6 +169,30 @@ test("a folder that cannot be listed shows why, and the way back stays", async (
   await m.unmount();
 });
 
+// F125: a start folder the gateway refuses must not leave the person with no way out.
+test("a refused start folder falls back to the top, and a refused top says why", async () => {
+  const { m, api } = await browser(
+    { "/gone": new Error("no such folder"), "": HOME },
+    { start: "/gone" },
+  );
+  assert.deepEqual(
+    api.calls.map((c) => new URL(c.path, "http://x").searchParams.get("path")),
+    ["/gone", null],
+    "the start folder was tried once, then the top",
+  );
+  assert.equal(m.q("[data-testid=folder-path]").textContent, "/home/ada");
+  assert.equal(m.q("[role=alert]"), null);
+  assert.equal(m.q("[data-testid=folder-up]").disabled, false);
+  await m.unmount();
+  const none = await browser(
+    { "/gone": new Error("no such folder"), "": new Error("no home") },
+    { start: "/gone" },
+  );
+  assert.match(none.m.q("[role=alert]").textContent, /no home/);
+  assert.equal(none.api.calls.length, 2, "it does not loop");
+  await none.m.unmount();
+});
+
 test("an answer that arrives after the browser closed is ignored", async () => {
   const pending = [];
   const m = await mount(

@@ -65,3 +65,15 @@ test("both buttons wait while the offer is being done", async () => {
   }
   await m.unmount();
 });
+
+// F122: the card's detail line has a Spanish text under the exact English key the card asks for.
+test("the project card's detail line is translated", async () => {
+  const es = (await import("../i18n.es.ts")).default;
+  const src = (await import("node:fs")).readFileSync(
+    new URL("../ProjectHintCard.tsx", import.meta.url),
+    "utf8",
+  );
+  const key = /"(It is cloned[^"]+)"/.exec(src)?.[1];
+  assert.ok(key, "the card still has that line");
+  assert.ok(es[key], "Spanish has the same key: " + key);
+});

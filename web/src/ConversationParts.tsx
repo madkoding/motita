@@ -265,7 +265,9 @@ function CheckpointItems({ turn }: { turn: number }) {
 // UserText is what a message of the user's says. A message drawn under a label (the turn that
 // applies suggestions) shows the label, and the prompt it sent opens under it on request.
 export function UserText({ m }: { m: Message }) {
-  const { lead, files } = attachedIn(m.text);
+  // Rendered outside the app (a transcript, a test) there is no store: that is this computer.
+  const machine = useApp()?.machine ?? "";
+  const { lead, files } = attachedIn(m.text, machine);
   if (files.length > 0) {
     return (
       <>

@@ -672,8 +672,8 @@ const more: Record<string, string> = {
   'Create the project "{name}" from this repository and move this session into it?':
     '¿Crear el proyecto "{name}" desde este repositorio y mover esta sesión a él?',
   "Create project": "Crear proyecto",
-  "It is cloned and set up with its defaults; this conversation goes on inside it.":
-    "Se clona y se configura con sus valores por defecto; esta conversación sigue dentro.",
+  "It is cloned, indexed and set up with its defaults; this conversation goes on inside it.":
+    "Se clona, se indexa y se configura con sus valores por defecto; esta conversación sigue dentro.",
   "Not now": "Ahora no",
   'The project "{title}" was created, but the session was not moved: {err}':
     'El proyecto "{title}" se creó, pero la sesión no se movió: {err}',

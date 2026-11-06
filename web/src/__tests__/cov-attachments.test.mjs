@@ -508,3 +508,50 @@ test("files chosen while a conversation opens wait for it instead of opening ano
     [["start"]],
   );
 });
+
+// F104: on another computer the session lives there, so a file's address goes through the proxy.
+test("a file attached on another computer is served through the proxy to it", () => {
+  assert.equal(
+    A.attachmentUrl("s 1", "a b.png"),
+    "/v1/sessions/s%201/attachments/a%20b.png",
+  );
+  assert.equal(
+    A.attachmentUrl("s 1", "a b.png", "desk0001"),
+    "/v1/peers/desk0001/proxy/v1/sessions/s%201/attachments/a%20b.png",
+  );
+  const stored = { ...shot, path: ".motita/uploads/s1/shot.png" };
+  assert.equal(
+    A.thumbOf(stored, "desk0001"),
+    "/v1/peers/desk0001/proxy/v1/sessions/s1/attachments/shot.png",
+  );
+  assert.equal(A.thumbOf(stored), "/v1/sessions/s1/attachments/shot.png");
+  const sent = A.withAttachments("look", [
+    { ...shot, path: ".motita/uploads/s1/shot.png" },
+  ]);
+  assert.equal(
+    A.attachedIn(sent, "desk0001").files[0].url,
+    "/v1/peers/desk0001/proxy/v1/sessions/s1/attachments/shot.png",
+  );
+  assert.equal(
+    A.attachedIn(sent).files[0].url,
+    "/v1/sessions/s1/attachments/shot.png",
+  );
+});
+
+test("a message drawn on another computer asks that computer for its thumbnails", async () => {
+  const { UserText } = await load("ConversationParts.tsx");
+  const sent = A.withAttachments("look", [
+    { name: "a.png", path: ".motita/uploads/s1/a.png", size: 1, kind: "image" },
+  ]);
+  const m = await mount(
+    h(
+      AppCtx.Provider,
+      { value: { machine: "desk0001" } },
+      h(UserText, { m: { id: 1, role: "user", text: sent } }),
+    ),
+  );
+  assert.equal(
+    m.root.querySelector("img.msg-thumb").getAttribute("src"),
+    "/v1/peers/desk0001/proxy/v1/sessions/s1/attachments/a.png",
+  );
+});

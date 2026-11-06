@@ -3,6 +3,7 @@
 import type { Api } from "./gitApi";
 import { SESSIONS_PATH } from "./appConst";
 import { choose } from "./choose";
+import { proxyPath } from "./machinesApi";
 
 // Attachment is one stored file, as the gateway answers an upload.
 export interface Attachment {
@@ -66,30 +67,37 @@ export interface AttachedFile {
   url: string;
 }
 
-// attachmentUrl is where the gateway serves a file attached to a session.
-export function attachmentUrl(sid: string, name: string): string {
-  return `${SESSIONS_PATH}${encodeURIComponent(sid)}/attachments/${encodeURIComponent(name)}`;
+// attachmentUrl is where the gateway serves a file attached to a session. On another computer the
+// session lives there, so the address goes through the proxy to it (machine "" is this one).
+export function attachmentUrl(sid: string, name: string, machine = ""): string {
+  return proxyPath(
+    machine,
+    `${SESSIONS_PATH}${encodeURIComponent(sid)}/attachments/${encodeURIComponent(name)}`,
+  );
 }
 
 // fileOf reads one line of the files list, or nothing for a line that is not a file.
-function fileOf(line: string): AttachedFile | null {
+function fileOf(line: string, machine = ""): AttachedFile | null {
   const m = FILE_PATTERN.exec(line);
   if (!m) {
     return null;
   }
   const [, sid, name, kind] = m;
-  return { name, kind, url: attachmentUrl(sid, name) };
+  return { name, kind, url: attachmentUrl(sid, name, machine) };
 }
 
 // thumbOf is the picture to draw for a stored file, or "" when it is not a picture.
-export function thumbOf(a: Attachment): string {
-  const f = fileOf(`- ${a.path} (${a.kind}, 0 B)`);
+export function thumbOf(a: Attachment, machine = ""): string {
+  const f = fileOf(`- ${a.path} (${a.kind}, 0 B)`, machine);
   return choose(f && a.kind === "image", f?.url, "") as string;
 }
 
 // attachedIn splits a message into what was typed and the files it names. A message with no list
 // of files comes back whole, with no files.
-export function attachedIn(text: string): {
+export function attachedIn(
+  text: string,
+  machine = "",
+): {
   lead: string;
   files: AttachedFile[];
 } {
@@ -99,7 +107,7 @@ export function attachedIn(text: string): {
   }
   const files = m[2]
     .split("\n")
-    .map(fileOf)
+    .map((line) => fileOf(line, machine))
     .filter((f): f is AttachedFile => f !== null);
   return { lead: m[1], files };
 }

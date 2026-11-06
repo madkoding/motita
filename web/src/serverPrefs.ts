@@ -25,6 +25,9 @@ export const SYNCED: Record<string, readonly string[]> = {
 
 let current: Api | null = null;
 const pending = new Set<string>();
+// saving is how many PUTs are on their way: the keys leave `pending` when one is sent, not when it
+// is answered, and a sync in that gap would bring the gateway's older value over the new one.
+let saving = 0;
 let timer: ReturnType<typeof setTimeout> | undefined;
 
 function read(key: string): string | null {
@@ -131,7 +134,12 @@ export function flushPrefs(): void {
   }
   pending.clear();
   if (api && Object.keys(prefs).length) {
-    put(api, prefs).catch(() => undefined);
+    saving++;
+    put(api, prefs)
+      .catch(() => undefined)
+      .finally(() => {
+        saving--;
+      });
   }
 }
 
@@ -154,7 +162,7 @@ function adopt(key: string, next: string, local: string | null): boolean {
 // made before the gateway kept them are not lost and never overwrite what it holds. It resolves to
 // whether this browser's values changed.
 export async function syncPrefs(api: Api): Promise<boolean> {
-  if (pending.size) {
+  if (pending.size || saving > 0) {
     return false; // a save still on its way would be overwritten by an older value
   }
   const res = await api(PREFS_PATH);

@@ -6,7 +6,7 @@
 // connected yet (or are waiting to be let in), the "+" that adds one by its address, and the
 // computers let into this one.
 import type { ComponentChildren } from "preact";
-import { useCallback, useState } from "preact/hooks";
+import { useCallback, useRef, useState } from "preact/hooks";
 import { t, tf } from "./i18n";
 import { choose } from "./choose";
 import { isImeKey } from "./a11y";
@@ -66,6 +66,15 @@ function RenameField({
   onCancel: () => void;
 }) {
   const [draft, setDraft] = useState(value);
+  // finished is set by the first of Enter, Escape and blur: Escape unmounts the field and Chrome
+  // then fires blur, and Enter is followed by one, so each would save (or save what was dropped).
+  const finished = useRef(false);
+  const finish = (act: () => void) => {
+    if (!finished.current) {
+      finished.current = true;
+      act();
+    }
+  };
   return (
     <input
       class="flex-1 min-w-0 px-2 py-1 rounded-lg bg-black/30 border border-accent/40 text-sm text-[#e8e8ea] focus:outline-hidden"
@@ -79,13 +88,13 @@ function RenameField({
           return;
         }
         if (e.key === "Enter") {
-          onSave(draft.trim());
+          finish(() => onSave(draft.trim()));
         }
         if (e.key === "Escape") {
-          onCancel();
+          finish(onCancel);
         }
       }}
-      onBlur={() => onSave(draft.trim())}
+      onBlur={() => finish(() => onSave(draft.trim()))}
     />
   );
 }
