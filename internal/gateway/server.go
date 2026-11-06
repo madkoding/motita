@@ -290,6 +290,9 @@ type Server struct {
 	// remoteWatch is what the periodic look at origin found; remoteWG tracks that goroutine. See remotewatch.go.
 	remoteWatch remoteWatchState
 	remoteWG    sync.WaitGroup
+	// prWG tracks the goroutines that follow a pull request: one that is settling a merge (git
+	// checkout, pull, branch -D) must finish before the process, or a test's folder, goes away.
+	prWG sync.WaitGroup
 	// sessionFeed tells open pages a session changed (sessionfeed.go).
 	sessionFeed projectFeed
 
@@ -780,6 +783,7 @@ func (s *Server) Close(ctx context.Context) error {
 		go func() {
 			s.scheduleWG.Wait()
 			s.remoteWG.Wait()
+			s.prWG.Wait()
 			close(finished)
 		}()
 		select {

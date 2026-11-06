@@ -22,10 +22,17 @@ type gitHost struct {
 	seen   []string
 	// sent is every request with its body, for a test that checks what was asked of the host.
 	sent []string
+	// slow is how long every answer takes, for a test that needs a caller still waiting on the
+	// host when something else happens.
+	slow time.Duration
 }
 
 func (g *gitHost) Do(req *http.Request) (*http.Response, error) {
 	key := req.Method + " " + req.URL.String()
+	g.mu.Lock()
+	slow := g.slow
+	g.mu.Unlock()
+	time.Sleep(slow)
 	sentBody := ""
 	if req.Body != nil {
 		b, _ := io.ReadAll(req.Body)
