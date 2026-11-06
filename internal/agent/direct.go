@@ -205,9 +205,38 @@ func (r *directRun) step() bool {
 		for _, tc := range reply.Calls {
 			r.msgs = append(r.msgs, llm.Message{Role: "tool", Content: r.a.directRun(r.ctx, tc), ToolCallID: tc.ID})
 		}
+		r.shrinkOutputs()
 		return false
 	}
 	return r.answer(strings.TrimSpace(reply.Content))
+}
+
+// The tool outputs a direct run keeps: the newest few up to roundDetailOutput, the next ones
+// up to roundDetailOlder, and every older one to a few lines. Nothing else trims the conversation
+// of this mode, so a long run of big outputs would end in a "context length" error that cannot be
+// retried and the work would be lost.
+const (
+	directWholeOutputs  = 4
+	directOlderOutputs  = 24
+	directOldestOutputs = 400
+)
+
+// shrinkOutputs cuts the tool outputs of the conversation by how old they are.
+func (r *directRun) shrinkOutputs() {
+	seen := 0
+	for i := len(r.msgs) - 1; i >= 0; i-- {
+		if r.msgs[i].Role != "tool" {
+			continue
+		}
+		seen++
+		limit := roundDetailOutput
+		if seen > directOlderOutputs {
+			limit = directOldestOutputs
+		} else if seen > directWholeOutputs {
+			limit = roundDetailOlder
+		}
+		r.msgs[i].Content = truncateMiddle(r.msgs[i].Content, limit)
+	}
 }
 
 // answer closes the run on the model's answer: a reply when nothing changed, the gate otherwise.
