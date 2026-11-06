@@ -311,7 +311,7 @@ func (s *Server) startPRWatch(c *conversation, from *prWatchState) {
 	if every <= 0 {
 		every = defaultPRPollEvery
 	}
-	s.prWG.Go(func() {
+	s.remoteWG.Go(func() {
 		defer func() {
 			s.prMu.Lock()
 			delete(s.prWatching, key)
