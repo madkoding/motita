@@ -718,6 +718,69 @@ test("a voice is heard before it is downloaded, one sample at a time", async () 
   delete globalThis.Audio;
 });
 
+// F126: the object URL of a sample is let go however the playing ends, not only when it ends alone.
+test("a sample's object URL is revoked when it is stopped or cannot play", async () => {
+  const savedCreate = URL.createObjectURL;
+  const savedRevoke = URL.revokeObjectURL;
+  const revoked = [];
+  let made = 0;
+  URL.createObjectURL = () => "blob:sample-" + ++made;
+  URL.revokeObjectURL = (u) => revoked.push(u);
+  let refuse = false;
+  globalThis.Audio = class {
+    play() {
+      return refuse ? Promise.reject(new Error("blocked")) : Promise.resolve();
+    }
+    pause() {}
+  };
+  const { api } = apiOf({
+    [CATALOG]: [
+      HTTP_OK,
+      {
+        runtime: { size: 1, installed: true },
+        models: [
+          {
+            id: "a",
+            name: "a",
+            lang: "en-US",
+            quality: "high",
+            size: 1,
+            installed: false,
+            sample: true,
+            engine: "piper",
+          },
+        ],
+        download: null,
+      },
+    ],
+    "GET /v1/voice/models/a/sample": () =>
+      new Response(new Blob(["mp3"], { type: "audio/mpeg" }), {
+        status: HTTP_OK,
+      }),
+  });
+  const v = await mount(
+    h(lv.LocalVoices, { api, chosen: "", choose: () => {} }),
+  );
+  const q = (id) => v.root.querySelector(`[data-testid=${id}]`);
+  await act(async () => q(SAMPLE_A).click());
+  await settle();
+  assert.deepEqual(revoked, [], "still playing");
+  await act(async () => q(SAMPLE_A).click());
+  assert.deepEqual(revoked, ["blob:sample-1"], "stopping lets the URL go");
+  refuse = true;
+  await act(async () => q(SAMPLE_A).click());
+  await settle();
+  assert.deepEqual(
+    revoked,
+    ["blob:sample-1", "blob:sample-2"],
+    "a sample that cannot play lets it go too",
+  );
+  v.done();
+  delete globalThis.Audio;
+  URL.createObjectURL = savedCreate;
+  URL.revokeObjectURL = savedRevoke;
+});
+
 test("a failed download and an unreachable catalog are shown", async () => {
   const failed = {
     runtime: { size: 1, installed: true },

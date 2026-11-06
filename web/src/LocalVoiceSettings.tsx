@@ -128,9 +128,15 @@ function useSample(api: Api) {
   const [playing, setPlaying] = useState("");
   const [error, setError] = useState("");
   const audio = useRef<HTMLAudioElement | null>(null);
+  // blob is the sample being played: its URL is let go when the playing ends, however it ends.
+  const blob = useRef("");
   const stop = useCallback(() => {
     audio.current?.pause();
     audio.current = null;
+    if (blob.current) {
+      URL.revokeObjectURL(blob.current);
+      blob.current = "";
+    }
     setPlaying("");
   }, []);
   useEffect(() => stop, [stop]);
@@ -145,17 +151,17 @@ function useSample(api: Api) {
       setPlaying(id);
       try {
         const url = URL.createObjectURL(await sampleOf(api, id));
+        blob.current = url;
         const a = new Audio(url);
         audio.current = a;
         a.onended = () => {
-          URL.revokeObjectURL(url);
           if (audio.current === a) {
             stop();
           }
         };
         await a.play();
       } catch (e) {
-        setPlaying("");
+        stop();
         setError(
           tf("The sample could not be played: {error}", {
             error: errorMessage(e),
