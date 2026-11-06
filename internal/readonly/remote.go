@@ -145,6 +145,9 @@ func ghRule(args []string) (string, bool) {
 		if a == "--web" || a == "-w" {
 			return "gh " + a + " opens a browser", true
 		}
+		if a == "--show-token" || (sub == "auth" && a == "-t") {
+			return "gh " + a + " prints the GitHub token, which would reach the transcript and the model", true
+		}
 	}
 	for _, v := range verbs {
 		if verb == v {

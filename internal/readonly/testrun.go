@@ -14,10 +14,10 @@ import (
 // testRunners judge the programs that run a project's tests, by name.
 var testRunners = map[string]func([]string) (string, bool){
 	"go": goTestRule, "npm": scriptTestRule, "pnpm": scriptTestRule, "yarn": scriptTestRule,
-	"cargo": subcommandTestRule, "dotnet": subcommandTestRule, "mvn": subcommandTestRule,
-	"gradle": subcommandTestRule, "make": makeTestRule,
+	"cargo": subcommandTestRule, "dotnet": subcommandTestRule, "mvn": mavenTestRule,
+	"gradle": gradleTestRule, "make": makeTestRule,
 	"pytest": pytestRule, "jest": jestRule, "vitest": vitestRule, "phpunit": plainTestRule,
-	"rspec": plainTestRule, "python": pythonTestRule, "python3": pythonTestRule,
+	"rspec": rspecRule, "python": pythonTestRule, "python3": pythonTestRule,
 }
 
 // testRun decides a command that runs tests. ok is false when it is not a test run, so the caller
@@ -91,6 +91,11 @@ var testOutputFlags = []string{
 	"coverprofile", "cpuprofile", "memprofile", "blockprofile", "mutexprofile", "trace", "outputdir",
 	"fuzz", "json-report", "junitxml", "junit-xml", "result-log", "basetemp", "plugin", "pyargs",
 	"watch", "watchAll", "watch-all", "script", "runner", "setupFiles",
+	// Options that name a configuration, a script or a program the runner then loads or runs.
+	"config", "init-script", "globalSetup", "globalTeardown", "reporters", "reporter", "testEnvironment",
+	"testRunner", "setupFilesAfterEnv", "preset", "transform", "bootstrap", "script-shell", "overlay",
+	"require", "prefix", "dir", "cwd", "root", "exec", "toolexec", "vettool", "modfile", "settings-file",
+	"build-file", "target-dir", "pkgdir", "o",
 }
 
 // Options one runner spells with a single letter that another spells differently: `go test -c`
@@ -100,6 +105,10 @@ var (
 	goTestExtra = []string{"c"}
 	pytestExtra = []string{"p", "c"}
 	jestExtra   = []string{"c", "config"}
+	rspecExtra  = []string{"r", "I", "O"}
+	pnpmExtra   = []string{"C"}
+	gradleExtra = []string{"I", "c", "b", "g", "p"}
+	mvnExtra    = []string{"f", "s", "gs", "T"}
 )
 
 // flagTestRule refuses, for a runner whose every form runs tests, the options that write a file,
@@ -113,6 +122,7 @@ func flagTestRule(args []string, extra ...string) (string, bool) {
 			continue
 		}
 		name, _, _ := strings.Cut(strings.TrimLeft(a, "-"), "=")
+		name = strings.TrimPrefix(name, "test.") // go's own spelling, which `go test -args` passes on
 		for _, f := range append(extra, testOutputFlags...) {
 			if name == f {
 				return fmt.Sprintf("%s writes a file, loads code or never ends, and read-only mode cannot check it", a), true
@@ -178,16 +188,42 @@ func coverProfileName(name string) bool {
 // scriptTestRule allows `npm test`, `npm run test:unit` and their pnpm and yarn forms; the
 // arguments after `--` go to the script and are the script's own.
 func scriptTestRule(args []string) (string, bool) {
-	for _, a := range args {
-		if a == "--" {
-			return "", false
-		}
-	}
-	return flagTestRule(args)
+	return flagTestRule(withoutSeparators(args), pnpmExtra...)
 }
 
-// subcommandTestRule allows `cargo test`, `dotnet test`, `mvn test` and `gradle test`.
+// withoutSeparators drops the `--` words, so what follows one is judged like the rest: the script
+// hands those arguments to the project's own test runner, which is the program that loads a
+// configuration or a plugin from them.
+func withoutSeparators(args []string) []string {
+	var out []string
+	for _, a := range args {
+		if a != "--" {
+			out = append(out, a)
+		}
+	}
+	return out
+}
+
+// subcommandTestRule allows `cargo test` and `dotnet test`.
 func subcommandTestRule(args []string) (string, bool) { return flagTestRule(args) }
+
+// mavenTestRule allows `mvn test`, with no -D property but the test selection: a property can name
+// the program a plugin runs (`-Dexec.executable=...`).
+func mavenTestRule(args []string) (string, bool) { return propertyTestRule(args, mvnExtra) }
+
+// gradleTestRule allows `gradle test`, with no -D or -P property but the test selection, and no
+// init script, settings file or build file.
+func gradleTestRule(args []string) (string, bool) { return propertyTestRule(args, gradleExtra) }
+
+// propertyTestRule refuses the -D and -P properties other than -Dtest=..., then the common flags.
+func propertyTestRule(args, extra []string) (string, bool) {
+	for _, a := range args {
+		if (strings.HasPrefix(a, "-D") && !strings.HasPrefix(a, "-Dtest=")) || strings.HasPrefix(a, "-P") {
+			return a + " sets a property a build plugin may run a program from", true
+		}
+	}
+	return flagTestRule(args, extra...)
+}
 
 // makeTestRule allows `make test` and `make check` with no variable assignment, which could swap
 // the recipe's program (`make test SHELL=...`).
@@ -213,7 +249,7 @@ func vitestRule(args []string) (string, bool) {
 	if firstNonFlag(args) != "run" {
 		return "vitest without `run` keeps watching; use `vitest run`", true
 	}
-	return flagTestRule(args)
+	return flagTestRule(args, "c")
 }
 
 // pythonTestRule allows `python -m pytest` and `python -m unittest`.
@@ -222,3 +258,4 @@ func pythonTestRule(args []string) (string, bool) { return pytestRule(args[2:]) 
 func pytestRule(args []string) (string, bool)    { return flagTestRule(args, pytestExtra...) }
 func jestRule(args []string) (string, bool)      { return flagTestRule(args, jestExtra...) }
 func plainTestRule(args []string) (string, bool) { return flagTestRule(args) }
+func rspecRule(args []string) (string, bool)     { return flagTestRule(args, rspecExtra...) }
