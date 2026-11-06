@@ -31,6 +31,7 @@ function store(over = {}) {
   const s = {
     calls,
     rs: { sessionId: "" },
+    auth: { authState: "ok" },
     lists: {
       sessions: [],
       projects: [],
@@ -628,6 +629,24 @@ test("with a gateway to ask, the bottom menu shows how much of each plan is used
     "2",
     "the badge counts the pull requests with a failing CI",
   );
+});
+
+test("the bottom menu asks the gateway nothing until the credential is known good", async () => {
+  const asked = [];
+  const api = async (path) => {
+    asked.push(path);
+    return new Response("{}", { status: 200 });
+  };
+  for (const authState of ["checking", "needed", "offline"]) {
+    const { root, done } = await mount(
+      h(Sidebar),
+      store({ api, auth: { authState } }),
+    );
+    await act(() => new Promise((r) => setImmediate(r)));
+    assert.equal(root.querySelector("[data-testid=provider-usage]"), null);
+    await done();
+  }
+  assert.deepEqual(asked, [], "a 401 here would clear a sign-in being made");
 });
 
 test("on a phone, picking a session in the sidebar closes it", async () => {

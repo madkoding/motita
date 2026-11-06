@@ -119,6 +119,9 @@ async function composer({ running = false, session = "s1", api } = {}) {
   const rs = {
     runningRef: { current: running },
     sessionRef: { current: session },
+    get sessionId() {
+      return this.sessionRef.current;
+    },
     setMessages() {},
   };
   const uploads = api || fakeApi(() => json(shot, 201));
@@ -473,5 +476,35 @@ test("a picture's chip shows its thumbnail", async () => {
   assert.equal(
     pic.q("[data-testid=attachment-chip] img").getAttribute("src"),
     "/v1/sessions/s1/attachments/a.png",
+  );
+});
+
+test("files belong to the conversation they were stored for", async () => {
+  const { c, run, rs, calls } = await composer();
+  await run((x) => x.attachFiles([file("shot.png")]));
+  assert.deepEqual(c().attachments, [shot]);
+  rs.sessionRef.current = "s2";
+  await run((x) => x.onInput("in the other one"));
+  assert.deepEqual(c().attachments, [], "another workspace does not hold them");
+  await run((x) => x.sendQueued());
+  assert.deepEqual(calls[0], ["submit", "in the other one"]);
+  rs.sessionRef.current = "s1";
+  await run((x) => x.onInput("back"));
+  assert.deepEqual(c().attachments, [shot], "its own conversation still does");
+  await run((x) => x.removeAttachment(shot.path));
+  assert.deepEqual(c().attachments, []);
+});
+
+test("files chosen while a conversation opens wait for it instead of opening another", async () => {
+  const { run, calls } = await composer({ session: "" });
+  await run(async (x) => {
+    await Promise.all([
+      x.attachFiles([file("a.png")]),
+      x.attachFiles([file("b.png")]),
+    ]);
+  });
+  assert.deepEqual(
+    calls.filter((x) => x[0] === "start"),
+    [["start"]],
   );
 });

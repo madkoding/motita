@@ -112,7 +112,7 @@ export function useComposer({
   // above the textarea. Multiple tags can be active at once.
   const [activeTags, setActiveTags] = useState<ActiveTag[]>([]);
 
-  const files = useAttachments(api, sessionRef, startSession);
+  const files = useAttachments(api, sessionRef, startSession, rs.sessionId);
 
   const isCommandBlocked = (cmdName: string) => blockedBy(activeTags, cmdName);
 

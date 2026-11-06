@@ -503,6 +503,21 @@ test("without a credential the token is asked for; a rejected one says so", asyn
   await a.done();
 });
 
+test("a late 401 while the token modal is up does not wipe the token being typed", async () => {
+  history.replaceState(null, "", "/");
+  gateway({ authed: false });
+  const { deps } = authDeps();
+  const a = await probe(() => useAuth(deps));
+  await act(() => flush());
+  assert.equal(a.v.authState, "needed");
+  await act(() => a.v.setAuthInput("half-typed"));
+  // A request that was in flight when the session lapsed answers 401 after the modal is up.
+  await act(() => window.dispatchEvent(new CustomEvent("motita:auth-needed")));
+  assert.equal(a.v.authInput, "half-typed");
+  assert.equal(a.v.authState, "needed");
+  await a.done();
+});
+
 // settle lets pending promises run on setImmediate, for tests that mock setTimeout.
 async function settle() {
   for (let i = 0; i < 3; i++) {
