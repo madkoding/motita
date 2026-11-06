@@ -141,12 +141,9 @@ func resolveDir(root, raw string) (string, bool) {
 // realWithin reports whether path, with every link resolved, is still inside root (also resolved):
 // a link in the workspace that leads out of it is not a folder the browser may show or enter.
 func realWithin(root, path string) bool {
-	r, err := filepath.EvalSymlinks(root)
-	if err != nil {
-		return false
-	}
+	r, rootErr := filepath.EvalSymlinks(root)
 	p, err := filepath.EvalSymlinks(path)
-	return err == nil && pathWithinOrSame(r, p)
+	return rootErr == nil && err == nil && pathWithinOrSame(r, p)
 }
 
 // childDir is the folder of dir that is called name, as the disk spells it.
