@@ -1,6 +1,7 @@
 // The sidebar: the sessions grouped by project, each section with the "+" that adds to it, and the
 // way to the skill library, the artifacts, the scheduled tasks and the settings.
 import { useCallback, useEffect, useRef } from "preact/hooks";
+import { choose } from "./choose";
 import { t } from "./i18n";
 import { useApp } from "./appStore";
 import { useBackdropClose } from "./useBackdropClose";
@@ -161,7 +162,7 @@ function SidebarFoot() {
   // Nothing here asks the gateway until the credential is known good: a 401 clears the cookie,
   // which would undo a sign-in that is still being made.
   const signedIn = auth.authState === "ok";
-  const failingPRs = usePullRequestBadge(signedIn ? api : null);
+  const failingPRs = usePullRequestBadge(choose(signedIn, api, null));
   return (
     <>
       {signedIn && api && <ProviderUsagePanel api={api} running={rs.running} />}
