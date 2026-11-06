@@ -90,7 +90,8 @@ function TagPills() {
 
 // AttachmentChips are the files attached to the message, each with a way to take it off.
 function AttachmentChips() {
-  const { attachments, removeAttachment, uploading } = useApp().composer;
+  const app = useApp();
+  const { attachments, removeAttachment, uploading } = app.composer;
   return (
     <>
       {attachments.map((a) => (
@@ -100,11 +101,11 @@ function AttachmentChips() {
           title={`${a.name} (${sizeLabel(a.size)})`}
           data-testid="attachment-chip"
         >
-          {thumbOf(a) && (
+          {thumbOf(a, app.machine) && (
             <img
               class="rounded-sm object-cover flex-none"
               style="width: 20px; height: 20px;"
-              src={thumbOf(a)}
+              src={thumbOf(a, app.machine)}
               alt=""
             />
           )}
