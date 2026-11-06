@@ -1,9 +1,11 @@
 package netrules
 
 import (
+	"net"
 	"net/netip"
 	"strings"
 	"testing"
+	"time"
 )
 
 // mustPolicy parses a rule set the test expects to be valid.
@@ -134,6 +136,7 @@ func TestLANCoversThePrivateAndLinkLocalRanges(t *testing.T) {
 	// network is the negated one - and that is the shape an operator writes when they mean
 	// "my network only".
 	p := mustPolicy(t, "!lan", "lan")
+	defer stubTailnet(true)()
 
 	for _, origin := range []string{
 		"10.0.0.1", "172.16.0.1", "172.31.255.254", "192.168.0.1", "192.168.100.72",
@@ -394,5 +397,49 @@ func TestARuleRendersBackAsWritten(t *testing.T) {
 	// An alias for lan reads back as lan too.
 	if got := mustPolicy(t, "local_network").Describe(); got != "lan" {
 		t.Errorf("local_network describes itself as %q, want the canonical %q", got, "lan")
+	}
+}
+
+// stubTailnet says whether the machine the test runs on is on a tailnet, and restores the answer.
+func stubTailnet(on bool) func() {
+	old := onTailnet
+	onTailnet = func() bool { return on }
+	return func() { onTailnet = old }
+}
+
+// The carrier-grade NAT range is "the local network" only on a machine that is on a tailnet:
+// elsewhere it is the ISP's address space, shared with strangers.
+func TestTheTailnetRangeIsLocalOnlyOnATailnetMachine(t *testing.T) {
+	p := mustPolicy(t, "!lan")
+	origin := netip.MustParseAddr("100.101.102.103")
+	defer stubTailnet(false)()
+	if !p.Allows(origin) {
+		t.Fatal("100.64/10 counted as the local network on a machine that is not on a tailnet")
+	}
+	stubTailnet(true)
+	if p.Allows(origin) {
+		t.Fatal("100.64/10 is not the local network on a tailnet machine")
+	}
+}
+
+// The real check reads this machine's interfaces and remembers the answer for a minute.
+func TestTheMachineIsFoundOnATailnetByItsInterfaces(t *testing.T) {
+	first := cachedOnTailnet()
+	if cachedOnTailnet() != first || hasTailnetAddr() != first {
+		t.Fatal("the answer changed within a minute")
+	}
+	tailnetMu.Lock()
+	tailnetChecked = time.Now().Add(-time.Hour)
+	tailnetMu.Unlock()
+	_ = cachedOnTailnet()
+}
+
+func TestTailnetInReadsInterfaceAddresses(t *testing.T) {
+	ip := func(s string) net.Addr { return &net.IPNet{IP: net.ParseIP(s), Mask: net.CIDRMask(32, 32)} }
+	if tailnetIn(nil) || tailnetIn([]net.Addr{ip("192.168.1.2"), &net.IPAddr{IP: net.ParseIP("100.64.0.9")}}) {
+		t.Fatal("found a tailnet where there is none")
+	}
+	if !tailnetIn([]net.Addr{ip("192.168.1.2"), ip("100.100.1.1")}) {
+		t.Fatal("missed the tailnet address")
 	}
 }
