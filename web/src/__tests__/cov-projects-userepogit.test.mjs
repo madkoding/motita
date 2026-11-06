@@ -220,3 +220,27 @@ test("an action opens the modal that says what git does, then how it ended", asy
   await act(() => render(null, host));
   await s.m.unmount();
 });
+
+// F124: opening two repositories quickly must not show the first one's state under the second.
+test("a slow read of the repository opened before does not replace the one shown", async () => {
+  let release = () => {};
+  const held = new Promise((r) => {
+    release = r;
+  });
+  const OTHER = { ...STATUS, path: "group/api", branch: "dev" };
+  const s = await setup({
+    "GET /v1/projects/p1/repo?repo=group%2Fweb": async () => {
+      await held;
+      return res(200, STATUS);
+    },
+    "GET /v1/projects/p1/repo?repo=group%2Fapi": res(200, OTHER),
+  });
+  await run(() => s.g.openRepoGit(REF));
+  await run(() => s.g.openRepoGit({ projectId: "p1", repo: "group/api" }));
+  await flush();
+  assert.deepEqual(s.g.status, OTHER);
+  release();
+  await flush();
+  assert.deepEqual(s.g.status, OTHER, "the late answer is dropped");
+  await s.m.unmount();
+});

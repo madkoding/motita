@@ -1,7 +1,7 @@
 // The git tools of a repository inside a project's folder: the panel that shows what it holds, the
 // actions done at once, and the ones handed to the agent, which holds the git logins and writes
 // the message of a commit.
-import { useCallback, useState } from "preact/hooks";
+import { useCallback, useRef, useState } from "preact/hooks";
 import { t, tf } from "./i18n";
 import { beginGitActivity, endGitActivity } from "./gitActivity";
 import { choose } from "./choose";
@@ -83,6 +83,12 @@ export function useRepoGit({
 }: Deps) {
   const [open, setOpen] = useState<RepoRef | null>(null);
   const [status, setStatus] = useState<RepoStatus | null>(null);
+  // shown is the repository the panel is open on: a read of a different one that answers late is
+  // dropped, or the panel would show it under the wrong title.
+  const shown = useRef<RepoRef | null>(null);
+  const isOther = (r: RepoRef) =>
+    shown.current !== null &&
+    (shown.current.projectId !== r.projectId || shown.current.repo !== r.repo);
 
   const urlOf = (r: RepoRef, tail: string) =>
     PROJECTS_PATH +
@@ -102,7 +108,10 @@ export function useRepoGit({
           setState(err.error || "could not read the repository", true);
           return;
         }
-        setStatus(await res.json());
+        const got = await res.json();
+        if (!isOther(r)) {
+          setStatus(got);
+        }
       } catch {
         setState("could not read the repository", true);
       }
@@ -112,6 +121,7 @@ export function useRepoGit({
 
   const openRepoGit = useCallback(
     (r: RepoRef) => {
+      shown.current = r;
       setOpen(r);
       setStatus(null);
       void load(r);
@@ -119,6 +129,7 @@ export function useRepoGit({
     [load],
   );
   const closeRepoGit = useCallback(() => {
+    shown.current = null;
     setOpen(null);
     setStatus(null);
   }, []);
