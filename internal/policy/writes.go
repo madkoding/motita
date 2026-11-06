@@ -176,8 +176,10 @@ func firstOutside(targets []string, dir string) string {
 		if t == "" {
 			continue
 		}
-		if strings.HasPrefix(t, "~") {
-			// A home path written with a tilde is outside by construction.
+		if strings.HasPrefix(t, "~") || expandsVariable(t) {
+			// A home path written with a tilde is outside by construction. A path with a
+			// variable in it (`"$HOME"`, `"$PWD/.."`) is wherever the shell puts it, which
+			// no check here can see; it is held to be outside so the user says where it goes.
 			return t
 		}
 		abs := t
@@ -231,4 +233,24 @@ func isInsideWorkspace(path, dir string) bool {
 		return false
 	}
 	return firstOutside([]string{path}, dir) == ""
+}
+
+// expandsVariable reports whether the shell fills a variable in somewhere in the word: a `$`
+// followed by a name, a brace, a digit or a special parameter. The tokeniser refuses an unquoted
+// `$`, so the word comes from inside double quotes, where the shell still expands it; a lone `$`
+// (`"end$"`) is the character.
+func expandsVariable(word string) bool {
+	for i := strings.IndexByte(word, '$'); i >= 0 && i+1 < len(word); i = strings.IndexByte(word, '$') {
+		if startsExpansion(word[i+1]) {
+			return true
+		}
+		word = word[i+1:]
+	}
+	return false
+}
+
+// startsExpansion says c, right after a `$`, makes the shell expand something: a name, a brace, a
+// positional parameter or one of the special parameters (`$@ $* $# $? $! $$ $-`).
+func startsExpansion(c byte) bool {
+	return isNameRune(c) || c == '{' || strings.IndexByte("@*#?!$-", c) >= 0
 }

@@ -2222,7 +2222,9 @@ The boundary cases are deliberate, and each one is a test:
 | `sed -i 's/a/b/' file` (file inside the workspace)                   | silent    | an in-place edit whose script only substitutes, deletes or prints: a write inside the workspace                   |
 | `sed -i 's/a/b/w out' file`, `awk '{print > "f"}'`                   | **asked** | the same programs writing or running something besides the file: a `w`/`e` in the script, or a redirection        |
 | `find . -name '*.go' \| xargs grep TODO`                              | silent    | xargs handing its input to a reader whose arguments can only name what it reads (grep, cat, head, wc, ls...)     |
-| `export CI=1 && go test ./...`                                        | silent    | export sets a variable, as `CI=1 go test` does; `PATH`, `LD_*`, `DYLD_*` and the shell's start-up files are asked |
+| `export CI=1 && go test ./...`, `CI=1 go test ./...`                  | silent    | setting a variable, by export, by a `NAME=value` prefix or by `env`, is silent for a name that only describes      |
+| `export GIT_SSH_COMMAND=x; git fetch`, `GIT_EXTERNAL_DIFF=x git diff` | **asked** | a variable that names what a program runs or loads: `PATH`, `LD_*`, `DYLD_*`, `GIT_*`, `NODE_OPTIONS`, `BASH_ENV`... |
+| `rm -rf "$HOME"`, `cp f "$X"`, `cd "$DIR"`                            | asked     | a path with a variable in it is wherever the shell puts it; only a `for` loop over paths inside the workspace binds its own variable |
 | `git fetch`                                                           | silent    | it only updates the remote-tracking references, as in plan mode; the sandbox still decides about the network      |
 | `sort -o out.txt in.txt`, `uniq in.txt out.txt`, `xxd in.bin out.hex` | **asked** | a reader whose second operand is an output file                                                                   |
 | `pip install x`, `git push`                                           | asked     | it reaches the network                                                                                            |
