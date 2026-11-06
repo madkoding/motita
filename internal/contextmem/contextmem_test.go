@@ -592,3 +592,36 @@ func TestRenderUsesNowWhenTheTurnHasNoDate(t *testing.T) {
 		t.Errorf("no date was stamped:\n%s", body)
 	}
 }
+
+// F100: a deleted conversation must not keep its index in the process.
+func TestDeleteCloseAndSweepForgetTheIndex(t *testing.T) {
+	turn := []Turn{{Kind: "chat", User: "the payroll script", Agent: "runs at dawn",
+		Date: time.Date(2026, 10, 20, 8, 0, 0, 0, time.UTC)}}
+	indexed := func(s *Store) *Store {
+		t.Helper()
+		if err := s.Sync(turn); err != nil {
+			t.Fatal(err)
+		}
+		if _, n := s.Recall(context.Background(), "payroll", 0); n == 0 || !memory.Indexed(s.Root()) {
+			t.Fatal("the search must have built an index")
+		}
+		return s
+	}
+	closed := indexed(openTest(t, Options{}))
+	if err := closed.Close(); err != nil || memory.Indexed(closed.Root()) {
+		t.Fatalf("Close left its index: %v", err)
+	}
+	deleted := indexed(openTest(t, Options{}))
+	if err := Delete(deleted.Root()); err != nil || memory.Indexed(deleted.Root()) {
+		t.Fatalf("Delete left its index: %v", err)
+	}
+	root := t.TempDir()
+	orphan, err := Open(filepath.Join(root, "orphan"), Options{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	indexed(orphan)
+	if err := Sweep(root, nil); err != nil || memory.Indexed(orphan.Root()) {
+		t.Fatalf("Sweep left its index: %v", err)
+	}
+}
