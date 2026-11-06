@@ -32,6 +32,12 @@ type composeRef struct {
 	File string `json:"file"`
 }
 
+// composeBuild is the part of a build the box checks: where its files are read from.
+type composeBuild struct {
+	Context            string            `json:"context"`
+	AdditionalContexts map[string]string `json:"additional_contexts"`
+}
+
 type composeService struct {
 	Ports       []json.RawMessage `json:"ports"`
 	Privileged  bool              `json:"privileged"`
@@ -43,6 +49,7 @@ type composeService struct {
 	Devices     []json.RawMessage `json:"devices"`
 	SecurityOpt []string          `json:"security_opt"`
 	Networks    map[string]any    `json:"networks"`
+	Build       composeBuild      `json:"build"`
 	Volumes     []struct {
 		Type   string `json:"type"`
 		Source string `json:"source"`
@@ -53,6 +60,52 @@ type composeService struct {
 func inside(dir, p string) bool {
 	rel, err := filepath.Rel(dir, p)
 	return err == nil && rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator))
+}
+
+// realInside is inside with every link resolved, so a link in the project that leads out of it
+// does not pass for a folder in it. A path that does not exist yet is resolved through its
+// nearest existing parent.
+func realInside(dir, p string) bool {
+	return inside(resolveReal(dir), resolveReal(p))
+}
+
+func resolveReal(p string) string {
+	p = filepath.Clean(p)
+	rest := ""
+	for p != filepath.Dir(p) {
+		if r, err := filepath.EvalSymlinks(p); err == nil {
+			return filepath.Join(r, rest)
+		}
+		rest = filepath.Join(filepath.Base(p), rest)
+		p = filepath.Dir(p)
+	}
+	return filepath.Join(p, rest) // the root: nothing above it to resolve
+}
+
+// unsafeSecurityOpt says a security_opt turns a protection off, in any spelling compose accepts
+// (`seccomp=unconfined`, `seccomp:unconfined`, `label:disable`, `no-new-privileges=false`).
+func unsafeSecurityOpt(o string) bool {
+	o = strings.ToLower(strings.ReplaceAll(strings.TrimSpace(o), ":", "="))
+	return strings.Contains(o, "unconfined") || strings.HasPrefix(o, "label=disable") ||
+		o == "no-new-privileges=false"
+}
+
+// buildFault is what a build reads from outside the project: its context, or an additional one.
+func buildFault(b composeBuild, dir string) string {
+	for _, c := range append([]string{b.Context}, mapValues(b.AdditionalContexts)...) {
+		if filepath.IsAbs(c) && !realInside(dir, c) {
+			return "builds from " + c + ", outside the project"
+		}
+	}
+	return ""
+}
+
+func mapValues(m map[string]string) []string {
+	out := make([]string, 0, len(m))
+	for _, v := range m {
+		out = append(out, v)
+	}
+	return out
 }
 
 // serviceFault is what a service asks for that would let its container out, "" when nothing.
@@ -73,7 +126,7 @@ func serviceFault(s composeService, dir string) string {
 		}
 	}
 	for _, o := range s.SecurityOpt {
-		if strings.Contains(o, "unconfined") || strings.HasPrefix(o, "label=disable") {
+		if unsafeSecurityOpt(o) {
 			return "turns a security profile off"
 		}
 	}
@@ -83,11 +136,11 @@ func serviceFault(s composeService, dir string) string {
 		}
 	}
 	for _, v := range s.Volumes {
-		if v.Type == "bind" && !inside(dir, v.Source) {
+		if v.Type == "bind" && !realInside(dir, v.Source) {
 			return "mounts " + v.Source + ", outside the project"
 		}
 	}
-	return ""
+	return buildFault(s.Build, dir)
 }
 
 // checkCompose returns why a resolved compose file may not run, or nil.

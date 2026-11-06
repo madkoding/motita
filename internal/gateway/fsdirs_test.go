@@ -558,3 +558,33 @@ func TestAProtectedFolderIsNeverRemoved(t *testing.T) {
 		t.Fatalf("keeping the folder still deletes the project: %d", w.Code)
 	}
 }
+
+// TestALinkLeadingOutOfTheWorkspaceIsNeitherListedNorEntered: without the whole disk, a symbolic
+// link in the workspace to a folder elsewhere must not let the browser show what is outside.
+func TestALinkLeadingOutOfTheWorkspaceIsNeitherListedNorEntered(t *testing.T) {
+	srv, ws := projectServer(t)
+	outside := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(outside, "secret"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(ws, "real"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(outside, filepath.Join(ws, "escape")); err != nil {
+		t.Skip("no symbolic links here")
+	}
+	if err := os.Symlink(filepath.Join(ws, "real"), filepath.Join(ws, "inside")); err != nil {
+		t.Fatal(err)
+	}
+	_, out, body := listDirs(t, srv, "")
+	names := map[string]bool{}
+	for _, d := range out.Dirs {
+		names[d.Name] = true
+	}
+	if names["escape"] || !names["inside"] || !names["real"] {
+		t.Fatalf("listing = %s", body)
+	}
+	if code, _, body := listDirs(t, srv, filepath.Join(ws, "escape", "secret")); code != http.StatusNotFound {
+		t.Fatalf("entered the link: %d %s", code, body)
+	}
+}

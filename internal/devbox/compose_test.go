@@ -52,18 +52,32 @@ func composeRuntime(cfg string, fail map[string]bool) func([]string) ([]byte, er
 func TestCheckCompose(t *testing.T) {
 	dir := "/p"
 	cases := map[string]struct{ json, want string }{
-		"ok":          {`{"services":{"web":{"volumes":[{"type":"bind","source":"/p/src"}]}}}`, ""},
-		"no service":  {`{"services":{"db":{}}}`, `no service "web" (it has: db)`},
-		"ports":       {`{"services":{"web":{"ports":[{"published":"80"}]}}}`, "publishes ports"},
-		"privileged":  {`{"services":{"web":{"privileged":true}}}`, "privileged"},
-		"host net":    {`{"services":{"web":{"network_mode":"host"}}}`, "network_mode"},
-		"pid":         {`{"services":{"web":{"pid":"host"}}}`, "pid, ipc"},
-		"ipc":         {`{"services":{"web":{"ipc":"host"}}}`, "pid, ipc"},
-		"userns":      {`{"services":{"web":{"userns_mode":"host"}}}`, "pid, ipc"},
-		"caps":        {`{"services":{"web":{"cap_add":["SYS_ADMIN"]}}}`, "capabilities"},
-		"devices":     {`{"services":{"web":{"devices":["/dev/sda"]}}}`, "devices"},
-		"seccomp":     {`{"services":{"web":{"security_opt":["seccomp=unconfined"]}}}`, "security profile"},
-		"label off":   {`{"services":{"web":{"security_opt":["label=disable"]}}}`, "security profile"},
+		"ok":            {`{"services":{"web":{"volumes":[{"type":"bind","source":"/p/src"}]}}}`, ""},
+		"no service":    {`{"services":{"db":{}}}`, `no service "web" (it has: db)`},
+		"ports":         {`{"services":{"web":{"ports":[{"published":"80"}]}}}`, "publishes ports"},
+		"privileged":    {`{"services":{"web":{"privileged":true}}}`, "privileged"},
+		"host net":      {`{"services":{"web":{"network_mode":"host"}}}`, "network_mode"},
+		"pid":           {`{"services":{"web":{"pid":"host"}}}`, "pid, ipc"},
+		"ipc":           {`{"services":{"web":{"ipc":"host"}}}`, "pid, ipc"},
+		"userns":        {`{"services":{"web":{"userns_mode":"host"}}}`, "pid, ipc"},
+		"caps":          {`{"services":{"web":{"cap_add":["SYS_ADMIN"]}}}`, "capabilities"},
+		"devices":       {`{"services":{"web":{"devices":["/dev/sda"]}}}`, "devices"},
+		"seccomp":       {`{"services":{"web":{"security_opt":["seccomp=unconfined"]}}}`, "security profile"},
+		"label off":     {`{"services":{"web":{"security_opt":["label=disable"]}}}`, "security profile"},
+		"seccomp colon": {`{"services":{"web":{"security_opt":["seccomp:unconfined"]}}}`, "security profile"},
+		"apparmor":      {`{"services":{"web":{"security_opt":["apparmor=unconfined"]}}}`, "security profile"},
+		"label colon":   {`{"services":{"web":{"security_opt":["label:disable"]}}}`, "security profile"},
+		"new privs":     {`{"services":{"web":{"security_opt":["no-new-privileges=false"]}}}`, "security profile"},
+		"build out":     {`{"services":{"web":{"build":{"context":"/etc"}}}}`, "builds from /etc"},
+		"build extra": {
+			`{"services":{"web":{"build":{"context":"/p","additional_contexts":{"x":"/root"}}}}}`,
+			"builds from /root",
+		},
+		"build image": {
+			`{"services":{"web":{"build":{"context":"/p/app",` +
+				`"additional_contexts":{"x":"docker-image://alpine"}}}}}`,
+			"",
+		},
 		"other net":   {`{"services":{"web":{"networks":{"front":null}}}}`, "network front"},
 		"bind out":    {`{"services":{"web":{"volumes":[{"type":"bind","source":"/etc"}]}}}`, "outside the project"},
 		"bind parent": {`{"services":{"web":{"volumes":[{"type":"bind","source":"/"}]}}}`, "outside the project"},
@@ -245,3 +259,37 @@ func TestSpecValidationForCompose(t *testing.T) {
 }
 
 func jsonUnmarshal(s string, v any) error { return json.Unmarshal([]byte(s), v) }
+
+// A link inside the project that leads out of it must not pass for a folder of the project, for
+// a bind mount or for a build context.
+func TestComposeFollowsLinksOutOfTheProject(t *testing.T) {
+	dir, outside := t.TempDir(), t.TempDir()
+	if err := os.Symlink(outside, filepath.Join(dir, "escape")); err != nil {
+		t.Skip("no symbolic links here")
+	}
+	if err := os.MkdirAll(filepath.Join(dir, "src"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	for name, c := range map[string]struct{ json, want string }{
+		"bind link":   {bindOf(dir + "/escape"), "outside the project"},
+		"bind below":  {bindOf(dir + "/escape/new"), "outside the project"},
+		"build link":  {`{"services":{"web":{"build":{"context":"` + dir + `/escape"}}}}`, "builds from"},
+		"bind inside": {bindOf(dir + "/src"), ""},
+	} {
+		var cfg composeConfig
+		if err := jsonUnmarshal(c.json, &cfg); err != nil {
+			t.Fatal(name, err)
+		}
+		if err := checkCompose(cfg, dir, "web"); !refusedAs(err, c.want) {
+			t.Errorf("%s: %v (want %q)", name, err, c.want)
+		}
+	}
+	if got := resolveReal("/no-such-folder-here/x"); got != "/no-such-folder-here/x" {
+		t.Errorf("a missing path stays as it is: %q", got)
+	}
+}
+
+// bindOf is a resolved compose file whose web service bind-mounts source.
+func bindOf(source string) string {
+	return `{"services":{"web":{"volumes":[{"type":"bind","source":"` + source + `"}]}}}`
+}

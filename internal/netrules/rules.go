@@ -24,8 +24,11 @@ package netrules
 
 import (
 	"fmt"
+	"net"
 	"net/netip"
 	"strings"
+	"sync"
+	"time"
 )
 
 // Kind is how a rule matches an origin.
@@ -104,6 +107,45 @@ func (p *Policy) Describe() string {
 
 // tailnet is the shared address space Tailscale's IPv4 addresses come from, which `lan` covers.
 var tailnet = netip.MustParsePrefix("100.64.0.0/10")
+
+// onTailnet says this machine is itself on a tailnet: one of its interfaces holds an address of
+// the tailnet range. Without it, 100.64/10 is only the carrier-grade NAT space an operator's ISP
+// shares among its customers, and "the local network" must not include strangers on it.
+// A variable so the tests can say which machine they run on.
+var onTailnet = cachedOnTailnet
+
+var (
+	tailnetMu      sync.Mutex
+	tailnetChecked time.Time
+	tailnetResult  bool
+)
+
+// cachedOnTailnet reads the interfaces at most once a minute: every request asks.
+func cachedOnTailnet() bool {
+	tailnetMu.Lock()
+	defer tailnetMu.Unlock()
+	if tailnetChecked.IsZero() || time.Since(tailnetChecked) > time.Minute {
+		tailnetResult, tailnetChecked = hasTailnetAddr(), time.Now()
+	}
+	return tailnetResult
+}
+
+func hasTailnetAddr() bool {
+	addrs, _ := net.InterfaceAddrs() // no interfaces listed means no tailnet found
+	return tailnetIn(addrs)
+}
+
+// tailnetIn says one of the addresses is in the tailnet range.
+func tailnetIn(addrs []net.Addr) bool {
+	for _, a := range addrs {
+		if n, ok := a.(*net.IPNet); ok {
+			if ip, ok := netip.AddrFromSlice(n.IP); ok && tailnet.Contains(ip.Unmap()) {
+				return true
+			}
+		}
+	}
+	return false
+}
 
 // Parse reads the rule set out of the configuration, in order.
 //
@@ -215,8 +257,9 @@ func (r Rule) matches(origin netip.Addr) bool {
 		}
 		// The tailnet's IPv4 addresses come from the carrier-grade NAT space, which netip does not
 		// call private: without it, a computer reaching this one over Tailscale's IPv4 would be
-		// refused by "the local network" while the same computer over its IPv6 got in.
-		return origin.IsLinkLocalUnicast() || tailnet.Contains(origin)
+		// refused by "the local network" while the same computer over its IPv6 got in. Only on a
+		// machine that is itself on a tailnet: elsewhere the range is the ISP's shared space.
+		return origin.IsLinkLocalUnicast() || (tailnet.Contains(origin) && onTailnet())
 	case KindPrefix:
 		return r.Prefix.Contains(origin)
 	default:

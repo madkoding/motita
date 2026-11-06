@@ -858,7 +858,7 @@ opened its page, with how many runs it has in flight.
   certificate, so a machine in the middle makes the two codes differ.
 - **Only private networks** are dialled: the LAN, unique-local and link-local ranges and
   the tailnet. The other computer must answer the network (`motita gateway setup`, *the
-  local network*, which counts the tailnet's `100.64.x.x` too) and let its port through
+  local network*, which counts the tailnet's `100.64.x.x` too, on a computer that is itself on the tailnet) and let its port through
   its firewall; when nothing answers, the error says which of those to check.
 
 **This computer's desktop.** With *Settings → Security → Control of this computer's

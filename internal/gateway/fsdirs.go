@@ -68,7 +68,7 @@ func (s *Server) handleListDirs(w http.ResponseWriter, r *http.Request) {
 	}
 	for _, e := range entries {
 		sub := filepath.Join(dir, e.Name())
-		if strings.HasPrefix(e.Name(), ".") || strings.HasPrefix(e.Name(), "$") || !isDir(sub) {
+		if strings.HasPrefix(e.Name(), ".") || strings.HasPrefix(e.Name(), "$") || !isDir(sub) || !realWithin(root, sub) {
 			continue
 		}
 		out.Dirs = append(out.Dirs, dirEntry{Name: e.Name(), Path: sub, Git: isDir(filepath.Join(sub, ".git"))})
@@ -130,12 +130,20 @@ func resolveDir(root, raw string) (string, bool) {
 	}
 	for _, part := range strings.Split(rel, string(filepath.Separator)) {
 		next, ok := childDir(cur, part)
-		if !ok {
+		if !ok || !realWithin(root, next) {
 			return "", false
 		}
 		cur = next
 	}
 	return cur, true
+}
+
+// realWithin reports whether path, with every link resolved, is still inside root (also resolved):
+// a link in the workspace that leads out of it is not a folder the browser may show or enter.
+func realWithin(root, path string) bool {
+	r, rootErr := filepath.EvalSymlinks(root)
+	p, err := filepath.EvalSymlinks(path)
+	return rootErr == nil && err == nil && pathWithinOrSame(r, p)
 }
 
 // childDir is the folder of dir that is called name, as the disk spells it.
