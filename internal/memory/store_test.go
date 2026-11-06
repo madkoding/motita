@@ -1,6 +1,7 @@
 package memory
 
 import (
+	"context"
 	"errors"
 	"os"
 	"path/filepath"
@@ -304,4 +305,19 @@ func TestDeleteFolderRefusals(t *testing.T) {
 
 func writeRaw(v *Store, p string, b []byte) error {
 	return os.WriteFile(filepath.Join(v.Root(), p), b, 0o644)
+}
+
+func TestForgetDropsTheIndexKeptInMemory(t *testing.T) {
+	v := corpus(t)
+	if Indexed(v.root) {
+		t.Fatal("nothing searched yet")
+	}
+	v.Search(context.Background(), Query{Text: "payroll"})
+	if !Indexed(v.root) {
+		t.Fatal("a search keeps the index")
+	}
+	Forget(v.root)
+	if Indexed(v.root) {
+		t.Fatal("Forget drops it")
+	}
 }

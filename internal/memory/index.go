@@ -51,6 +51,21 @@ var (
 	cache   = map[string]*index{}
 )
 
+// Forget drops the index kept in memory for the folder root. A folder that is deleted (a
+// conversation's archive) would otherwise keep its vectors until the process ends.
+func Forget(root string) {
+	cacheMu.Lock()
+	defer cacheMu.Unlock()
+	delete(cache, root)
+}
+
+// Indexed says whether an index is kept in memory for the folder root.
+func Indexed(root string) bool {
+	cacheMu.Lock()
+	defer cacheMu.Unlock()
+	return cache[root] != nil
+}
+
 // A rebuild after a change re-reads only the entries that changed: the others keep what was cut
 // and encoded from them. The vector space is the expensive part (learning it takes seconds on a
 // large memory), so a large memory keeps the space it learned and only encodes the new passages

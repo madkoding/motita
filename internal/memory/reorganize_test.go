@@ -339,3 +339,97 @@ func TestApplyClassKeepsATitleThatCannotBeUsed(t *testing.T) {
 		t.Errorf("rep = %+v list %v", rep, v.List())
 	}
 }
+
+// F101: undoing a reorganization puts back what it changed and keeps what the sessions wrote
+// while it ran and after it.
+func TestRestoreKeepsWhatWasWrittenAfterTheCopy(t *testing.T) {
+	fixedNow(t)
+	v := Open(t.TempDir())
+	write(t, v, "Projects/shop.md", "- pnpm, not npm\n")
+	write(t, v, "notes.md", "# Notes\n\nthe original")
+	root := t.TempDir()
+	rep, err := v.Reorganize(context.Background(), root, nil, nil)
+	if err != nil || rep.Joined != 1 {
+		t.Fatalf("%+v %v", rep, err)
+	}
+	// A session, with a Store of its own, writes meanwhile and later.
+	session := Open(v.root)
+	write(t, session, "new.md", "written after the copy")
+	write(t, session, "notes.md", "# Notes\n\nthe session appended a line")
+	if err := v.Restore(root, rep.Backup); err != nil {
+		t.Fatal(err)
+	}
+	if got, _, err := v.Read("new.md"); err != nil || got != "written after the copy" {
+		t.Errorf("an entry made after the copy is kept: %q %v", got, err)
+	}
+	if got, _, _ := v.Read("notes.md"); !strings.Contains(got, "session appended") {
+		t.Errorf("an entry the reorganization did not touch keeps the session's text: %q", got)
+	}
+	if got, _, err := v.Read("Projects/shop.md"); err != nil || got != "- pnpm, not npm\n" {
+		t.Errorf("what the reorganization moved comes back: %q %v", got, err)
+	}
+	if _, _, err := v.Read("shop/Lessons.md"); !errors.Is(err, ErrNotFound) {
+		t.Errorf("what the reorganization made is removed: %v", err)
+	}
+}
+
+func TestRestoreOfACopyWithoutAUsableListPutsEverythingBack(t *testing.T) {
+	fixedNow(t)
+	v := Open(t.TempDir())
+	write(t, v, "a.md", "one")
+	root := t.TempDir()
+	rep, err := v.Reorganize(context.Background(), root, nil, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	write(t, v, "later.md", "after")
+	list := filepath.Join(root, rep.Backup, manifestFile)
+	for _, content := range []string{"not json", ""} {
+		if content == "" {
+			_ = os.Remove(list)
+		} else {
+			_ = os.WriteFile(list, []byte(content), 0o600)
+		}
+		write(t, v, "later.md", "after")
+		if err := v.Restore(root, rep.Backup); err != nil {
+			t.Fatal(err)
+		}
+		if _, _, err := v.Read("later.md"); !errors.Is(err, ErrNotFound) {
+			t.Errorf("a copy with %q in place of a list is taken back whole: %v", content, err)
+		}
+	}
+}
+
+func TestReorganizeSaysWhenItCouldNotKeepTheListOfChanges(t *testing.T) {
+	fixedNow(t)
+	v := Open(t.TempDir())
+	write(t, v, "a.md", "one")
+	root := t.TempDir()
+	block := func(p Progress) {
+		if p.Step == StepJoin {
+			_ = os.MkdirAll(filepath.Join(root, "20261103-180000", manifestFile), 0o700)
+		}
+	}
+	if _, err := v.Reorganize(context.Background(), root, nil, block); err == nil {
+		t.Error("the undo would silently take back too much")
+	}
+}
+
+// A list that names a route out of the memory is refused, not followed.
+func TestRestoreRefusesAPathOutOfTheMemoryInTheList(t *testing.T) {
+	fixedNow(t)
+	v := Open(t.TempDir())
+	write(t, v, "a.md", "one")
+	root := t.TempDir()
+	rep, err := v.Reorganize(context.Background(), root, nil, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	list := filepath.Join(root, rep.Backup, manifestFile)
+	if err := os.WriteFile(list, []byte(`{"touched":["../escape.md","gone.md"]}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := v.Restore(root, rep.Backup); !errors.Is(err, ErrBadPath) {
+		t.Errorf("Restore = %v", err)
+	}
+}

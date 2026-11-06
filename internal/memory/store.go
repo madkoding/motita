@@ -20,6 +20,7 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -62,6 +63,27 @@ type Store struct {
 	cacheDir string   // where the index is kept between runs, "" for memory only (see persist.go)
 	project  string   // the collection of the project the agent works in (see project.go)
 	repos    []string // the repositories of that project
+	journal  *journal // the paths this Store wrote, deleted or renamed, when it keeps that (see reorganize.go)
+}
+
+// journal is the set of entry paths one Store changed. A reorganization keeps one so Restore can
+// put back what the reorganization changed and nothing else: the sessions write the same memory
+// meanwhile, and their entries are not the reorganization's to undo.
+type journal struct {
+	mu    sync.Mutex
+	paths map[string]bool
+}
+
+// touched notes that entries were changed by this Store, when it keeps a journal.
+func (v *Store) touched(paths ...string) {
+	if v.journal == nil {
+		return
+	}
+	v.journal.mu.Lock()
+	defer v.journal.mu.Unlock()
+	for _, p := range paths {
+		v.journal.paths[p] = true
+	}
 }
 
 // Open returns the memory at root. The folder is created when the first entry is written.
@@ -217,6 +239,7 @@ func (v *Store) Write(p, body string, create bool) (Entry, error) {
 		os.Remove(tmp.Name())
 		return Entry{}, err
 	}
+	v.touched(rel)
 	return Entry{Path: rel, Title: Title(rel), Size: int64(len(body)), Modified: time.Now().UTC()}, nil
 }
 
@@ -233,7 +256,11 @@ func (v *Store) Delete(p string) error {
 	if fi, err := os.Stat(full); err != nil || !fi.Mode().IsRegular() {
 		return ErrNotFound
 	}
-	return os.Remove(full)
+	err = os.Remove(full)
+	if err == nil {
+		v.touched(rel)
+	}
+	return err
 }
 
 // Rename moves an entry. It refuses to replace another one.
@@ -263,5 +290,9 @@ func (v *Store) Rename(from, to string) error {
 	if err := os.MkdirAll(filepath.Dir(dstFull), 0o755); err != nil {
 		return err
 	}
-	return os.Rename(srcFull, dstFull)
+	err = os.Rename(srcFull, dstFull)
+	if err == nil {
+		v.touched(src, dst)
+	}
+	return err
 }

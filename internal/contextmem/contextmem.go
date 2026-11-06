@@ -206,6 +206,7 @@ func Delete(root string) error {
 	if abs == string(filepath.Separator) || abs == "." {
 		return errors.New("refusing to delete a whole filesystem")
 	}
+	memory.Forget(abs)
 	return removeAll(abs)
 }
 
@@ -229,7 +230,11 @@ func Sweep(root string, keep map[string]bool) error {
 		if !e.IsDir() || keep[e.Name()] {
 			continue
 		}
-		if err := removeAll(filepath.Join(root, e.Name())); err != nil && firstErr == nil {
+		dir := filepath.Join(root, e.Name())
+		if abs, err := absPath(dir); err == nil {
+			memory.Forget(abs)
+		}
+		if err := removeAll(dir); err != nil && firstErr == nil {
 			firstErr = err
 		}
 	}

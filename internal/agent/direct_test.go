@@ -258,3 +258,35 @@ func TestDirectSystemAndGateFeedback(t *testing.T) {
 		t.Errorf("feedback: %q", fb)
 	}
 }
+
+// F99: a direct run keeps the newest tool outputs whole and shrinks the older ones, so a long run
+// of big outputs does not end in a context-length error.
+func TestDirectRunShrinksOlderToolOutputs(t *testing.T) {
+	big := strings.Repeat("x", 3*roundDetailOutput)
+	r := &directRun{}
+	r.msgs = append(r.msgs, llm.Message{Role: "system", Content: big}, llm.Message{Role: "user", Content: big})
+	for i := 0; i < directOlderOutputs+3; i++ {
+		r.msgs = append(r.msgs, llm.Message{Role: "assistant", Content: "go"},
+			llm.Message{Role: "tool", Content: big})
+		r.shrinkOutputs()
+	}
+	var tools []int
+	for _, m := range r.msgs {
+		if m.Role == "tool" {
+			tools = append(tools, len(m.Content))
+		}
+	}
+	last := len(tools) - 1
+	if tools[last] > roundDetailOutput+100 || tools[last] < roundDetailOutput/2 {
+		t.Errorf("the newest output is cut to the round limit: %d", tools[last])
+	}
+	if got := tools[last-directWholeOutputs]; got > roundDetailOlder+100 {
+		t.Errorf("an older output is cut to %d, got %d", roundDetailOlder, got)
+	}
+	if got := tools[0]; got > directOldestOutputs+100 {
+		t.Errorf("the oldest output is cut to a few lines, got %d", got)
+	}
+	if len(r.msgs[0].Content) != len(big) || len(r.msgs[1].Content) != len(big) {
+		t.Error("only tool outputs are cut, not the task or the system prompt")
+	}
+}

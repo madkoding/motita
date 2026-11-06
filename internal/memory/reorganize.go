@@ -142,6 +142,11 @@ func (v *Store) Restore(root, name string) error {
 		}
 		saved[e.Path] = body
 	}
+	// A copy made by a reorganization says which entries the reorganization changed: only those go
+	// back, and what the sessions wrote meanwhile stays.
+	if touched, ok := readManifest(dir); ok {
+		return v.restoreTouched(touched, saved)
+	}
 	var errs []error
 	for _, e := range v.List() {
 		if _, ok := saved[e.Path]; !ok {
@@ -155,10 +160,80 @@ func (v *Store) Restore(root, name string) error {
 	return errors.Join(errs...)
 }
 
+// manifestFile is where a copy keeps the entries its reorganization changed. It is hidden, so the
+// copy still reads as a plain memory folder.
+const manifestFile = ".reorganized.json"
+
+// readManifest is the entries the reorganization that took the copy in dir changed. ok is false for
+// a copy that has no such list (one taken by hand, or by an earlier version).
+func readManifest(dir string) (touched []string, ok bool) {
+	data, err := os.ReadFile(filepath.Join(dir, manifestFile))
+	if err != nil {
+		return nil, false
+	}
+	var m struct {
+		Touched []string `json:"touched"`
+	}
+	if json.Unmarshal(data, &m) != nil {
+		return nil, false
+	}
+	return m.Touched, true
+}
+
+// writeManifest keeps the entries j saw changed in the copy dir.
+func (j *journal) writeManifest(dir string) error {
+	j.mu.Lock()
+	touched := make([]string, 0, len(j.paths))
+	for p := range j.paths {
+		touched = append(touched, p)
+	}
+	j.mu.Unlock()
+	sort.Strings(touched)
+	data, _ := json.Marshal(map[string][]string{"touched": touched}) // a list of strings always encodes
+	return os.WriteFile(filepath.Join(dir, manifestFile), data, 0o600)
+}
+
+// restoreTouched puts back the entries a reorganization changed: the ones the copy holds as they
+// were, and removes the ones the reorganization made.
+func (v *Store) restoreTouched(touched []string, saved map[string]string) error {
+	var errs []error
+	for _, p := range touched {
+		errs = append(errs, v.putBack(p, saved))
+	}
+	return errors.Join(errs...)
+}
+
+// putBack writes the entry p as the copy holds it, or removes it when the copy has none.
+func (v *Store) putBack(p string, saved map[string]string) error {
+	body, ok := saved[p]
+	if !ok {
+		if err := v.Delete(p); !errors.Is(err, ErrNotFound) {
+			return err
+		}
+		return nil
+	}
+	_, err := v.Write(p, body, false)
+	return err
+}
+
 // Reorganize puts the memory in order (see the top of this file). judge may be nil: without a
 // model only the lessons are joined and close entries associated. A cancelled ctx stops it between
 // two steps; what was done stays, and the copy can take it back.
 func (v *Store) Reorganize(
+	ctx context.Context, root string, judge Judge, progress func(Progress),
+) (ReorgReport, error) {
+	// It works through a Store of its own that keeps a journal, so the copy can say which entries
+	// the reorganization changed and not those the sessions wrote meanwhile.
+	w := &Store{root: v.root, cacheDir: v.cacheDir, project: v.project, repos: v.repos,
+		journal: &journal{paths: map[string]bool{}}}
+	rep, err := w.reorganize(ctx, root, judge, progress)
+	if rep.Backup != "" {
+		err = errors.Join(err, w.journal.writeManifest(filepath.Join(root, rep.Backup)))
+	}
+	return rep, err
+}
+
+func (v *Store) reorganize(
 	ctx context.Context, root string, judge Judge, progress func(Progress),
 ) (ReorgReport, error) {
 	if progress == nil {
