@@ -531,6 +531,44 @@ test("a computer is renamed in place: Enter or leaving saves, Escape cancels, th
   await ui.done();
 });
 
+// F103: Chrome fires blur when Escape unmounts the field, and after Enter: neither may save twice
+// or save what Escape dropped. jsdom does not do that on its own, so the blur is sent by hand.
+test("the blur that follows Escape or Enter does not save again", async () => {
+  const ui = await mount({
+    self: SELF,
+    peers: [DESK],
+    discovery: true,
+    requests: [],
+    grants: [],
+  });
+  const rename = async () => {
+    await click(
+      box(ui, "desk0001").querySelector("[data-testid=machine-rename-button]"),
+    );
+    return box(ui, "desk0001").querySelector("[data-testid=machine-rename]");
+  };
+  const blur = (field) =>
+    act(() => field.dispatchEvent(new FocusEvent("blur")));
+  const puts = () => ui.f.calls.filter((c) => c[0] === "PUT");
+  let field = await rename();
+  await type(field, "Dropped");
+  await key(field, "Escape");
+  await blur(field);
+  await act(() => flush());
+  assert.equal(puts().length, 0, "what Escape dropped is not saved");
+  field = await rename();
+  await type(field, "Kept");
+  await key(field, "Enter");
+  await blur(field);
+  await act(() => flush());
+  assert.deepEqual(
+    puts().map((c) => c[2]),
+    ['{"alias":"Kept"}'],
+    "Enter saves once",
+  );
+  await ui.done();
+});
+
 test("disconnecting asks a second click, and leaving the button disarms it", async () => {
   const ui = await mount({
     self: SELF,
