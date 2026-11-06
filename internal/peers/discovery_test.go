@@ -136,9 +136,11 @@ func TestConfirmGivesUpOnAnotherGateway(t *testing.T) {
 
 func TestDiscoveryWithoutSocketsStillProbesAndScans(t *testing.T) {
 	reg, _ := Open("", "box")
-	srv := gatewayServer(t, hello("peer0001", "desk"), "tok")
-	reg.Saw(hello("peer0001", "desk"), ap("192.168.1.5:7477"), SourceManual)
-	_ = reg.Pair("peer0001", "tok", "fp")
+	desk := hello("peer0001", "desk")
+	srv := gatewayServer(t, desk, "tok")
+	desk.Cert = srv.pin // a connected computer answers with the certificate it was connected with
+	reg.Saw(desk, ap("192.168.1.5:7477"), SourceManual)
+	_ = reg.Pair("peer0001", "tok", srv.pin)
 	reg.mu.Lock()
 	delete(reg.live, "peer0001")
 	reg.mu.Unlock()

@@ -536,6 +536,14 @@ func TestOnlyAGatewayOnTheNetworkCanAskToConnect(t *testing.T) {
 func TestAnotherIdentityAtTheConnectedAddressIsRefused(t *testing.T) {
 	here, there := peerPair(t)
 	id := connect(t, here, there)
+	// A changed identity cannot be paired over the old one; it takes forgetting the computer first.
+	if err := here.peers.Pair(id, otherToken, "another"); !errors.Is(err, peers.ErrIdentityChanged) {
+		t.Fatalf("pairing over the pin: %v", err)
+	}
+	if err := here.peers.Forget(id); err != nil {
+		t.Fatal(err)
+	}
+	here.peers.Saw(helloOf(id, there), netip.MustParseAddrPort(there.Addr()), peers.SourceLAN)
 	if err := here.peers.Pair(id, otherToken, "another"); err != nil {
 		t.Fatal(err)
 	}
@@ -578,5 +586,32 @@ func TestTheRunsInFlightAreCountedHereAndThere(t *testing.T) {
 	here.readRunning(context.Background())
 	if p, _ := here.peers.Find(id); p.Running != 5 {
 		t.Fatalf("refused token changed the count: %+v", p)
+	}
+}
+
+// A connected computer that answers with another certificate than the one it was connected with
+// is not handed the token again: the refusal comes before anything is sent to it.
+func TestAChangedIdentityIsNotHandedTheToken(t *testing.T) {
+	here, there := peerPair(t)
+	id := connect(t, here, there)
+	_ = here.peers.Forget(id)
+	here.peers.Saw(helloOf(id, there), netip.MustParseAddrPort(there.Addr()), peers.SourceLAN)
+	if err := here.peers.Pair(id, otherToken, "another"); err != nil {
+		t.Fatal(err)
+	}
+	for _, req := range []struct{ method, path, body string }{
+		{http.MethodPut, "/v1/peers/" + id, `{"token":"` + otherToken + `"}`},
+		{http.MethodPost, "/v1/peers", `{"address":"` + there.Addr() + `","token":"` + otherToken + `"}`},
+	} {
+		w := sendPeers(t, here, req.method, req.path, req.body)
+		if w.Code != http.StatusConflict || !strings.Contains(w.Body.String(), "different identity") {
+			t.Fatalf("%s %s: %d %s", req.method, req.path, w.Code, w.Body.String())
+		}
+	}
+	if tg, _ := here.peers.Target(id); tg.Cert != "another" || tg.Token != otherToken {
+		t.Fatalf("the pin or the token changed: %+v", tg)
+	}
+	if got := peerStatus(peers.ErrIdentityChanged); got != http.StatusConflict {
+		t.Fatalf("status = %d", got)
 	}
 }

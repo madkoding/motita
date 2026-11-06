@@ -190,8 +190,17 @@ const AskTTL = 5 * time.Minute
 // MaxRequests bounds the requests waiting at once: anyone on the network can ask.
 const MaxRequests = 8
 
+// MaxRequestsPerOrigin bounds the requests one address can have waiting, so a single machine
+// cannot take every slot of MaxRequests.
+const MaxRequestsPerOrigin = 2
+
 // ErrBusy is a request refused because too many are waiting.
 var ErrBusy = errors.New("too many computers are asking to connect to this one: try again in a few minutes")
+
+// ErrIdentityChanged is a computer that answers with another certificate than the one it was
+// connected with. The certificate is its identity: a new one is a reinstall or someone else.
+var ErrIdentityChanged = errors.New("this computer presents a different identity than the one it was connected " +
+	"with: forget it and connect it again only if you know it was reinstalled")
 
 // document is the file: this gateway's identity and the gateways it is connected to.
 type document struct {
@@ -336,6 +345,12 @@ func (r *Registry) Saw(h Hello, at netip.AddrPort, src Source) bool {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	if h.ID == r.doc.SelfID {
+		return false
+	}
+	// A beacon is unauthenticated, and the ID in it is public. One that names a connected computer
+	// but carries another certificate is not that computer: it neither moves its address nor shows
+	// as it, so the list never points a connected computer at somebody else.
+	if i := r.savedIndex(h.ID); i >= 0 && r.doc.Peers[i].Cert != "" && r.doc.Peers[i].Cert != h.Cert {
 		return false
 	}
 	now := r.Now()
@@ -491,6 +506,9 @@ func (r *Registry) Pair(id, token, cert string) error {
 	if !ok {
 		return ErrUnknown
 	}
+	if err := r.checkPin(id, cert); err != nil {
+		return err
+	}
 	delete(r.asks, id)
 	if i := r.savedIndex(id); i >= 0 {
 		r.doc.Peers[i].Token, r.doc.Peers[i].Cert = token, cert
@@ -499,6 +517,23 @@ func (r *Registry) Pair(id, token, cert string) error {
 	r.doc.Peers = append(r.doc.Peers, saved{ID: p.ID, Name: p.Name, Address: p.Address, Source: p.Source,
 		Version: p.Version, Token: token, Cert: cert})
 	return r.save()
+}
+
+// CheckPin reports ErrIdentityChanged when the computer id is connected under a certificate other
+// than cert. It is asked BEFORE a token is sent to an address: the hello that names the certificate
+// is plain and unauthenticated, so what it says is only trusted when it agrees with the pin.
+func (r *Registry) CheckPin(id, cert string) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return r.checkPin(id, cert)
+}
+
+// checkPin is CheckPin with the lock held.
+func (r *Registry) checkPin(id, cert string) error {
+	if i := r.savedIndex(id); i >= 0 && r.doc.Peers[i].Cert != "" && r.doc.Peers[i].Cert != cert {
+		return ErrIdentityChanged
+	}
+	return nil
 }
 
 // Rename sets the name a kept gateway is shown under here; empty goes back to its own name.
@@ -603,17 +638,41 @@ func (r *Registry) Ask(id, name, address, cert string) (string, error) {
 	defer r.mu.Unlock()
 	now := r.Now()
 	for fp, q := range r.requests {
-		if now.Sub(q.at) > AskTTL || q.ID == id {
+		if now.Sub(q.at) > AskTTL {
 			delete(r.requests, fp)
 		}
 	}
-	if _, again := r.requests[cert]; !again && len(r.requests) >= MaxRequests {
-		return "", ErrBusy
+	if err := r.crowded(id, address, cert); err != nil {
+		return "", err
 	}
 	code := PairCode(r.fp, cert)
 	r.requests[cert] = &pending{Request: Request{ID: id, Name: name, Address: address, Code: code},
 		cert: cert, at: now, state: AskWaiting}
 	return code, nil
+}
+
+// crowded says whether a request from cert, claiming id from address, must be refused (lock held).
+// The ID in a request is claimed, not proven: a request under the same ID but another
+// certificate does not replace one that waits, it is refused. (Replacing it let anyone push
+// a computer's own request off the list by asking under its ID.) The same certificate asking
+// again refreshes its request, and one already answered can be asked over.
+func (r *Registry) crowded(id, address, cert string) error {
+	origin, fromOrigin := originOf(address), 0 // "" when the address is not known: no per-origin limit
+	for fp, q := range r.requests {
+		if q.state != AskWaiting || fp == cert {
+			continue
+		}
+		if q.ID == id {
+			return ErrBusy
+		}
+		if origin != "" && originOf(q.Address) == origin {
+			fromOrigin++
+		}
+	}
+	if _, again := r.requests[cert]; !again && (len(r.requests) >= MaxRequests || fromOrigin >= MaxRequestsPerOrigin) {
+		return ErrBusy
+	}
+	return nil
 }
 
 // Requests are the computers waiting for an answer, oldest first.
@@ -713,4 +772,12 @@ func (r *Registry) Revoke(id string) error {
 	}
 	r.doc.Granted = slices.Delete(r.doc.Granted, i, i+1)
 	return r.save()
+}
+
+// originOf is the host of an address, which is what one machine is whatever port it connects from.
+func originOf(address string) string {
+	if ap, err := netip.ParseAddrPort(address); err == nil {
+		return ap.Addr().Unmap().String()
+	}
+	return address
 }
