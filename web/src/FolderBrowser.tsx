@@ -161,6 +161,9 @@ export function FolderBrowser({ api, start = "", onPick, onClose }: Props) {
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState("");
   const req = useRef(0);
+  // listed says a folder was shown at least once: until then, a start folder that is refused
+  // leaves no way out (Up and Home come from a listing), so the browser falls back to the top.
+  const listed = useRef(false);
 
   const open = useCallback(
     async (path: string) => {
@@ -171,9 +174,14 @@ export function FolderBrowser({ api, start = "", onPick, onClose }: Props) {
       try {
         const l = await listDirs(api, path);
         if (my === req.current) {
+          listed.current = true;
           setListing(l);
         }
       } catch (e) {
+        if (my === req.current && !listed.current && path !== "") {
+          void open("");
+          return;
+        }
         if (my === req.current) {
           setErr(errorMessage(e));
         }
