@@ -2,7 +2,7 @@
 // the agent gives because the person asked for one is "proposed"; once the person approves it (a
 // go-ahead, or saving it here) it is "active", and it is let go when its work is done. This hook
 // reads it with its state, and lets the person change, approve or drop it.
-import { useCallback, useEffect, useState } from "preact/hooks";
+import { useCallback, useEffect, useRef, useState } from "preact/hooks";
 import { t } from "./i18n";
 import { JSON_HEADERS } from "./appConst";
 import type { Api } from "./prApi";
@@ -36,6 +36,9 @@ export function usePinnedPlan(
 ) {
   const [plan, setPlan] = useState("");
   const [state, setPinState] = useState<PlanState>("");
+  // current is the conversation on screen now: a slow read of another one must not paint over it.
+  const current = useRef(sessionId);
+  current.current = sessionId;
 
   const load = useCallback(async () => {
     if (!sessionId) {
@@ -49,11 +52,16 @@ export function usePinnedPlan(
       if (res.ok) {
         d = await res.json();
       }
+      if (current.current !== sessionId) {
+        return;
+      }
       setPlan(d.plan ?? "");
       setPinState(planState(d));
     } catch {
-      setPlan("");
-      setPinState("");
+      if (current.current === sessionId) {
+        setPlan("");
+        setPinState("");
+      }
     }
   }, [api, sessionId]);
 

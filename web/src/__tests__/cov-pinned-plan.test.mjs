@@ -217,3 +217,46 @@ test("a proposed plan reads as proposed until the person approves it", async () 
   assert.equal(m.hook.current.state, "");
   await m.done();
 });
+
+// F123: a slow answer for the conversation left behind must not paint over the one on screen.
+test("a slow plan of another conversation does not replace the one shown", async () => {
+  let release = () => {};
+  const held = new Promise((r) => {
+    release = r;
+  });
+  const g = gateway();
+  g.api = async (url) => {
+    if (url.includes("/sA/")) {
+      await held;
+      return json({ plan: "plan of A", state: "active" });
+    }
+    return json({ plan: "plan of B", state: "active" });
+  };
+  const m = await mount(g, { sessionId: "sA", running: false });
+  await m.rerender({ sessionId: "sB", running: false });
+  assert.equal(m.hook.current.plan, "plan of B");
+  release();
+  await settle();
+  assert.equal(m.hook.current.plan, "plan of B", "A's late answer is dropped");
+  await m.done();
+});
+
+test("a failing read of the conversation left behind does not clear the one shown", async () => {
+  let fail = () => {};
+  const held = new Promise((_, reject) => {
+    fail = () => reject(new Error("network"));
+  });
+  const g = gateway();
+  g.api = async (url) => {
+    if (url.includes("/sA/")) {
+      await held;
+    }
+    return json({ plan: "plan of B", state: "active" });
+  };
+  const m = await mount(g, { sessionId: "sA", running: false });
+  await m.rerender({ sessionId: "sB", running: false });
+  fail();
+  await settle();
+  assert.equal(m.hook.current.plan, "plan of B");
+  await m.done();
+});
