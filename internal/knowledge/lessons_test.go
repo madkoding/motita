@@ -79,3 +79,42 @@ func TestLessonsAreFramedAsDataNotInstructions(t *testing.T) {
 		t.Errorf("a lesson is not presented as a fact: %q", ctx)
 	}
 }
+
+// The lessons file is replaced whole or not at all: a failed write leaves the old one and no
+// temporary file behind.
+func TestTheLessonsFileIsReplacedWholeOrNotAtAll(t *testing.T) {
+	dir := t.TempDir()
+	if err := RecordLessons(dir, []string{"one"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := RecordLessons(dir, []string{"two"}); err != nil {
+		t.Fatal(err)
+	}
+	if got := Lessons(dir); len(got) != 2 {
+		t.Fatalf("lines = %q", got)
+	}
+	entries, _ := os.ReadDir(filepath.Join(dir, filepath.Dir(LessonsFile)))
+	for _, e := range entries {
+		if strings.HasSuffix(e.Name(), ".tmp") {
+			t.Errorf("a temporary file was left: %s", e.Name())
+		}
+	}
+
+	// The rename fails when the target is a folder with something in it: the error comes back and
+	// the temporary file is removed.
+	target := filepath.Join(dir, "target")
+	if err := os.MkdirAll(filepath.Join(target, "x"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := writeFileAtomic(target, []byte("data")); err == nil {
+		t.Fatal("replacing a folder must fail")
+	}
+	left, _ := filepath.Glob(filepath.Join(dir, ".target.*.tmp"))
+	if len(left) != 0 {
+		t.Errorf("temporary files left: %v", left)
+	}
+	// And no folder to write in is an error too.
+	if err := writeFileAtomic(filepath.Join(dir, "missing", "f"), []byte("x")); err == nil {
+		t.Fatal("a missing folder must fail")
+	}
+}

@@ -59,7 +59,29 @@ func RecordLessons(workspace string, lessons []string) error {
 	for _, l := range known {
 		b.WriteString("- " + l + "\n")
 	}
-	return os.WriteFile(path, []byte(b.String()), 0o600)
+	return writeFileAtomic(path, []byte(b.String()))
+}
+
+// writeFileAtomic replaces path with data through a temporary file in the same folder and a
+// rename, so a crash or a full disk leaves the old file whole instead of a truncated one: this file
+// holds every lesson the project has learned.
+func writeFileAtomic(path string, data []byte) error {
+	tmp, err := os.CreateTemp(filepath.Dir(path), "."+filepath.Base(path)+".*.tmp")
+	if err != nil {
+		return err
+	}
+	name := tmp.Name()
+	_, werr := tmp.Write(data)
+	if cerr := tmp.Close(); werr == nil {
+		werr = cerr
+	}
+	if werr == nil {
+		werr = os.Rename(name, path)
+	}
+	if werr != nil {
+		_ = os.Remove(name)
+	}
+	return werr
 }
 
 // Lessons is what the file holds, one lesson per entry, without the bullets.
