@@ -371,8 +371,10 @@ func assertNothingLeftBehind(t *testing.T, rig *autopilotRig, sessions int) {
 		t.Errorf("sessions = %d, want %d: the attempt's session was left", got, sessions)
 	}
 	dir := rig.project.Dir
-	if out, _ := exec.Command("git", "-C", dir, "branch", "--list", autopilotBranchPrefix+"*").Output(); strings.TrimSpace(string(out)) != "" {
-		t.Errorf("branches left: %s", out)
+	pattern := autopilotBranchPrefix + "*"
+	branches, _ := exec.Command("git", "-C", dir, "branch", "--list", pattern).Output()
+	if strings.TrimSpace(string(branches)) != "" {
+		t.Errorf("branches left: %s", branches)
 	}
 	out, _ := exec.Command("git", "-C", dir, "worktree", "list", "--porcelain").Output()
 	if n := strings.Count(string(out), "worktree "); n != 1 {
