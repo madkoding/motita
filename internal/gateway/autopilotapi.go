@@ -62,20 +62,22 @@ func (s *Server) routineOf(id string) *autopilotRoutine {
 }
 
 // writeAutopilot answers the current view, or the error that kept it from being read.
-func (s *Server) writeAutopilot(w http.ResponseWriter) {
+func (s *Server) writeAutopilot(w http.ResponseWriter, status int) {
 	cfg, canSave, err := s.securityConfig()
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, errConfigUnreadable+err.Error())
 		return
 	}
 	a := cfg.Autopilot
-	writeJSON(w, http.StatusOK, autopilotView{
+	writeJSON(w, status, autopilotView{
 		WeeklyAudit: a.WeeklyAudit, AutoPR: a.AutoPR, MaxOpenPRs: a.MaxOpenPRs, CanSave: canSave,
 		Audit: s.routineOf(autopilotAuditID), Fixes: s.routineOf(autopilotFixesID),
 	})
 }
 
-func (s *Server) handleGetAutopilot(w http.ResponseWriter, _ *http.Request) { s.writeAutopilot(w) }
+func (s *Server) handleGetAutopilot(w http.ResponseWriter, _ *http.Request) {
+	s.writeAutopilot(w, http.StatusOK)
+}
 
 // handlePutAutopilot saves the change in the configuration file and brings the routines' records in
 // line with the switches.
@@ -99,7 +101,7 @@ func (s *Server) handlePutAutopilot(w http.ResponseWriter, r *http.Request) {
 	}
 	s.info("the autopilot settings were changed from the settings page")
 	s.syncAutopilot()
-	s.writeAutopilot(w)
+	s.writeAutopilot(w, http.StatusOK)
 }
 
 // handleRunAutopilot starts a routine now, without waiting for its week.
@@ -117,8 +119,7 @@ func (s *Server) handleRunAutopilot(w http.ResponseWriter, r *http.Request) {
 		writeError(w, code, why)
 		return
 	}
-	w.WriteHeader(http.StatusAccepted)
-	s.writeAutopilot(w)
+	s.writeAutopilot(w, http.StatusAccepted)
 }
 
 // launchAutopilot starts a routine in the background. It answers 0 when it started, or the status
