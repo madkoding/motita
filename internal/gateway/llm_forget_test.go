@@ -1,6 +1,7 @@
 package gateway
 
 import (
+	"context"
 	"errors"
 	"net/http"
 	"os"
@@ -157,5 +158,43 @@ func TestDisconnectReportsEachFailedRemoval(t *testing.T) {
 		if w.Code != http.StatusInternalServerError {
 			t.Errorf("%s: %d %s", name, w.Code, w.Body.String())
 		}
+	}
+}
+
+// A slow provider must not hold the cache's lock: another provider's quotas and a Disconnect that
+// forgets one are answered while the first read is still waiting.
+func TestASlowQuotaReadDoesNotBlockTheOtherProviders(t *testing.T) {
+	srv := newTestServer(t, &fakeService{})
+	release := make(chan struct{})
+	started := make(chan struct{})
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		srv.cachedQuotas(context.Background(), "slow", "t", func(context.Context) ([]llm.Quota, error) {
+			close(started)
+			<-release
+			return []llm.Quota{{Name: "a"}}, nil
+		})
+	}()
+	<-started
+	answered := make(chan []llm.Quota, 1)
+	go func() {
+		answered <- srv.cachedQuotas(context.Background(), "fast", "t", func(context.Context) ([]llm.Quota, error) {
+			return []llm.Quota{{Name: "b"}}, nil
+		})
+		srv.quotaCache.forget("fast")
+	}()
+	select {
+	case qs := <-answered:
+		if len(qs) != 1 || qs[0].Name != "b" {
+			t.Errorf("quotas = %v", qs)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("another provider waited for the slow read")
+	}
+	close(release)
+	<-done
+	if qs, ok := srv.quotaCache.fresh("slow|t"); !ok || len(qs) != 1 {
+		t.Errorf("the slow answer was not kept: %v %v", qs, ok)
 	}
 }

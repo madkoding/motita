@@ -284,24 +284,35 @@ func (s *Server) cachedQuotas(ctx context.Context, id, token string,
 		return nil
 	}
 	c := &s.quotaCache
-	c.mu.Lock()
-	defer c.mu.Unlock()
 	key := id + "|" + token
-	keep := quotaKeep
-	if e, ok := c.items[key]; ok {
-		if len(e.quotas) == 0 {
-			keep = quotaKeepFail
-		}
-		if time.Since(e.at) < keep {
-			return e.quotas
-		}
+	if qs, fresh := c.fresh(key); fresh {
+		return qs
 	}
+	// The provider is asked WITHOUT the lock: a slow answer (up to quotaTimeout) must not hold up
+	// the quotas of every other provider, nor a Disconnect that forgets one.
 	ctx, cancel := context.WithTimeout(ctx, quotaTimeout)
 	defer cancel()
 	qs, _ := read(ctx)
+	c.mu.Lock()
+	defer c.mu.Unlock()
 	if c.items == nil {
 		c.items = map[string]quotaEntry{}
 	}
 	c.items[key] = quotaEntry{at: time.Now(), quotas: qs}
 	return qs
+}
+
+// fresh is the kept answer for key when it is still young enough to be shown again.
+func (c *quotaCache) fresh(key string) ([]llm.Quota, bool) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	e, ok := c.items[key]
+	if !ok {
+		return nil, false
+	}
+	keep := quotaKeep
+	if len(e.quotas) == 0 {
+		keep = quotaKeepFail
+	}
+	return e.quotas, time.Since(e.at) < keep
 }
