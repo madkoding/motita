@@ -147,11 +147,20 @@ func markLast(parts []map[string]any) []map[string]any {
 	return parts
 }
 
-// refusedCache reports whether a refusal of data names the cache fields it carries, and if so
+// refusedCache reports whether a refusal of data is about the cache fields it carries, and if so
 // stops sending them: data is then asked once more without them. A model left out of the
 // explicit-cache list is better asked without marks than not at all.
+//
+// A refusal that names the cache switches the marks off for good. A provider may also refuse
+// the marks' shape without saying "cache" (a tool message whose content became a list of parts):
+// the request is asked again without them either way, and only a second such refusal switches
+// them off, so one unrelated 400 does not cost the cache for the rest of the run.
 func (c *Client) refusedCache(data *[]byte, status int, answer []byte) bool {
-	if status != http.StatusBadRequest || !bytes.Contains(bytes.ToLower(answer), []byte("cache")) {
+	if status != http.StatusBadRequest {
+		return false
+	}
+	named := bytes.Contains(bytes.ToLower(answer), []byte("cache"))
+	if !named && !bytes.Contains(*data, []byte(`"cache_control"`)) {
 		return false
 	}
 	stripped, ok := dropCache(*data)
@@ -159,7 +168,9 @@ func (c *Client) refusedCache(data *[]byte, status int, answer []byte) bool {
 		return false
 	}
 	*data = stripped
-	c.noCache.Store(true)
+	if named || c.unnamedCacheRefusals.Add(1) >= 2 {
+		c.noCache.Store(true)
+	}
 	c.log.Warn("the provider refused the prompt-cache fields; asking again without them")
 	return true
 }
@@ -177,11 +188,18 @@ func dropCache(data []byte) ([]byte, bool) {
 	for _, m := range messages {
 		msg, _ := m.(map[string]any)
 		parts, _ := msg["content"].([]any)
+		marked := false
 		for _, p := range parts {
 			part, _ := p.(map[string]any)
 			if _, ok := part["cache_control"]; ok {
 				delete(part, "cache_control")
-				dropped = true
+				marked = true
+			}
+		}
+		if marked {
+			dropped = true
+			if text, ok := textOfParts(parts); ok {
+				msg["content"] = text // the plain string it was before it was marked
 			}
 		}
 	}
@@ -190,4 +208,18 @@ func dropCache(data []byte) ([]byte, bool) {
 	}
 	out, _ := json.Marshal(body)
 	return out, true
+}
+
+// textOfParts joins parts into one text when every one of them is a text part.
+func textOfParts(parts []any) (string, bool) {
+	var b strings.Builder
+	for _, p := range parts {
+		part, _ := p.(map[string]any)
+		text, isText := part["text"].(string)
+		if part["type"] != "text" || !isText {
+			return "", false
+		}
+		b.WriteString(text)
+	}
+	return b.String(), true
 }

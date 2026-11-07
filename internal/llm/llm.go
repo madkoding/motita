@@ -77,6 +77,8 @@ type Client struct {
 	noSchema atomic.Bool
 	// noCache is set once the provider has refused the prompt-cache fields (see refusedCache).
 	noCache atomic.Bool
+	// unnamedCacheRefusals counts the refusals of the cache marks that did not name the cache.
+	unnamedCacheRefusals atomic.Int32
 }
 
 // New creates the reasoning engine client.
