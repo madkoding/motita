@@ -25,11 +25,14 @@ const (
 // maxPinnedRunes bounds the pin, so a runaway answer cannot fill the window by itself.
 const maxPinnedRunes = 6000
 
+// pinCutMarker ends a plan that was cut at maxPinnedRunes.
+const pinCutMarker = "\n[the plan continues; it was cut here]"
+
 // boundPin trims text and cuts it at maxPinnedRunes.
 func boundPin(text string) string {
 	text = strings.TrimSpace(text)
 	if r := []rune(text); len(r) > maxPinnedRunes {
-		text = string(r[:maxPinnedRunes]) + "\n[the plan continues; it was cut here]"
+		text = string(r[:maxPinnedRunes]) + pinCutMarker
 	}
 	return text
 }
@@ -108,8 +111,11 @@ func (s *Session) pinnedNote() llm.Message {
 // a second copy would only spend the window. It goes back in once a compaction folds it away.
 // The caller holds the lock.
 func (s *Session) pinShownLocked() bool {
+	// A plan that was cut ends with a marker the conversation never held: what is looked for is
+	// the part of the plan that was kept.
+	kept := strings.TrimSuffix(s.pinned, pinCutMarker)
 	for _, m := range s.messages {
-		if m.Role == "assistant" && strings.Contains(m.Content, s.pinned) {
+		if m.Role == "assistant" && strings.Contains(m.Content, kept) {
 			return true
 		}
 	}

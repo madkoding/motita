@@ -3,7 +3,10 @@ package memory
 import (
 	"context"
 	"errors"
+	"os"
+	"path/filepath"
 	"reflect"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -212,5 +215,99 @@ func TestAssociateSkipsWeakLikeness(t *testing.T) {
 	body, linked := v.associate("x", text, "new.md")
 	if body != "x" || linked != nil {
 		t.Errorf("a weak likeness is not an association: %q %v", body, linked)
+	}
+}
+
+func bullets(t *testing.T, v *Store, p string) []string {
+	t.Helper()
+	body, _, err := v.Read(p)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var out []string
+	for _, l := range strings.Split(body, "\n") {
+		if b, ok := bulletOf(l); ok {
+			out = append(out, b)
+		}
+	}
+	return out
+}
+
+func TestKeepBulletsAddsEachBulletOnceAndStaysWithinItsLimit(t *testing.T) {
+	v := Open(t.TempDir())
+	if err := v.KeepBullets("shop/Lessons", []string{"a", " ", "B"}, KindLesson, 4); err != nil {
+		t.Fatal(err)
+	}
+	// Known bullets (any case) are not added again, and nothing new writes nothing.
+	if err := v.KeepBullets("shop/Lessons", []string{"b", "A"}, KindLesson, 4); err != nil {
+		t.Fatal(err)
+	}
+	if got := bullets(t, v, "shop/Lessons.md"); !slices.Equal(got, []string{"a", "B"}) {
+		t.Fatalf("bullets = %q", got)
+	}
+	// Beyond the limit the oldest go; the header and the notes stay.
+	if err := v.KeepBullets("shop/Lessons", []string{"c", "d", "e"}, KindLesson, 4); err != nil {
+		t.Fatal(err)
+	}
+	got := bullets(t, v, "shop/Lessons.md")
+	body, _, _ := v.Read("shop/Lessons.md")
+	if !slices.Equal(got, []string{"B", "c", "d", "e"}) || !strings.Contains(body, "type: lesson") {
+		t.Fatalf("bullets = %q\n%s", got, body)
+	}
+	// A limit below what is being added keeps only what fits, never a negative count.
+	if err := v.KeepBullets("shop/Lessons", []string{"f", "g"}, KindLesson, 1); err != nil {
+		t.Fatal(err)
+	}
+	if got := bullets(t, v, "shop/Lessons.md"); !slices.Equal(got, []string{"f", "g"}) {
+		t.Fatalf("bullets = %q", got)
+	}
+}
+
+func TestKeepBulletsCutsBackAnEntryThatOutgrewTheLimitAndReportsFailures(t *testing.T) {
+	root := t.TempDir()
+	v := Open(root)
+	big := "---\ntype: lesson\n---\n" + strings.Repeat("- an old bullet that is long enough to fill the entry\n", 6000)
+	if err := os.WriteFile(filepath.Join(root, "Lessons.md"), []byte(big), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := v.KeepBullets("Lessons", []string{"new"}, KindLesson, 5); err != nil {
+		t.Fatal(err)
+	}
+	if got := bullets(t, v, "Lessons.md"); len(got) != 5 || got[4] != "new" {
+		t.Fatalf("bullets = %d, last %q", len(got), got[len(got)-1])
+	}
+
+	// An entry that cannot be read.
+	old := readFile
+	defer func() { readFile = old }()
+	readFile = func(string) ([]byte, error) { return nil, errors.New("disk") }
+	if err := v.KeepBullets("Lessons", []string{"x"}, KindLesson, 5); err == nil {
+		t.Error("an unreadable entry is an error")
+	}
+	// An oversized entry that cannot be read either.
+	huge := []byte(strings.Repeat("x", MaxEntryBytes+1))
+	if err := os.WriteFile(filepath.Join(root, "Huge.md"), huge, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := v.KeepBullets("Huge", []string{"x"}, KindLesson, 5); err == nil {
+		t.Error("an unreadable oversized entry is an error")
+	}
+	readFile = old
+
+	// Text that is not a bullet and fills the entry: the cut cannot be written, and an addition
+	// that no longer fits is refused.
+	pad := strings.Repeat("x", MaxEntryBytes-10)
+	over := strings.Repeat("x", MaxEntryBytes+100)
+	if err := os.WriteFile(filepath.Join(root, "Padded.md"), []byte(over+"\n- one\n- two\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := v.KeepBullets("Padded", []string{"three"}, KindLesson, 1); err == nil {
+		t.Error("a cut that cannot be written is an error")
+	}
+	if err := os.WriteFile(filepath.Join(root, "Full.md"), []byte(pad+"\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := v.KeepBullets("Full", []string{"does not fit in what is left"}, KindLesson, 5); err == nil {
+		t.Error("an addition that does not fit is an error")
 	}
 }

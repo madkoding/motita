@@ -1,6 +1,8 @@
 package knowledge
 
 import (
+	"errors"
+	"fmt"
 	"path/filepath"
 	"strings"
 
@@ -30,9 +32,19 @@ func KeepLessons(m *memory.Store, workspace string, lessons []string) error {
 	if err := RecordLessons(workspace, lessons); err != nil {
 		return err
 	}
-	mirrorLessons(m, workspace, fresh)
+	if err := mirrorLessons(m, workspace, fresh); err != nil {
+		return fmt.Errorf("%w: %v", ErrMirror, err)
+	}
 	return nil
 }
+
+// ErrMirror says the lessons were saved in the project's file but could not be mirrored into the
+// memory. The lessons are not lost; the caller may report it.
+var ErrMirror = errors.New("the lessons are saved, but could not be mirrored into the memory")
+
+// maxMirrored is how many lessons the project's memory entry keeps: a few times what the file
+// holds, so the entry stays readable and well inside the entry size limit.
+const maxMirrored = 4 * maxLessons
 
 // ProjectEntry is the memory entry that mirrors a project's lessons: <project>/Lessons, in the
 // collection the project's sessions write to. The project is the one the memory view belongs to
@@ -72,12 +84,15 @@ func newLessons(workspace string, lessons []string) []string {
 	return out
 }
 
-// mirrorLessons appends lessons to the project's memory entry as a bullet list.
-func mirrorLessons(m *memory.Store, workspace string, lessons []string) {
+// mirrorLessons appends lessons to the project's memory entry as a bullet list, without the
+// bullets the entry already holds and within maxMirrored of them.
+func mirrorLessons(m *memory.Store, workspace string, lessons []string) error {
 	if m == nil || len(lessons) == 0 {
-		return
+		return nil
 	}
-	if entry, ok := ProjectEntry(m, workspace); ok {
-		m.Keep(entry, "- "+strings.Join(lessons, "\n- "), memory.KindLesson)
+	entry, ok := ProjectEntry(m, workspace)
+	if !ok {
+		return nil
 	}
+	return m.KeepBullets(entry, lessons, memory.KindLesson, maxMirrored)
 }

@@ -102,3 +102,29 @@ func TestDoingOfRoundNamesTheFirstActionAndCountsTheRest(t *testing.T) {
 		t.Errorf("many: %q", got)
 	}
 }
+
+// A library read that follows a batch of parallel reads announces itself in words: what the
+// batch told is not what this action told.
+func TestAReadAfterAParallelBatchAnnouncesItself(t *testing.T) {
+	e := fileAgent(t)
+	var lines []string
+	e.agent.Progress = func(f string, a ...any) { lines = append(lines, fmt.Sprintf(f, a...)) }
+	_, err := e.agent.runActions(context.Background(), []Command{
+		{Kind: "command", Description: "Listing", Command: "ls"},
+		{Kind: "command", Description: "Showing the folder", Command: "pwd"},
+		{Kind: "list_skills"},
+	}, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var doings []string
+	for _, l := range lines {
+		if d, _, ok := SplitDoing(l); ok {
+			doings = append(doings, d)
+		}
+	}
+	want := "Listing;Showing the folder;Looking at the skills"
+	if strings.Join(doings, ";") != want {
+		t.Errorf("doings = %q, want %q", doings, want)
+	}
+}

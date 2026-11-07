@@ -57,12 +57,12 @@ func (a *Agent) runRound(
 
 // run executes the i-th action of the round.
 func (rr *roundRun) run(i int, action Command) {
+	rr.told = false // what the last action, or a batch of parallel reads, announced is not this one's
 	// A library action is not a shell command: it is answered from the procedure library and
 	// its result goes back to the model as the output of this step. It is dispatched by
 	// kind, because that is how this mode names things — the same four operations the
 	// planner exposes as tools, reachable from here too.
 	if kind := strings.ToLower(strings.TrimSpace(action.Kind)); kind != "" && kind != "command" {
-		rr.told = false
 		if rr.mem != nil {
 			// An agent, a box or the desktop may change the tree with no sync after it; a file
 			// action syncs, which takes this back.

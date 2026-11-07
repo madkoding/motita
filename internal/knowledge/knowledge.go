@@ -10,6 +10,7 @@
 package knowledge
 
 import (
+	"errors"
 	"fmt"
 	"strings"
 
@@ -231,11 +232,7 @@ func (b Base) RememberKind(in, kind, entry, content string) string {
 		return "Error: this conversation keeps itself. Remember a decision in the memory, or a fact about " +
 			"the project in project."
 	case Project:
-		lines := strings.Split(content, "\n")
-		if err := KeepLessons(b.Memory, b.Workspace, lines); err != nil || b.Workspace == "" {
-			return "Error: this session has no project to keep lessons in."
-		}
-		return fmt.Sprintf("Kept as this project's lessons (%s); every later task reads them.", LessonsFile)
+		return b.rememberInProject(content)
 	case Procedures:
 		if b.Library == nil {
 			return "Error: there is no procedure library in this session."
@@ -244,6 +241,16 @@ func (b Base) RememberKind(in, kind, entry, content string) string {
 	default: // Memory
 		return b.rememberInMemory(kind, entry, content)
 	}
+}
+
+// rememberInProject keeps content as the project's lessons. A mirror that failed still kept the
+// lessons in the project's file, so it is not an error for the model.
+func (b Base) rememberInProject(content string) string {
+	err := KeepLessons(b.Memory, b.Workspace, strings.Split(content, "\n"))
+	if b.Workspace == "" || (err != nil && !errors.Is(err, ErrMirror)) {
+		return "Error: this session has no project to keep lessons in."
+	}
+	return fmt.Sprintf("Kept as this project's lessons (%s); every later task reads them.", LessonsFile)
 }
 
 // rememberInMemory adds content to an entry of the person's memory. remember needs only the
