@@ -1,6 +1,8 @@
 package knowledge
 
 import (
+	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -110,5 +112,87 @@ func TestKeepLessonsHidesSecrets(t *testing.T) {
 	}
 	if !strings.Contains(in[0], "ghp_") {
 		t.Error("the caller's lessons are not changed")
+	}
+}
+
+// The memory mirror holds each lesson once even after the project file rotated it out, stays
+// within its cap, and keeps its header.
+func TestTheMirrorDoesNotDuplicateAfterRotationAndStaysBounded(t *testing.T) {
+	work := filepath.Join(t.TempDir(), "shop")
+	mem := memory.Open(t.TempDir())
+	for i := 0; i < maxLessons+10; i++ {
+		if err := KeepLessons(mem, work, []string{fmt.Sprintf("lesson %03d", i)}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	// lesson 000 rotated out of the 60 of the file; saying it again must not repeat it in the mirror.
+	if err := KeepLessons(mem, work, []string{"lesson 000"}); err != nil {
+		t.Fatal(err)
+	}
+	body, _, _ := mem.Read("shop/Lessons.md")
+	if n := strings.Count(body, "- lesson 000"); n != 1 {
+		t.Errorf("lesson 000 appears %d times", n)
+	}
+	for i := 0; i < maxMirrored; i++ {
+		if err := KeepLessons(mem, work, []string{fmt.Sprintf("bulk %03d", i)}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	body, _, err := mem.Read("shop/Lessons.md")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if n := strings.Count(body, "\n- "); n > maxMirrored {
+		t.Errorf("%d bullets, cap %d", n, maxMirrored)
+	}
+	keeps := strings.Contains(body, "type: lesson") && strings.Contains(body, "- bulk 239")
+	if !keeps || strings.Contains(body, "- lesson 001") {
+		t.Errorf("the header stays and the oldest go:\n%.300s", body)
+	}
+}
+
+// A mirror that already outgrew the entry limit is cut back instead of failing for ever, and a
+// mirror that cannot be written says so while the lessons stay saved.
+func TestAMirrorTooBigIsCutBackAndAFailureIsReported(t *testing.T) {
+	work := filepath.Join(t.TempDir(), "shop")
+	root := t.TempDir()
+	mem := memory.Open(root)
+	if err := KeepLessons(mem, work, []string{"first"}); err != nil {
+		t.Fatal(err)
+	}
+	entry := filepath.Join(root, "shop", "Lessons.md")
+	line := "- old lesson that is long enough to fill the entry quickly\n"
+	big := "---\ntype: lesson\n---\n" + strings.Repeat(line, 5000)
+	if err := os.WriteFile(entry, []byte(big), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := KeepLessons(mem, work, []string{"second"}); err != nil {
+		t.Fatalf("an oversized mirror must be cut back: %v", err)
+	}
+	if body, _, err := mem.Read("shop/Lessons.md"); err != nil || !strings.Contains(body, "- second") {
+		t.Fatalf("read after the cut: %v", err)
+	}
+
+	// An entry that is a folder cannot be written: reported, not swallowed, lessons kept.
+	if err := os.Remove(entry); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(entry, "x"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	err := KeepLessons(mem, work, []string{"third"})
+	if !errors.Is(err, ErrMirror) {
+		t.Fatalf("err = %v", err)
+	}
+	if got := Lessons(work); got[len(got)-1] != "third" {
+		t.Errorf("the lesson must stay saved in the file: %q", got)
+	}
+}
+
+// A workspace that names no project (the root) has no entry to mirror into.
+func TestNothingIsMirroredWithoutAProjectName(t *testing.T) {
+	mem := memory.Open(t.TempDir())
+	if err := mirrorLessons(mem, string(filepath.Separator), []string{"x"}); err != nil || len(mem.List()) != 0 {
+		t.Fatalf("mirrored under no name: %v %v", err, mem.List())
 	}
 }

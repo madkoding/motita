@@ -10,6 +10,7 @@
 package knowledge
 
 import (
+	"errors"
 	"fmt"
 	"strings"
 
@@ -232,7 +233,8 @@ func (b Base) RememberKind(in, kind, entry, content string) string {
 			"the project in project."
 	case Project:
 		lines := strings.Split(content, "\n")
-		if err := KeepLessons(b.Memory, b.Workspace, lines); err != nil || b.Workspace == "" {
+		err := KeepLessons(b.Memory, b.Workspace, lines)
+		if b.Workspace == "" || (err != nil && !errors.Is(err, ErrMirror)) { // a mirror failure keeps the lessons
 			return "Error: this session has no project to keep lessons in."
 		}
 		return fmt.Sprintf("Kept as this project's lessons (%s); every later task reads them.", LessonsFile)

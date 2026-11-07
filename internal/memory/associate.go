@@ -133,6 +133,84 @@ func (v *Store) Keep(ref, text, kind string) string {
 	return reply + v.projectHint(n.Path)
 }
 
+// KeepBullets adds bullets (one line each) to the entry ref names, like Keep, but as a mirror that
+// is written to for ever: a bullet the entry already holds is not added again, and beyond limit
+// bullets the oldest go, so the entry never grows into ErrTooBig. An entry already too big to read
+// is cut back the same way. Nothing is written when there is nothing new.
+func (v *Store) KeepBullets(ref string, bullets []string, kind string, limit int) error {
+	path := v.appendTarget(ref)
+	body, _, err := v.Read(path)
+	if errors.Is(err, ErrTooBig) {
+		body, err = v.readOversized(path)
+	}
+	if err != nil && !errors.Is(err, ErrNotFound) {
+		return err
+	}
+	have := map[string]bool{}
+	for _, l := range strings.Split(body, "\n") {
+		if b, ok := bulletOf(l); ok {
+			have[strings.ToLower(b)] = true
+		}
+	}
+	var fresh []string
+	for _, b := range bullets {
+		if k := strings.ToLower(strings.TrimSpace(b)); k != "" && !have[k] {
+			have[k] = true
+			fresh = append(fresh, "- "+strings.TrimSpace(b))
+		}
+	}
+	if len(fresh) == 0 {
+		return nil
+	}
+	if cut := trimBullets(body, limit-len(fresh)); cut != body {
+		if _, err := v.Write(path, cut, false); err != nil {
+			return err
+		}
+	}
+	if reply := v.Keep(ref, strings.Join(fresh, "\n"), kind); strings.HasPrefix(reply, errPrefix) {
+		return errors.New(strings.TrimPrefix(reply, errPrefix))
+	}
+	return nil
+}
+
+// readOversized reads an entry whatever its size, to cut a mirror that outgrew the limit.
+func (v *Store) readOversized(p string) (string, error) {
+	full, _ := v.abs(p) // an empty path fails to read, which is the error
+	b, err := readFile(full)
+	return string(b), err
+}
+
+// bulletOf is the text of a "- " line.
+func bulletOf(line string) (string, bool) {
+	t, ok := strings.CutPrefix(strings.TrimSpace(line), "- ")
+	return strings.TrimSpace(t), ok && strings.TrimSpace(t) != ""
+}
+
+// trimBullets drops the oldest "- " lines of body until at most keep remain; every other line
+// (the header, the notes) stays.
+func trimBullets(body string, keep int) string {
+	lines := strings.Split(body, "\n")
+	total := 0
+	for _, l := range lines {
+		if _, ok := bulletOf(l); ok {
+			total++
+		}
+	}
+	drop := total - max(keep, 0)
+	if drop <= 0 {
+		return body
+	}
+	out := lines[:0:0]
+	for _, l := range lines {
+		if _, ok := bulletOf(l); ok && drop > 0 {
+			drop--
+			continue
+		}
+		out = append(out, l)
+	}
+	return strings.Join(out, "\n")
+}
+
 // associate ties a new entry (body, about text, to be written at path) to the entries closest to
 // it, and says which.
 func (v *Store) associate(body, text, path string) (string, []string) {
