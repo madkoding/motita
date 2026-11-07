@@ -58,6 +58,14 @@ func partsOf(body map[string]any, i int) []any {
 	return parts
 }
 
+// contentOf is the plain-string content of message i, "" when it is a list of parts.
+func contentOf(body map[string]any, i int) string {
+	msgs, _ := body["messages"].([]any)
+	msg, _ := msgs[i].(map[string]any)
+	text, _ := msg["content"].(string)
+	return text
+}
+
 func marked(part any) bool {
 	p, _ := part.(map[string]any)
 	_, ok := p["cache_control"]
@@ -199,7 +207,7 @@ func TestRefusedCacheMarksAreDroppedAndNotSentAgain(t *testing.T) {
 	if _, err := c.Complete(context.Background(), msgs); err != nil {
 		t.Fatal(err)
 	}
-	if len(rt.bodies) != 2 || !marked(partsOf(rt.bodies[0], 0)[0]) || marked(partsOf(rt.bodies[1], 0)[0]) {
+	if len(rt.bodies) != 2 || !marked(partsOf(rt.bodies[0], 0)[0]) || contentOf(rt.bodies[1], 0) != "rules" {
 		t.Fatalf("bodies = %v", rt.bodies)
 	}
 	if _, err := c.Complete(context.Background(), msgs); err != nil {
@@ -286,5 +294,68 @@ func TestGeminiKeepsLaterSystemMessagesInTheConversation(t *testing.T) {
 		if contents[2]["role"] != "user" || len(last) != 2 || last[0]["text"] != "brief" || last[1]["text"] != "second" {
 			t.Errorf("%s: the brief is not with the turn it precedes: %v", name, contents[2])
 		}
+	}
+}
+
+// A provider that refuses the marks' shape without saying "cache" (a tool message whose content
+// became a list of parts) is asked again without them, with the content back as plain strings.
+// One such refusal does not switch the marks off; the second does.
+func TestAnUnnamedRefusalOfTheMarksIsAskedAgainWithPlainContent(t *testing.T) {
+	msgs := []Message{
+		{Role: "system", Content: "rules"},
+		{Role: "user", Content: "INSTRUCTIONS task", Stable: len("INSTRUCTIONS ")},
+		{Role: "assistant", ToolCalls: []ToolCall{{ID: "1", Type: "function", Function: FunctionCall{Name: "f"}}}},
+		{Role: "tool", ToolCallID: "1", Content: "result"},
+	}
+	bad := cacheAnswer{400, `{"error":{"message":"messages.3.content: expected a string"}}`}
+	c, rt := cacheClient(t, "qwen", "qwen-plus", "", bad, cacheAnswer{200, chatOK}, bad, cacheAnswer{200, chatOK},
+		cacheAnswer{200, chatOK})
+	if _, err := c.Complete(context.Background(), msgs); err != nil {
+		t.Fatal(err)
+	}
+	if got := contentOf(rt.bodies[1], 3); got != "result" {
+		t.Errorf("the tool message was not plain text again: %q", got)
+	}
+	if got := contentOf(rt.bodies[1], 1); got != "INSTRUCTIONS task" {
+		t.Errorf("the split first turn was not joined again: %q", got)
+	}
+	if c.noCache.Load() {
+		t.Fatal("one refusal that does not name the cache switched the marks off")
+	}
+	if _, err := c.Complete(context.Background(), msgs); err != nil {
+		t.Fatal(err)
+	}
+	if !c.noCache.Load() {
+		t.Fatal("the second refusal must switch the marks off")
+	}
+	if _, err := c.Complete(context.Background(), msgs); err != nil {
+		t.Fatal(err)
+	}
+	if partsOf(rt.bodies[4], 3) != nil || contentOf(rt.bodies[4], 3) != "result" {
+		t.Errorf("the marks were sent again: %v", rt.bodies[4])
+	}
+}
+
+// Parts that are not all text (a picture) stay a list when their marks are dropped.
+func TestTextOfPartsNeedsEveryPartToBeText(t *testing.T) {
+	a := map[string]any{"type": "text", "text": "a"}
+	b := map[string]any{"type": "text", "text": "b"}
+	if got, ok := textOfParts([]any{a, b}); !ok || got != "ab" {
+		t.Errorf("text parts = %q %v", got, ok)
+	}
+	for _, parts := range [][]any{
+		{map[string]any{"type": "image_url"}},
+		{map[string]any{"type": "text"}},
+	} {
+		if _, ok := textOfParts(parts); ok {
+			t.Errorf("%v was joined as text", parts)
+		}
+	}
+	image := `{"type":"image_url","cache_control":{}}`
+	data := []byte(`{"messages":[{"role":"user","content":[` + image + `,{"type":"text","text":"x"}]}]}`)
+	out, ok := dropCache(data)
+	if !ok || !strings.Contains(string(out), `"image_url"`) || strings.Contains(string(out), "cache_control") ||
+		strings.Contains(string(out), `"content":"x"`) {
+		t.Errorf("dropCache = %s %v", out, ok)
 	}
 }
