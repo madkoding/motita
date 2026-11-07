@@ -83,6 +83,7 @@ func checkNothingPublished(t *testing.T, work func(dir string), want string) {
 	t.Helper()
 	rig := newAutopilotRig(t, autoYAML)
 	rig.agentWorks(t, work)
+	sessions := len(rig.srv.snapshot())
 	out, err := rig.srv.runAutopilot(context.Background(), autopilotFixesID)
 	if err != nil {
 		t.Fatal(err)
@@ -90,6 +91,7 @@ func checkNothingPublished(t *testing.T, work func(dir string), want string) {
 	if !strings.Contains(out, "opened 0 draft pull requests") || !strings.Contains(out, want) {
 		t.Fatalf("outcome = %q", out)
 	}
+	assertNothingLeftBehind(t, rig, sessions)
 	if len(rig.pushed) != 0 {
 		t.Errorf("pushed %v", rig.pushed)
 	}
@@ -103,10 +105,12 @@ func checkNothingPublished(t *testing.T, work func(dir string), want string) {
 func TestTheAgentSayingThereIsNothingToFixOpensNothing(t *testing.T) {
 	rig := newAutopilotRig(t, autoYAML)
 	rig.fs.task = func(context.Context, string, func(string, ...any)) (string, error) { return "NOTHING TO FIX", nil }
+	sessions := len(rig.srv.snapshot())
 	out, err := rig.srv.runAutopilot(context.Background(), autopilotFixesID)
 	if err != nil || out != "opened 0 draft pull requests" {
 		t.Fatalf("outcome = %q, %v", out, err)
 	}
+	assertNothingLeftBehind(t, rig, sessions)
 }
 
 func TestNoNewPullRequestIsOpenedAtTheLimit(t *testing.T) {
@@ -197,10 +201,12 @@ func TestADraftPullRequestThatFailsHalfwayIsReportedNotPublished(t *testing.T) {
 		rig := newAutopilotRig(t, autoYAML)
 		pushBranchFn = func(context.Context, []string, string, string) error { return errors.New("denied") }
 		rig.agentWorks(t, good)
+		sessions := len(rig.srv.snapshot())
 		out, _ := rig.srv.runAutopilot(context.Background(), autopilotFixesID)
 		if !strings.Contains(out, "could not be pushed: denied") {
 			t.Errorf("outcome = %q", out)
 		}
+		assertNothingLeftBehind(t, rig, sessions)
 	})
 	t.Run("the host refuses the pull request", func(t *testing.T) {
 		rig := newAutopilotRig(t, autoYAML)
@@ -216,10 +222,12 @@ func TestADraftPullRequestThatFailsHalfwayIsReportedNotPublished(t *testing.T) {
 		rig.fs.task = func(context.Context, string, func(string, ...any)) (string, error) {
 			return "", errors.New("model down")
 		}
+		sessions := len(rig.srv.snapshot())
 		out, _ := rig.srv.runAutopilot(context.Background(), autopilotFixesID)
 		if !strings.Contains(out, "did not finish") {
 			t.Errorf("outcome = %q", out)
 		}
+		assertNothingLeftBehind(t, rig, sessions)
 	})
 	t.Run("the gateway is full", func(t *testing.T) {
 		rig := newAutopilotRig(t, autoYAML)
@@ -352,5 +360,24 @@ func assertNeverMerged(t *testing.T, rig *autopilotRig) {
 		if strings.Contains(s, "/merge") {
 			t.Errorf("the autopilot asked the host to merge: %s", s)
 		}
+	}
+}
+
+// assertNothingLeftBehind checks that a fix attempt that published nothing left no session, no
+// worktree and no branch of its own.
+func assertNothingLeftBehind(t *testing.T, rig *autopilotRig, sessions int) {
+	t.Helper()
+	if got := len(rig.srv.snapshot()); got != sessions {
+		t.Errorf("sessions = %d, want %d: the attempt's session was left", got, sessions)
+	}
+	dir := rig.project.Dir
+	pattern := autopilotBranchPrefix + "*"
+	branches, _ := exec.Command("git", "-C", dir, "branch", "--list", pattern).Output()
+	if strings.TrimSpace(string(branches)) != "" {
+		t.Errorf("branches left: %s", branches)
+	}
+	out, _ := exec.Command("git", "-C", dir, "worktree", "list", "--porcelain").Output()
+	if n := strings.Count(string(out), "worktree "); n != 1 {
+		t.Errorf("worktrees = %d, want only the project's: %s", n, out)
 	}
 }

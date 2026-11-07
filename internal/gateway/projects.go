@@ -630,20 +630,23 @@ func (s *Server) handleDeleteProject(w http.ResponseWriter, r *http.Request) {
 	// stops the whole deletion unless the user confirmed the discard with
 	// `?force=1`. The work belongs to the user, not to the project record, and
 	// deleting the record is not a decision to destroy it.
+	// The record is read ONCE: the checks, the folder that goes and the folder released at the
+	// end must all be about the same project, even if it is edited while the sessions close.
+	p := s.projectOf(id)
 	wipe := wipesFolder(r)
 	if wipe {
-		if status, problem := s.wipeProblem(r.Context(), s.projectOf(id), isForced(r)); status != 0 {
+		if status, problem := s.wipeProblem(r.Context(), p, isForced(r)); status != 0 {
 			writeError(w, status, problem)
 			return
 		}
 	}
 	if !isForced(r) {
-		if dir := s.unpublishedInProject(r.Context(), s.projectOf(id), wipe); dir != "" {
+		if dir := s.unpublishedInProject(r.Context(), p, wipe); dir != "" {
 			writeError(w, http.StatusConflict, "the project has commits that exist nowhere else: push them, "+
 				"or confirm the discard ("+dir+")")
 			return
 		}
-		for dir := range s.discardedRepoChanges(r.Context(), s.projectOf(id), wipe) {
+		for dir := range s.discardedRepoChanges(r.Context(), p, wipe) {
 			writeError(w, http.StatusConflict, "the project's repository "+dir+" has uncommitted changes: "+
 				"commit them, or confirm the discard")
 			return
@@ -657,7 +660,6 @@ func (s *Server) handleDeleteProject(w http.ResponseWriter, r *http.Request) {
 	// The project's own folder goes only when the dialog asked for it (wipeProblem has already
 	// refused a protected one).
 	var projectDir string
-	p := s.projectOf(id)
 	if p != nil && wipe {
 		projectDir = p.Dir
 	}

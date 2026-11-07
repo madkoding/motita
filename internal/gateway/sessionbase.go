@@ -58,14 +58,14 @@ func startBranchOf(ctx context.Context, p *Project) string {
 
 // freshStart is the branch a NEW session branch of the repository at dir starts from: its main
 // branch, brought up to date with origin first when that can be done without touching anything
-// (forward only, never a dirty checkout, never a folder of the user's own unless it is only the
-// ref that moves). A session that starts from a stale main builds on code the project has already
-// left behind, and its pull request conflicts for no reason. The update is advisory: offline, the
-// branch is what it is. "" when the repository has no main branch to start from.
+// (forward only, never a dirty checkout, never a folder of the user's own). A session that starts
+// from a stale main builds on code the project has already left behind, and its pull request
+// conflicts for no reason. The update is advisory: offline, the branch is what it is. "" when the
+// repository has no main branch to start from.
 func (s *Server) freshStart(ctx context.Context, p *Project) string {
 	start := startBranchOf(ctx, p)
-	if start == "" {
-		return ""
+	if start == "" || s.usersFolder(p.Dir) {
+		return start // a folder of the user's own is never updated by a new session
 	}
 	if err := gitx.RefreshBranch(ctx, p.Dir, start); err != nil && !errors.Is(err, gitx.ErrBranchDirty) {
 		s.warn("a new session starts from the main branch as it is: it could not be brought up to date",

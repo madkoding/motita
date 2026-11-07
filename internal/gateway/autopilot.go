@@ -479,6 +479,15 @@ func (s *Server) fixProject(ctx context.Context, p Project, t forgeTarget) (stri
 	if err != nil {
 		return "", err
 	}
+	branch := autopilotBranchPrefix + c.id
+	// Whatever ends before the pull request exists leaves nothing behind: no session in the
+	// sidebar, no worktree, no branch. Only a published change keeps its session.
+	opened := false
+	defer func() {
+		if !opened {
+			s.discardFixSession(c, p, branch)
+		}
+	}()
 	s.placeAndSave(c, p.ID, &p, nil, true)
 	// A session that could not get a worktree of its own would edit the project's checkout: the
 	// autopilot never works there.
@@ -487,7 +496,6 @@ func (s *Server) fixProject(ctx context.Context, p Project, t forgeTarget) (stri
 	}
 	dir := c.sessionRepoDir(ctx, "")
 	base := gitx.DefaultBranch(ctx, dir)
-	branch := autopilotBranchPrefix + c.id
 	// A branch that could not be made is caught by vetChange, which publishes only from the
 	// branch the autopilot named.
 	_ = gitx.SwitchNew(ctx, dir, branch)
@@ -512,9 +520,32 @@ func (s *Server) fixProject(ctx context.Context, p Project, t forgeTarget) (stri
 	if err != nil {
 		return "", fmt.Errorf("the pull request could not be opened: %w", err)
 	}
+	opened = true
 	s.notifyAutopilot("motita-autopr-"+c.id, "Draft pull request opened",
 		"Motita opened a draft pull request in %s: %s", p.Title, pr.URL)
 	return pr.URL, nil
+}
+
+// discardFixSession gives back what a fix attempt that published nothing took: it stops the run,
+// removes the session's worktree (its work is the autopilot's own scratch, never the user's) and
+// the local branch it named, and forgets the session.
+func (s *Server) discardFixSession(c *conversation, p Project, branch string) {
+	c.beginClosing()
+	c.stopRunForDeletion(deleteStopTimeout)
+	if !gitx.SamePath(c.workspace, p.Dir) { // never the project's own checkout
+		if err := s.releaseWorktree(c, true); err != nil {
+			s.warn("the autopilot's worktree could not be removed", "session", c.id, "error", err.Error())
+		}
+		ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
+		defer cancel()
+		_ = gitx.ForceDeleteBranch(ctx, p.Dir, branch) // already gone when it was never made
+	}
+	c.closeForGood()
+	removeAttachments(c)
+	s.releaseFreeSessionDir(c)
+	s.forgetCheckpoints(c)
+	s.forget(c.id)
+	s.deletePersistedSession(c.id)
 }
 
 // vetChange decides whether the agent's work may be published, and says what the pull request is

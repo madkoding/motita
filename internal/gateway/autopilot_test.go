@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strings"
@@ -504,5 +505,26 @@ func checkRoutinesPaused(t *testing.T, srv *Server) {
 		if rec, _ := srv.schedules.Load(id); rec == nil || rec.Enabled {
 			t.Errorf("%s must stay, paused: %+v", id, rec)
 		}
+	}
+}
+
+// headerCounter records how many times the status line was written.
+type headerCounter struct {
+	*httptest.ResponseRecorder
+	headers int
+}
+
+func (h *headerCounter) WriteHeader(code int) {
+	h.headers++
+	h.ResponseRecorder.WriteHeader(code)
+}
+
+// A routine started by hand answers 202 with the settings, and writes the status line once.
+func TestTheAutopilotAnswerWritesItsStatusOnce(t *testing.T) {
+	rig := newAutopilotRig(t, autoYAML)
+	w := &headerCounter{ResponseRecorder: httptest.NewRecorder()}
+	rig.srv.writeAutopilot(w, http.StatusAccepted)
+	if w.headers != 1 || w.Code != http.StatusAccepted || !strings.Contains(w.Body.String(), "weekly_audit") {
+		t.Fatalf("headers %d, code %d, body %s", w.headers, w.Code, w.Body.String())
 	}
 }

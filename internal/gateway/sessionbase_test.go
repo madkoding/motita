@@ -87,6 +87,17 @@ func TestAThreadStartsFromAnUpToDateMainBranch(t *testing.T) {
 		t.Error("the folder's own checkout is not switched")
 	}
 
+	// A folder of the user's own, outside the workspace, is not updated by a new thread: its main
+	// branch stays where it is.
+	commitFile(t, elsewhere, "more.txt", "m\n", "feat: more upstream")
+	mustRun(t, "git", "-C", elsewhere, "push", "-q", "origin", "main")
+	before := gitOut(t, p.Dir, "rev-parse", "main")
+	srv.opts.WorkspaceDir = t.TempDir()
+	if start := srv.freshStart(ctx, p); start != "main" || gitOut(t, p.Dir, "rev-parse", "main") != before {
+		t.Errorf("a user's folder was updated: start %q", start)
+	}
+	srv.opts.WorkspaceDir = ws
+
 	// Offline, the branch is what it is: a warning, not a refusal.
 	mustRun(t, "git", "-C", p.Dir, "remote", "set-url", "origin", "https://example.invalid/x.git")
 	mustRun(t, "git", "-C", p.Dir, "config", "protocol.https.allow", "never")
