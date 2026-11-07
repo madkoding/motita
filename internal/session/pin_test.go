@@ -114,3 +114,22 @@ func TestAProposedPlanWaitsForThePerson(t *testing.T) {
 		t.Errorf("an empty restore is %q", s.PinState())
 	}
 }
+
+// A plan that was cut at the pin limit is still found in the conversation that holds it whole, so
+// its note is not added to every request; once the conversation no longer shows it, it is.
+func TestACutPlanStillShownInTheConversationIsNotSentTwice(t *testing.T) {
+	s := New("gpt-4o", "", 0)
+	plan := strings.Repeat("é", maxPinnedRunes+10)
+	s.Append(user("make a plan"))
+	s.Append(assistant(plan))
+	s.Pin(plan)
+	if !strings.HasSuffix(s.Pinned(), "it was cut here]") || pinNotes(s) != 0 {
+		t.Fatalf("a cut plan shown whole was sent again: %d notes", pinNotes(s))
+	}
+	other := New("gpt-4o", "", 0)
+	other.Append(assistant("a different answer"))
+	other.Pin(plan)
+	if pinNotes(other) != 1 {
+		t.Errorf("a plan the conversation does not show must be carried")
+	}
+}
