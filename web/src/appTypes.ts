@@ -83,6 +83,8 @@ export interface SessionInfo {
   // agents_running counts the background agents the session's run started that are still
   // working. Older gateways do not send it.
   agents_running?: number;
+  // model_unserved: the session's model is the local one and its server is not running.
+  model_unserved?: boolean;
   // queued counts the messages waiting behind the run in flight.
   queued?: number;
   // awaiting_approval is set while the run is blocked on a question about a command.
