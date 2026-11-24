@@ -170,6 +170,14 @@ test("a session's and a project's tooltips list the facts that are there", () =>
     "1 background agent running",
   );
   assert.equal(
+    m.sessionTooltip({ id: "s", queued: 1 }),
+    "1 message waiting in the queue",
+  );
+  assert.equal(
+    m.sessionTooltip({ id: "s", queued: 3 }),
+    "3 messages waiting in the queue",
+  );
+  assert.equal(
     m.sessionTooltip({ id: "s", awaiting_approval: true }),
     "Waiting for your approval",
   );
