@@ -20,7 +20,8 @@ type TTS struct {
 	// Model Studio's native speech API, the hosted way to use Qwen3-TTS (it has no OpenAI-style
 	// route). A self-hosted Qwen3-TTS server that answers /audio/speech is "openai".
 	API string `yaml:"api"`
-	// BaseURL is the speech endpoint's base; the default is a local Kokoro-FastAPI. Empty means the transcription endpoint (voice.base_url,
+	// BaseURL is the speech endpoint's base; the default is a local Kokoro-FastAPI. Empty means the
+	// transcription endpoint (voice.base_url,
 	// resolved the same way: the language model's own when it speaks the OpenAI API), or DashScope's
 	// international endpoint when API is "dashscope".
 	BaseURL string `yaml:"base_url"`

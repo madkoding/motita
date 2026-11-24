@@ -11,7 +11,8 @@ import (
 func TestTTSIsOffByDefaultAndNotChecked(t *testing.T) {
 	c := Default()
 	tts := c.Voice.TTS
-	defaults := tts.Model == "kokoro" && tts.Voice == "af_heart" && tts.BaseURL == "http://127.0.0.1:8880/v1" && tts.Format == "mp3"
+	defaults := tts.Model == "kokoro" && tts.Voice == "af_heart" && tts.Format == "mp3" &&
+		tts.BaseURL == "http://127.0.0.1:8880/v1"
 	if tts.Enabled || !defaults || c.TTSMaxChars() != 4000 {
 		t.Fatalf("default tts = %+v", tts)
 	}
@@ -71,7 +72,9 @@ func TestValidateTTS(t *testing.T) {
 		{"model", func(c *Config) { c.Voice.TTS.Model = " " }, "voice.tts.model"},
 		{"voice", func(c *Config) { c.Voice.TTS.Voice = "" }, "voice.tts.voice"},
 		{"format", func(c *Config) { c.Voice.TTS.Format = "ogg" }, "voice.tts.format"},
-		{"no endpoint", func(c *Config) { c.LLM.Provider, c.Voice.TTS.BaseURL = "anthropic", "" }, "voice.tts.base_url is empty"},
+		{"no endpoint", func(c *Config) {
+			c.LLM.Provider, c.Voice.TTS.BaseURL = "anthropic", ""
+		}, "voice.tts.base_url is empty"},
 		{"scheme", func(c *Config) { c.Voice.TTS.BaseURL = "ftp://x" }, "not an http(s) URL"},
 		{"clear text remote with key", func(c *Config) {
 			c.Voice.TTS.BaseURL, c.Voice.TTS.APIKey = "http://tts.example.com/v1", "tk"
