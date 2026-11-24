@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"github.com/madkoding/motita/internal/agent"
+	"github.com/madkoding/motita/internal/config"
 	"github.com/madkoding/motita/internal/gitx"
 	"github.com/madkoding/motita/internal/intent"
 )
@@ -443,6 +444,9 @@ type SessionStatus struct {
 	Created    time.Time `json:"created"`
 	LastUsed   time.Time `json:"last_used"`
 	Running    bool      `json:"running"`
+	// ModelUnserved says the session's model is the local one and its server is not answering: the
+	// next message would fail. Only the list fills it in.
+	ModelUnserved bool `json:"model_unserved,omitempty"`
 	// Rev moves when a turn starts or ends in the session (see conversation.rev): a page that
 	// shows the session and did not start that turn reads the conversation again when it moves.
 	Rev uint64 `json:"rev"`
@@ -1114,7 +1118,7 @@ func (s *Server) pruneFreeSessionDirs(known map[string]bool) {
 // handleListSessions answers what this gateway is holding.
 //
 // Sorted by id so that a client reading it twice sees the same order, and so does a test.
-func (s *Server) handleListSessions(w http.ResponseWriter, _ *http.Request) {
+func (s *Server) handleListSessions(w http.ResponseWriter, r *http.Request) {
 	all := s.snapshot()
 	out := make([]SessionStatus, 0, len(all))
 	for _, c := range all {
@@ -1123,6 +1127,7 @@ func (s *Server) handleListSessions(w http.ResponseWriter, _ *http.Request) {
 		}
 		out = append(out, c.status())
 	}
+	s.markUnserved(r.Context(), out)
 	sort.Slice(out, func(i, j int) bool { return out[i].ID < out[j].ID })
 	// max_sessions is the ceiling, so a front end can say how close to it the gateway is before a
 	// new session is refused with 409.
@@ -1312,4 +1317,22 @@ func repoName(url string) string {
 		return ""
 	}
 	return parts[len(parts)-2] + "/" + parts[len(parts)-1]
+}
+
+// markUnserved flags the sessions whose model is the local one while its server is down. The
+// server is asked only when some session uses it, so a gateway that never ran the local model
+// does not even build its manager.
+func (s *Server) markUnserved(ctx context.Context, list []SessionStatus) {
+	var local []int
+	for i := range list {
+		if list[i].Provider == config.ProviderLocal {
+			local = append(local, i)
+		}
+	}
+	if len(local) == 0 || s.localModel().Status(ctx).Server.Running {
+		return
+	}
+	for _, i := range local {
+		list[i].ModelUnserved = true
+	}
 }

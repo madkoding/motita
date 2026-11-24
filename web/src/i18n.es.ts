@@ -61,6 +61,8 @@ const first: Record<string, string> = {
   "1 agent": "1 agente",
   "1 subagent": "1 subagente",
   "1 background agent running": "1 agente en segundo plano trabajando",
+  "Its model is not being served: start the local model": "Su modelo no está activo: inicia el modelo local",
+  "Model not served": "Modelo sin servir",
   "1 change": "1 cambio",
   "1 command": "1 comando",
   "1 file changed": "1 archivo cambiado",
