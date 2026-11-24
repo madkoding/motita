@@ -81,6 +81,10 @@ var opaquePrograms = map[string]bool{
 	"sudo": true, "doas": true, "env": true, "nohup": true, "command": true, "nice": true,
 	"ionice": true, "time": true, "stdbuf": true, "setsid": true, "exec": true, "eval": true,
 	"builtin": true, "busybox": true, "xargs": true, "ssh": true, "watch": true, "timeout": true,
+	// A container tool is asked about by what it does: these run a command or an image of the
+	// caller's choosing (the other subcommands are kept by their name, see withSubcommands).
+	"docker exec": true, "docker run": true, "podman exec": true, "podman run": true,
+	"kubectl exec": true, "kubectl run": true, "docker-compose exec": true, "docker-compose run": true,
 }
 
 // runsAnythingElse says a program is one of opaquePrograms, in any spelling (python3.12,
