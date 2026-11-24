@@ -368,8 +368,9 @@ function SessionSummary({ s, busy }: { s: SessionInfo; busy: boolean }) {
         {agentsRunning > 0 && (
           <span class="ml-1.5 text-[#79c0ff]">⧉ {agentsRunning}</span>
         )}
-        {queued > 0 && (
-          <span class="ml-1.5 text-[#c9a0ff]">⏳ {queued}</span>
+        {queued > 0 && <span class="ml-1.5 text-[#c9a0ff]">⏳ {queued}</span>}
+        {s.model_unserved && (
+          <span class="ml-1.5 text-[#f0a040]">⚠ {t("Model not served")}</span>
         )}
         {s.awaiting_approval && (
           <span class="ml-1.5 text-[#f0a040]">⏸ {t("Waiting for you")}</span>
