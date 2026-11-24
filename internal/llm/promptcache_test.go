@@ -5,6 +5,8 @@ import (
 	"encoding/json"
 	"io"
 	"net/http"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -357,5 +359,28 @@ func TestTextOfPartsNeedsEveryPartToBeText(t *testing.T) {
 	if !ok || !strings.Contains(string(out), `"image_url"`) || strings.Contains(string(out), "cache_control") ||
 		strings.Contains(string(out), `"content":"x"`) {
 		t.Errorf("dropCache = %s %v", out, ok)
+	}
+}
+
+// The answer of a 400 that did not name the cache is logged, so the real refusal can be read
+// later; one that named it needs no such note.
+func TestAnUnnamedRefusalOfTheMarksIsLoggedWithItsAnswer(t *testing.T) {
+	logFile := filepath.Join(t.TempDir(), "llm.log")
+	l, err := logx.New(logx.Options{Path: logFile, Level: logx.Info})
+	if err != nil {
+		t.Fatal(err)
+	}
+	c := &Client{log: l}
+	data := []byte(`{"messages":[{"role":"user","content":[{"type":"text","text":"x","cache_control":{}}]}]}`)
+	if !c.refusedCache(&data, 400, []byte("messages.0.content: expected a string")) {
+		t.Fatal("a 400 on marked content was not asked again")
+	}
+	named := []byte(`{"messages":[{"role":"user","content":[{"type":"text","text":"x","cache_control":{}}]}]}`)
+	if !c.refusedCache(&named, 400, []byte("cache_control is not supported")) {
+		t.Fatal("a named refusal was not asked again")
+	}
+	raw, _ := os.ReadFile(logFile)
+	if strings.Count(string(raw), "without the word cache") != 1 || !strings.Contains(string(raw), "expected a string") {
+		t.Errorf("log = %s", raw)
 	}
 }
