@@ -1,12 +1,13 @@
 import { useCallback, useEffect, useRef, useState } from "preact/hooks";
 import { t, tf } from "./i18n";
 import { choose } from "./choose";
-import type { Api } from "./llmApi";
+import { type Api, saveDefault } from "./llmApi";
 import {
   type LocalStatus,
   busy,
   gigabytes,
   installed,
+  LOCAL_PROVIDER,
   localCancel,
   localDelete,
   localInstall,
@@ -29,6 +30,8 @@ const POLL_MS = 1000;
 export interface LocalModelSettingsProps {
   api: Api;
   writable: boolean;
+  // isDefault says the local model is already the one new threads start on.
+  isDefault?: boolean;
   onChanged: () => void;
   onNotice: (message: string, error?: boolean) => void;
 }
@@ -188,6 +191,43 @@ function LocalSteps({
   );
 }
 
+// LocalDefault is the one-step "use it": once the server answers, it makes the local model the
+// one new threads start on, or says that it already is.
+function LocalDefault({
+  api,
+  st,
+  writable,
+  isDefault,
+  onUsed,
+  onFail,
+}: {
+  api: Api;
+  st: LocalStatus;
+  writable: boolean;
+  isDefault: boolean;
+  onUsed: () => void;
+  onFail: (e: Error) => void;
+}) {
+  const use = () => {
+    saveDefault(api, LOCAL_PROVIDER, st.model_id).then(onUsed).catch(onFail);
+  };
+  if (isDefault) {
+    return (
+      <span class="llm-badge" data-testid="llm-local-default">
+        {t("Default for new threads")}
+      </span>
+    );
+  }
+  if (!st.server.running) {
+    return null;
+  }
+  return (
+    <button type="button" class={primary} disabled={!writable} onClick={use}>
+      {t("Use for new threads")}
+    </button>
+  );
+}
+
 // LocalDelete asks once, then deletes the model and its runtime.
 function LocalDelete({
   st,
@@ -222,6 +262,7 @@ function LocalDelete({
 export function LocalModelSettings({
   api,
   writable,
+  isDefault = false,
   onChanged,
   onNotice,
 }: LocalModelSettingsProps) {
@@ -269,6 +310,11 @@ export function LocalModelSettings({
     },
     [api, take, onNotice],
   );
+  const used = useCallback(() => {
+    onChanged();
+    onNotice(t("New threads will use the local model"));
+  }, [onChanged, onNotice]);
+  const failed = useCallback((e: Error) => setErr(e.message), []);
   const ask = useCallback(() => setConfirming(true), []);
   const remove = act(localDelete, t("Local model deleted"));
   return (
@@ -292,6 +338,14 @@ export function LocalModelSettings({
             <LocalFacts st={st} />
             <div class="flex flex-wrap gap-2">
               <LocalSteps st={st} writable={writable} act={act} />
+              <LocalDefault
+                api={api}
+                st={st}
+                writable={writable}
+                isDefault={isDefault}
+                onUsed={used}
+                onFail={failed}
+              />
               <LocalDelete
                 st={st}
                 confirming={confirming}

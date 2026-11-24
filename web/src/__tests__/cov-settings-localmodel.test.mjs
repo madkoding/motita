@@ -227,6 +227,47 @@ test("a status that cannot be read is shown", async () => {
   await m.unmount();
 });
 
+test("a running local model can become the default for new threads", async () => {
+  const f = fakeApi({
+    "GET /v1/local-model": json(
+      200,
+      status({ model_present: true, server: { running: true, port: 1 } }),
+    ),
+    "PUT /v1/llm/default": json(200, { provider: "local", model: "m" }),
+  });
+  const m = await mount(f.api);
+  await click(byText(m.root, "button", "Use for new threads"));
+  await settle();
+  assert.deepEqual(m.notices, ["New threads will use the local model"]);
+  assert.equal(m.changed.length >= 1, true);
+  await m.unmount();
+});
+
+test("the default's save failing is shown, and an existing default is marked", async () => {
+  const running = status({ model_present: true, server: { running: true } });
+  const f = fakeApi({
+    "GET /v1/local-model": json(200, running),
+    "PUT /v1/llm/default": json(500, { error: "nope" }),
+  });
+  const m = await mount(f.api);
+  await click(byText(m.root, "button", "Use for new threads"));
+  await settle();
+  assert.ok(m.root.querySelector("[role=alert]"));
+  await m.unmount();
+  const g = fakeApi({ "GET /v1/local-model": json(200, running) });
+  const d = await mount(g.api, { isDefault: true });
+  assert.match(
+    d.root.querySelector("[data-testid=llm-local-default]").textContent,
+    /Default for new threads/,
+  );
+  assert.equal(byText(d.root, "button", "Use for new threads"), undefined);
+  await d.unmount();
+  const stopped = fakeApi({ "GET /v1/local-model": json(200, status()) });
+  const n = await mount(stopped.api);
+  assert.equal(byText(n.root, "button", "Use for new threads"), undefined);
+  await n.unmount();
+});
+
 test("the providers tab shows the local model only when the gateway offers it", async () => {
   const local = {
     id: "local",
