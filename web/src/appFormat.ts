@@ -218,6 +218,17 @@ function counted(
   return !!n && n > 0 && plural(n, one, many);
 }
 
+// branchLines are the tooltip's facts about where the session's work is.
+function branchLines(s: SessionInfo): (string | false)[] {
+  return [
+    !!s.branch && tf("On branch {branch}", { branch: s.branch }),
+    !!s.base_branch &&
+      s.base_branch !== s.branch &&
+      tf("Proposed into {base}", { base: s.base_branch }),
+    !!s.worktree_released && t("Worktree released after the merge"),
+  ];
+}
+
 // sessionTooltip is the hover text of a session row. The row's button covers its labels, so they
 // cannot show their own: the button says all of it, in the order the row shows it.
 export function sessionTooltip(s: SessionInfo): string | undefined {
@@ -234,13 +245,11 @@ export function sessionTooltip(s: SessionInfo): string | undefined {
       "1 message waiting in the queue",
       "{n} messages waiting in the queue",
     ),
+    !!s.model_unserved &&
+      t("Its model is not being served: start the local model"),
     !!s.awaiting_approval && t("Waiting for your approval"),
     !!s.changes && changesTitle(s.changes),
-    !!s.branch && tf("On branch {branch}", { branch: s.branch }),
-    !!s.base_branch &&
-      s.base_branch !== s.branch &&
-      tf("Proposed into {base}", { base: s.base_branch }),
-    !!s.worktree_released && t("Worktree released after the merge"),
+    ...branchLines(s),
   ]);
 }
 

@@ -64,6 +64,8 @@ const first: Record<string, string> = {
   "Default for new threads": "Predeterminado para hilos nuevos",
   "Use for new threads": "Usar en hilos nuevos",
   "New threads will use the local model": "Los hilos nuevos usarán el modelo local",
+  "Its model is not being served: start the local model": "Su modelo no está activo: inicia el modelo local",
+  "Model not served": "Modelo sin servir",
   "1 message waiting in the queue": "1 mensaje esperando en la cola",
   "1 change": "1 cambio",
   "1 command": "1 comando",
