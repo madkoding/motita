@@ -194,16 +194,23 @@ function LocalSteps({
 // LocalDefault is the one-step "use it": once the server answers, it makes the local model the
 // one new threads start on, or says that it already is.
 function LocalDefault({
+  api,
   st,
   writable,
   isDefault,
-  onUse,
+  onUsed,
+  onFail,
 }: {
+  api: Api;
   st: LocalStatus;
   writable: boolean;
   isDefault: boolean;
-  onUse: () => void;
+  onUsed: () => void;
+  onFail: (e: Error) => void;
 }) {
+  const use = () => {
+    saveDefault(api, LOCAL_PROVIDER, st.model_id).then(onUsed).catch(onFail);
+  };
   if (isDefault) {
     return (
       <span class="llm-badge" data-testid="llm-local-default">
@@ -215,7 +222,7 @@ function LocalDefault({
     return null;
   }
   return (
-    <button type="button" class={primary} disabled={!writable} onClick={onUse}>
+    <button type="button" class={primary} disabled={!writable} onClick={use}>
       {t("Use for new threads")}
     </button>
   );
@@ -303,14 +310,11 @@ export function LocalModelSettings({
     },
     [api, take, onNotice],
   );
-  const useIt = useCallback(() => {
-    saveDefault(api, LOCAL_PROVIDER, st?.model_id ?? "")
-      .then(() => {
-        onChanged();
-        onNotice(t("New threads will use the local model"));
-      })
-      .catch((e: Error) => setErr(e.message));
-  }, [api, st, onChanged, onNotice]);
+  const used = useCallback(() => {
+    onChanged();
+    onNotice(t("New threads will use the local model"));
+  }, [onChanged, onNotice]);
+  const failed = useCallback((e: Error) => setErr(e.message), []);
   const ask = useCallback(() => setConfirming(true), []);
   const remove = act(localDelete, t("Local model deleted"));
   return (
@@ -335,10 +339,12 @@ export function LocalModelSettings({
             <div class="flex flex-wrap gap-2">
               <LocalSteps st={st} writable={writable} act={act} />
               <LocalDefault
+                api={api}
                 st={st}
                 writable={writable}
                 isDefault={isDefault}
-                onUse={useIt}
+                onUsed={used}
+                onFail={failed}
               />
               <LocalDelete
                 st={st}
