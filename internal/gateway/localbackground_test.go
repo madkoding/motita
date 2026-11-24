@@ -9,7 +9,11 @@ import (
 	"github.com/madkoding/motita/internal/localmodel"
 )
 
-var testReady = localmodel.Ready{BaseURL: "http://127.0.0.1:8471/v1", APIKey: "motita-local-0123456789abcdef", Context: 8192}
+var testReady = localmodel.Ready{
+	BaseURL: "http://127.0.0.1:8471/v1",
+	APIKey:  "motita-local-0123456789abcdef",
+	Context: 8192,
+}
 
 func TestLocalReadyGivesTheSmallCallsToTheLocalModel(t *testing.T) {
 	withLocal(t, &fakeLocal{})
