@@ -85,6 +85,8 @@ export interface SessionInfo {
   agents_running?: number;
   // model_unserved: the session's model is the local one and its server is not running.
   model_unserved?: boolean;
+  // queued counts the messages waiting behind the run in flight.
+  queued?: number;
   // awaiting_approval is set while the run is blocked on a question about a command.
   awaiting_approval?: boolean;
   // provider and model are what this session's next turn runs with: each session keeps its own.

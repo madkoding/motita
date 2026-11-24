@@ -240,6 +240,11 @@ export function sessionTooltip(s: SessionInfo): string | undefined {
       "1 background agent running",
       "{n} background agents running",
     ),
+    counted(
+      s.queued,
+      "1 message waiting in the queue",
+      "{n} messages waiting in the queue",
+    ),
     !!s.model_unserved &&
       t("Its model is not being served: start the local model"),
     !!s.awaiting_approval && t("Waiting for your approval"),

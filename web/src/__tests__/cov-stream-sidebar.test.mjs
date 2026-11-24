@@ -125,6 +125,7 @@ test("a row shows the title, when it was used and its labelled facts", async () 
     title: "Fix the build",
     last_used: when,
     agents_running: 2,
+    queued: 2,
     model_unserved: true,
     awaiting_approval: true,
     branch: "motita/s1abcdefghij",
@@ -144,7 +145,7 @@ test("a row shows the title, when it was used and its labelled facts", async () 
   assert.match(root.querySelector(".truncate").className, /text-accent/);
   assert.equal(
     text(root.querySelector(".session-when")),
-    "06/05/2024 :: 07:08:09⧉ 2⚠ Model not served⏸ Waiting for you",
+    "06/05/2024 :: 07:08:09⧉ 2⏳ 2⚠ Model not served⏸ Waiting for you",
   );
   const facts = (r) =>
     [...r.querySelectorAll(".session-facts > span")].map((f) =>
@@ -158,7 +159,7 @@ test("a row shows the title, when it was used and its labelled facts", async () 
   assert.equal(hit.getAttribute("aria-label"), "Fix the build");
   assert.match(
     hit.getAttribute("title"),
-    /^Last used .*\n2 background agents running\nIts model is not being served: start the local model\nWaiting for your approval\n1 uncommitted change in this working tree\nOn branch motita\/s1abcdefghij\nProposed into main$/,
+    /^Last used .*\n2 background agents running\n2 messages waiting in the queue\nIts model is not being served: start the local model\nWaiting for your approval\n1 uncommitted change in this working tree\nOn branch motita\/s1abcdefghij\nProposed into main$/,
   );
   await click(hit);
   assert.deepEqual(v.calls, [["switchSession", "s1abcdefghij"]]);
