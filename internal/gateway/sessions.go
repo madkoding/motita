@@ -16,7 +16,6 @@ import (
 	"time"
 
 	"github.com/madkoding/motita/internal/agent"
-	"github.com/madkoding/motita/internal/config"
 	"github.com/madkoding/motita/internal/gitx"
 	"github.com/madkoding/motita/internal/intent"
 )
@@ -1317,22 +1316,4 @@ func repoName(url string) string {
 		return ""
 	}
 	return parts[len(parts)-2] + "/" + parts[len(parts)-1]
-}
-
-// markUnserved flags the sessions whose model is the local one while its server is down. The
-// server is asked only when some session uses it, so a gateway that never ran the local model
-// does not even build its manager.
-func (s *Server) markUnserved(ctx context.Context, list []SessionStatus) {
-	var local []int
-	for i := range list {
-		if list[i].Provider == config.ProviderLocal {
-			local = append(local, i)
-		}
-	}
-	if len(local) == 0 || s.localModel().Status(ctx).Server.Running {
-		return
-	}
-	for _, i := range local {
-		list[i].ModelUnserved = true
-	}
 }
