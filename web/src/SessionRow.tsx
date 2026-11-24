@@ -339,6 +339,7 @@ function SessionFacts({ s }: { s: SessionInfo }) {
 // squeeze the title away.
 function SessionSummary({ s, busy }: { s: SessionInfo; busy: boolean }) {
   const agentsRunning = s.agents_running ?? 0;
+  const queued = s.queued ?? 0;
   return (
     <div class="flex-1 min-w-0">
       <div
@@ -366,6 +367,9 @@ function SessionSummary({ s, busy }: { s: SessionInfo; busy: boolean }) {
         {formatUpdated(s.last_used)}
         {agentsRunning > 0 && (
           <span class="ml-1.5 text-[#79c0ff]">⧉ {agentsRunning}</span>
+        )}
+        {queued > 0 && (
+          <span class="ml-1.5 text-[#c9a0ff]">⏳ {queued}</span>
         )}
         {s.awaiting_approval && (
           <span class="ml-1.5 text-[#f0a040]">⏸ {t("Waiting for you")}</span>
