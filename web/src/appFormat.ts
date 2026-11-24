@@ -214,6 +214,7 @@ function tooltip(lines: (string | false | undefined)[]): string | undefined {
 export function sessionTooltip(s: SessionInfo): string | undefined {
   const when = fullUpdated(s.last_used);
   const agents = s.agents_running ?? 0;
+  const queued = s.queued ?? 0;
   return tooltip([
     !!when && tf("Last used {when}", { when }),
     agents > 0 &&
@@ -222,6 +223,8 @@ export function sessionTooltip(s: SessionInfo): string | undefined {
         "1 background agent running",
         "{n} background agents running",
       ),
+    queued > 0 &&
+      plural(queued, "1 message waiting in the queue", "{n} messages waiting in the queue"),
     !!s.awaiting_approval && t("Waiting for your approval"),
     !!s.changes && changesTitle(s.changes),
     !!s.branch && tf("On branch {branch}", { branch: s.branch }),
