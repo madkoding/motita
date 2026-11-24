@@ -187,10 +187,18 @@ func TestInterpretersAndWrappersHaveNoShapeToKeep(t *testing.T) {
 	for _, command := range []string{
 		"python3 build.py", "python3.12 -m http.server", "/usr/bin/python x.py", "Python.exe x.py",
 		"node app.js", "bash run.sh", "sh -c 'rm x'", "sudo apt install x", "env FOO=1 make",
-		"xargs rm", "git add . && python3 x.py", "cd /tmp && bash x.sh",
+		"xargs rm", "git add . && python3 x.py", "cd /tmp && bash x.sh", "ssh host ls",
+		"docker exec web sh", "docker run --rm alpine id", "podman exec c ls", "kubectl exec pod -- id",
+		"kubectl run x --image=y", "docker-compose run web sh", "git add . && docker exec web ls",
 	} {
 		if keys, ok := KeysOf("shell", command); ok || keys != nil {
 			t.Errorf("KeysOf(%q) = %v, %v", command, keys, ok)
+		}
+	}
+	// The rest of a container tool is still kept by its subcommand.
+	for command, want := range map[string]string{"docker ps": "docker ps", "kubectl get pods": "kubectl get"} {
+		if k, ok := KeyOf("shell", command); !ok || k.Program != want {
+			t.Errorf("KeyOf(%q) = %+v, %v; want %q", command, k, ok, want)
 		}
 	}
 }
