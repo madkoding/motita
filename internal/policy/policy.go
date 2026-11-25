@@ -658,7 +658,8 @@ func reachesOutside(name string, args []string) bool {
 		return slices.ContainsFunc(args, ships)
 	}
 	if sub, ok := subcommandScoped[name]; ok {
-		return sub(firstNonFlag(args)) || goRunsByVersion(name, args)
+		verb, known := readonly.Verb(name, args)
+		return !known || sub(verb) || goRunsByVersion(name, args)
 	}
 	return true
 }

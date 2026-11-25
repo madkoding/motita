@@ -158,3 +158,26 @@ func TestGitTraceToAFileIsAsked(t *testing.T) {
 		t.Errorf("a switch stays silent: got %s/%s", d.Verdict, d.Rule)
 	}
 }
+
+// An option's value is not the subcommand: `kubectl -n get delete` deletes, and an option nobody
+// listed may take a value too, so the line is asked about instead of read as its first word.
+func TestOptionValuesAreNotTheSubcommand(t *testing.T) {
+	dir := t.TempDir()
+	m := Mode{Enforce: true}
+	for _, line := range []string{
+		"docker --log-level info run -v /:/h x", "docker -l info run x", "kubectl -n get delete pod x",
+		"npm --prefix bin exec -c x", "go --unknown ps test",
+	} {
+		if d := m.DecideLine(line, dir); d.Verdict == Allow {
+			t.Errorf("%q: got %s/%s, want a question", line, d.Verdict, d.Rule)
+		}
+	}
+	for _, line := range []string{
+		"kubectl -n ns get pods", "go -C sub test ./...", "docker --log-level=info ps", "npm --silent test",
+		"npm --prefix web test", "go test -v ./...", "docker ps",
+	} {
+		if d := m.DecideLine(line, dir); d.Verdict != Allow {
+			t.Errorf("%q: got %s/%s, want allow", line, d.Verdict, d.Rule)
+		}
+	}
+}
