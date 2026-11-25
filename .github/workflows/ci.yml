@@ -740,7 +740,10 @@ jobs:
         working-directory: dist
         run: |
           # Deterministic order and only the binaries, so the file is stable.
-          sha256sum * | sort -k2 > SHA256SUMS
+          # The first line names the release: the signature covers it, so an older signed
+          # SHA256SUMS cannot be published again as this version (GHSA-ww38-259g-x8c5, SUP-02).
+          { echo "# motita $GITHUB_REF_NAME"; sha256sum * | sort -k2; } > "$RUNNER_TEMP/SHA256SUMS"
+          mv "$RUNNER_TEMP/SHA256SUMS" SHA256SUMS
           cat SHA256SUMS
 
       - name: Sign the checksums
