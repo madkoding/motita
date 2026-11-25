@@ -123,6 +123,7 @@ type Manager struct {
 	srv        Server
 	cmd        *exec.Cmd
 	done       chan struct{}
+	stopWhy    string // why the running server was asked to stop, "" when nobody asked
 	log        *tail
 	gpu        *GPU
 	gpuAt      time.Time
@@ -377,7 +378,7 @@ func (m *Manager) Start(ctx context.Context) error {
 	if err := cmd.Start(); err != nil {
 		return fmt.Errorf("starting llama-server: %w", err)
 	}
-	m.cmd, m.done = cmd, make(chan struct{})
+	m.cmd, m.done, m.stopWhy = cmd, make(chan struct{}), ""
 	m.srv = Server{Starting: true, Port: port, Context: nctx, GPULayers: layers}
 	go m.wait(cmd, m.done)
 	go m.awaitHealth(port, key, nctx, m.done)
@@ -435,10 +436,15 @@ func (m *Manager) wait(cmd *exec.Cmd, done chan struct{}) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	close(done)
-	stopped := m.srv.Error == "stopped"
+	why := m.stopWhy
 	m.cmd = nil
 	m.srv = Server{}
-	if !stopped {
+	switch {
+	case why == "stopped":
+	case why != "":
+		// Asked to stop for a reason: show that reason, not the signal that carried it out.
+		m.srv.Error = why
+	default:
 		m.srv.Error = exitText(err, m.log.String())
 	}
 }
@@ -505,6 +511,7 @@ func (m *Manager) stop(why string) {
 		return
 	}
 	m.srv.Error = why
+	m.stopWhy = why
 	m.mu.Unlock()
 	terminate(cmd)
 	select {

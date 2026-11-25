@@ -168,6 +168,12 @@ func (c *Client) refusedCache(data *[]byte, status int, answer []byte) bool {
 		return false
 	}
 	*data = stripped
+	if !named {
+		// What the provider objected to is the one fact that tells the marks' shape from an
+		// unrelated 400, so it is kept in the log.
+		c.log.Warn("a 400 without the word cache was taken for a refusal of the cache marks",
+			"answer", truncate(string(answer), 300))
+	}
 	if named || c.unnamedCacheRefusals.Add(1) >= 2 {
 		c.noCache.Store(true)
 	}

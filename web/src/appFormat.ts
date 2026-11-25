@@ -209,26 +209,47 @@ function tooltip(lines: (string | false | undefined)[]): string | undefined {
   return choose(kept.length > 0, kept.join("\n"), undefined);
 }
 
-// sessionTooltip is the hover text of a session row. The row's button covers its labels, so they
-// cannot show their own: the button says all of it, in the order the row shows it.
-export function sessionTooltip(s: SessionInfo): string | undefined {
-  const when = fullUpdated(s.last_used);
-  const agents = s.agents_running ?? 0;
-  return tooltip([
-    !!when && tf("Last used {when}", { when }),
-    agents > 0 &&
-      plural(
-        agents,
-        "1 background agent running",
-        "{n} background agents running",
-      ),
-    !!s.awaiting_approval && t("Waiting for your approval"),
-    !!s.changes && changesTitle(s.changes),
+// counted is a count's line, in its singular or plural form; nothing for a count of none.
+function counted(
+  n: number | undefined,
+  one: string,
+  many: string,
+): string | false {
+  return !!n && n > 0 && plural(n, one, many);
+}
+
+// branchLines are the tooltip's facts about where the session's work is.
+function branchLines(s: SessionInfo): (string | false)[] {
+  return [
     !!s.branch && tf("On branch {branch}", { branch: s.branch }),
     !!s.base_branch &&
       s.base_branch !== s.branch &&
       tf("Proposed into {base}", { base: s.base_branch }),
     !!s.worktree_released && t("Worktree released after the merge"),
+  ];
+}
+
+// sessionTooltip is the hover text of a session row. The row's button covers its labels, so they
+// cannot show their own: the button says all of it, in the order the row shows it.
+export function sessionTooltip(s: SessionInfo): string | undefined {
+  const when = fullUpdated(s.last_used);
+  return tooltip([
+    !!when && tf("Last used {when}", { when }),
+    counted(
+      s.agents_running,
+      "1 background agent running",
+      "{n} background agents running",
+    ),
+    counted(
+      s.queued,
+      "1 message waiting in the queue",
+      "{n} messages waiting in the queue",
+    ),
+    !!s.model_unserved &&
+      t("Its model is not being served: start the local model"),
+    !!s.awaiting_approval && t("Waiting for your approval"),
+    !!s.changes && changesTitle(s.changes),
+    ...branchLines(s),
   ]);
 }
 

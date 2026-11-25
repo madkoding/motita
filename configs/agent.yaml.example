@@ -381,15 +381,16 @@ voice:
   # The gateway's voice, for reading answers aloud in the browser interface (the device's own
   # voices need nothing here). Off by default, because it sends the text of each answer read
   # to a speech endpoint that speaks the OpenAI API (/audio/speech). Empty base_url means the
-  # transcription endpoint above, with its key; a local Kokoro-FastAPI keeps the text on this
-  # machine: base_url: "http://127.0.0.1:8880/v1", model: kokoro.
+  # transcription endpoint above, with its key. The default is a local Kokoro-FastAPI, which
+  # keeps the text on this machine. OpenAI's own speech models (tts-1, tts-1-hd, gpt-4o-mini-tts)
+  # stop answering /audio/speech on 2027-01-06: use Kokoro or DashScope (api: dashscope).
   tts:
     enabled: false
-    base_url: ""
+    base_url: "http://127.0.0.1:8880/v1"
     api_key: ""
-    model: gpt-4o-mini-tts
+    model: kokoro
     # The default voice, and more the settings offer.
-    voice: alloy
+    voice: af_heart
     voices: []
     # mp3, opus, aac, flac or wav.
     format: mp3

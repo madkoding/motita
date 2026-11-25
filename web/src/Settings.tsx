@@ -1,4 +1,4 @@
-import { useRef, useState } from "preact/hooks";
+import { useEffect, useRef, useState } from "preact/hooks";
 import type { ComponentChildren } from "preact";
 import { ModalBackdrop } from "./ModalBackdrop";
 import { useDialog } from "./useDialog";
@@ -25,6 +25,7 @@ import { AutopilotSettings } from "./AutopilotSettings";
 import { NetworkSettings } from "./NetworkSettings";
 import { SecuritySettings } from "./SecuritySettings";
 import { SecretsSettings } from "./SecretsSettings";
+import type { InferenceSettings } from "./InferenceSettings";
 import { FrictionSettings } from "./FrictionSettings";
 import { GitConnections, type GitSettingsProps } from "./GitConnections";
 import {
@@ -34,6 +35,7 @@ import {
   IconGlobe,
   IconJournal,
   IconKey,
+  IconServer,
   IconMic,
   IconPlug,
   IconWrench,
@@ -68,6 +70,9 @@ interface Props extends AppearanceSettingsProps {
   // How much of the disk the agent reaches. Absent where the page has no API to hand it, and the
   // section stays hidden on a gateway without the security API.
   security?: { api: Api; sessionId?: string };
+  // The servers that run models (llama.cpp, LM Studio, Ollama...). Hidden where the page has no API
+  // to hand it, and on a gateway without the inference-servers API.
+  inference?: { api: Api };
   // The variables kept for the agent. Hidden where the page has no API to hand it, and on a gateway
   // without the secrets API.
   secrets?: { api: Api };
@@ -95,6 +100,7 @@ export type Tab =
   | "autopilot"
   | "providers"
   | "models"
+  | "inference"
   | "git";
 
 interface TabInfo {
@@ -151,10 +157,25 @@ function settingsTabs(p: Props): TabInfo[] {
       { id: "models", label: t("Models"), icon: <IconChip /> },
     );
   }
+  if (p.inference) {
+    tabs.push({ id: "inference", label: t("Inference"), icon: <IconServer /> });
+  }
   if (p.git) {
     tabs.push({ id: "git", label: t("Git"), icon: <IconBranch /> });
   }
   return tabs;
+}
+
+// InferenceSection loads the servers' section on demand: it is one tab among many, and every
+// visitor would download it otherwise.
+function InferenceSection(props: { api: Api }) {
+  const [Section, setSection] = useState<typeof InferenceSettings | null>(null);
+  useEffect(() => {
+    import("./InferenceSettings").then((m) =>
+      setSection(() => m.InferenceSettings),
+    );
+  }, []);
+  return Section && <Section {...props} />;
 }
 
 // PANES draw the content of each tab.
@@ -180,6 +201,7 @@ const PANES: Record<Tab, (p: Props) => ComponentChildren> = {
   network: (p) => p.network && <NetworkSettings api={p.network.api} />,
   providers: (p) => p.llm && <ProviderSettings {...p.llm} />,
   models: (p) => p.llm && <ModelSettings {...p.llm} />,
+  inference: (p) => p.inference && <InferenceSection api={p.inference.api} />,
   git: (p) => p.git && <GitConnections {...p.git} />,
 };
 

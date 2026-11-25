@@ -1556,6 +1556,33 @@ gateway runs them, so they reach the same download and the same server as the br
 | `POST /v1/local-model/stop`      | stops it                                                                                                       |
 | `DELETE /v1/local-model`         | stops it, deletes `~/.motita/local` and disconnects the provider                                               |
 
+### Inference servers
+
+A list of the servers that serve models over HTTP, kept in `inference-servers.json` beside the
+configuration (`0600`, at most 32). A server has a `name` (its `id` is the name as a slug and never
+changes), a `kind` (`llamacpp`, `lmstudio`, `ollama` or `openai` for any OpenAI-compatible
+endpoint such as TensorFold or vLLM), a `base_url` (the kind's usual address when left out; `openai`
+has none), an optional `model` and an optional key. The key goes to the credentials file as
+`MOTITA_INFERENCE_<ID>_API_KEY` and is never returned: a server shows `has_key` and the last four
+characters in `key_hint`. The registry adds no protocol: `ollama` is spoken by the `ollama`
+provider and the others by the OpenAI chat one (`custom`), and each server says which in `provider`.
+Addresses follow the provider rules (no user, query or link-local address; a key is never sent in
+plain http outside your network).
+
+| Endpoint                                | What it does                                                                                           |
+| --------------------------------------- | ------------------------------------------------------------------------------------------------------ |
+| `GET /v1/inference-servers`             | `{"can_save","max","kinds":[…],"servers":[…]}`                                                           |
+| `POST /v1/inference-servers`            | `{"name","kind","base_url","model","api_key"}` adds one (`201`); `400` for a bad field, `409` for a repeated name or a full list |
+| `PUT /v1/inference-servers/{id}`        | changes the fields sent and keeps the rest; `"api_key":""` removes the key; `404` for an unknown id    |
+| `DELETE /v1/inference-servers/{id}`     | removes the server and its key                                                                         |
+| `POST /v1/inference-servers/{id}/use`   | makes the server the endpoint of its provider: its address and key are saved where that provider keeps them (`custom` gets the placeholder token `none` when the server has no key, and the server's `model` becomes the custom model) and the open conversations get them at once; nothing else changes. `404` for an unknown id |
+| `POST /v1/inference-servers/{id}/probe` | asks the server for its models: `{"ok","latency_ms","models","error"}`, `200` whether it answered or not |
+
+Each write answers with the whole list; `409` without a configuration file. A server says `in_use`
+when its provider runs with its address. Once Motita's own local model has an address it is listed
+first as `motita-local` with `managed: true`: shown beside the others, but started and stopped from
+**Providers**, so it has no key, edit, probe or use here.
+
 ### Models per kind of work
 
 The **Models** tab holds the default model and, under it, a model for each kind of work. A kind
@@ -1924,10 +1951,10 @@ voice:
   tts:
     enabled: false
     api: openai # openai, or dashscope for Qwen3-TTS on Alibaba Cloud
-    base_url: "" # empty = the transcription endpoint (voice.base_url, resolved), with its key
+    base_url: "http://127.0.0.1:8880/v1" # a local Kokoro-FastAPI; empty = the transcription endpoint (voice.base_url, resolved), with its key
     api_key: ""
-    model: gpt-4o-mini-tts # tts-1 on OpenAI, kokoro on Kokoro-FastAPI
-    voice: alloy # the default voice
+    model: kokoro # OpenAI's tts-1, tts-1-hd and gpt-4o-mini-tts stop working on 2027-01-06
+    voice: af_heart # the default voice
     voices: [] # more voices the settings offer, besides the default
     format: mp3 # mp3, opus, aac, flac or wav
     max_chars: 4000 # cap on the text of one request

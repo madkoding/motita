@@ -20,14 +20,16 @@ type TTS struct {
 	// Model Studio's native speech API, the hosted way to use Qwen3-TTS (it has no OpenAI-style
 	// route). A self-hosted Qwen3-TTS server that answers /audio/speech is "openai".
 	API string `yaml:"api"`
-	// BaseURL is the speech endpoint's base. Empty means the transcription endpoint (voice.base_url,
+	// BaseURL is the speech endpoint's base; the default is a local Kokoro-FastAPI. Empty means the
+	// transcription endpoint (voice.base_url,
 	// resolved the same way: the language model's own when it speaks the OpenAI API), or DashScope's
 	// international endpoint when API is "dashscope".
 	BaseURL string `yaml:"base_url"`
 	// APIKey is the key for BaseURL. Empty means the transcription key when the endpoint is the
 	// transcription one, and no key otherwise (a local server needs none).
 	APIKey string `yaml:"api_key"`
-	// Model is the speech model: gpt-4o-mini-tts or tts-1 on OpenAI, kokoro on Kokoro-FastAPI.
+	// Model is the speech model: kokoro on Kokoro-FastAPI (the default), qwen3-tts-flash on DashScope.
+	// OpenAI's tts-1, tts-1-hd and gpt-4o-mini-tts stop answering /audio/speech on 2027-01-06.
 	Model string `yaml:"model"`
 	// Voice is the voice the page uses unless the person picks another: alloy, nova, ...
 	Voice string `yaml:"voice"`
@@ -47,8 +49,11 @@ const maxDetectPorts = 16
 
 // Defaults of the tts block.
 const (
-	defaultTTSModel    = "gpt-4o-mini-tts"
-	defaultTTSVoice    = "alloy"
+	// OpenAI retires every speech model of /audio/speech (tts-1, tts-1-hd, gpt-4o-mini-tts) on
+	// 2027-01-06, so the default is the self-hosted Kokoro-FastAPI, the usual local speech server.
+	defaultTTSModel    = "kokoro"
+	defaultTTSVoice    = "af_heart"
+	defaultTTSBaseURL  = "http://127.0.0.1:8880/v1"
 	defaultTTSFormat   = "mp3"
 	defaultTTSMaxChars = 4000
 
@@ -78,7 +83,8 @@ var TTSFormats = []string{"mp3", "opus", "aac", "flac", "wav"}
 
 // defaultTTS is the tts block of the default configuration.
 func defaultTTS() TTS {
-	return TTS{Model: defaultTTSModel, Voice: defaultTTSVoice, Format: defaultTTSFormat, MaxChars: defaultTTSMaxChars}
+	return TTS{Model: defaultTTSModel, Voice: defaultTTSVoice, Format: defaultTTSFormat, MaxChars: defaultTTSMaxChars,
+		BaseURL: defaultTTSBaseURL}
 }
 
 // ttsInherits reports whether the speech endpoint is the transcription one.
@@ -152,6 +158,9 @@ func (t *TTS) normalize() {
 	if t.Model == defaultTTSModel {
 		t.Model = dashScopeTTSModel
 	}
+	if strings.TrimRight(t.BaseURL, "/") == defaultTTSBaseURL {
+		t.BaseURL = ""
+	}
 	if t.Voice == defaultTTSVoice {
 		t.Voice = dashScopeTTSVoice
 	}
@@ -195,10 +204,10 @@ func (c *Config) validateTTS() error {
 		return fmt.Errorf("voice.tts.max_chars is %d: it cannot be negative (0 means the built-in default)", t.MaxChars)
 	}
 	if t.Model == "" {
-		return errors.New("voice.tts.model is empty: name the speech model (gpt-4o-mini-tts on OpenAI)")
+		return errors.New("voice.tts.model is empty: name the speech model (kokoro on Kokoro-FastAPI)")
 	}
 	if t.Voice == "" {
-		return errors.New("voice.tts.voice is empty: name the voice (alloy on OpenAI)")
+		return errors.New("voice.tts.voice is empty: name the voice (af_heart on Kokoro-FastAPI)")
 	}
 	if !slices.Contains(TTSFormats, t.Format) {
 		return fmt.Errorf("voice.tts.format %q is not one of %s", t.Format, strings.Join(TTSFormats, ", "))

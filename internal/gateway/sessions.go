@@ -443,6 +443,12 @@ type SessionStatus struct {
 	Created    time.Time `json:"created"`
 	LastUsed   time.Time `json:"last_used"`
 	Running    bool      `json:"running"`
+	// ModelUnserved says the session's model is the local one and its server is not answering: the
+	// next message would fail. Only the list fills it in.
+	ModelUnserved bool `json:"model_unserved,omitempty"`
+	// Queued is how many messages wait behind the run in flight, oldest first: the position of the
+	// last one is Queued. Absent when nothing waits.
+	Queued int `json:"queued,omitempty"`
 	// Rev moves when a turn starts or ends in the session (see conversation.rev): a page that
 	// shows the session and did not start that turn reads the conversation again when it moves.
 	Rev uint64 `json:"rev"`
@@ -543,7 +549,7 @@ func (c *conversation) status() SessionStatus {
 	st := SessionStatus{ID: c.id, Title: c.title, ProjectID: c.projectID, ParentID: c.parentID,
 		Created: c.created, LastUsed: c.lastUsed, Running: c.running && c.terminal == nil, Rev: c.rev,
 		Terminal: c.terminal != nil, AutoApprove: c.autoApprove, AgentsRunning: runningSubagents(c.agents),
-		AwaitingApproval: c.pending != nil}
+		AwaitingApproval: c.pending != nil, Queued: len(c.queue)}
 	st.Workspace = c.workspace
 	if c.svc != nil {
 		cfg := c.svc.Config()
@@ -1114,7 +1120,7 @@ func (s *Server) pruneFreeSessionDirs(known map[string]bool) {
 // handleListSessions answers what this gateway is holding.
 //
 // Sorted by id so that a client reading it twice sees the same order, and so does a test.
-func (s *Server) handleListSessions(w http.ResponseWriter, _ *http.Request) {
+func (s *Server) handleListSessions(w http.ResponseWriter, r *http.Request) {
 	all := s.snapshot()
 	out := make([]SessionStatus, 0, len(all))
 	for _, c := range all {
@@ -1123,6 +1129,7 @@ func (s *Server) handleListSessions(w http.ResponseWriter, _ *http.Request) {
 		}
 		out = append(out, c.status())
 	}
+	s.markUnserved(r.Context(), out)
 	sort.Slice(out, func(i, j int) bool { return out[i].ID < out[j].ID })
 	// max_sessions is the ceiling, so a front end can say how close to it the gateway is before a
 	// new session is refused with 409.

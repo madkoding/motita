@@ -314,11 +314,14 @@ func (c *Client) CompleteToolsStream(ctx context.Context, messages []Message, to
 		defer c.keepWarm()
 		retry := c.newRetry()
 		for {
-			chunkCh, err := c.openStreamOr()(ctx, messages, tools)
+			streamCtx, stop := context.WithCancel(ctx)
+			chunkCh, err := c.openStreamOr()(streamCtx, messages, tools)
 			if err == nil {
-				if err = forwardStream(chunkCh, out); err == nil {
-					return
-				}
+				err = forwardStream(chunkCh, out, stop)
+			}
+			stop()
+			if err == nil {
+				return
 			}
 			pause, v := retry.after(err)
 			switch v {
@@ -349,14 +352,26 @@ func (c *Client) CompleteToolsStream(ctx context.Context, messages []Message, to
 // forwardStream forwards one opened stream to out. A failure before anything reached the caller
 // is a failed attempt like one that could not open, and is returned so it goes through the same
 // retry policy; once something was forwarded, the stream is the caller's to its end.
-func forwardStream(chunkCh <-chan StreamChunk, out chan<- StreamChunk) error {
+func forwardStream(chunkCh <-chan StreamChunk, out chan<- StreamChunk, stop context.CancelFunc) error {
 	forwarded := false
+	var watch repeatWatch
 	for chunk := range chunkCh {
 		if !forwarded && chunk.Event == StreamError {
 			return chunk.Error
 		}
 		forwarded = true
 		out <- chunk
+		if chunk.Event == StreamText && watch.feed(chunk.Text) {
+			// Stop the provider's stream and let it finish writing into the channel.
+			stop()
+			go func() {
+				for range chunkCh {
+					// Drained: nobody reads the rest of a reply that was cut.
+				}
+			}()
+			out <- StreamChunk{Event: StreamError, Error: ErrRepeating}
+			return nil
+		}
 		if chunk.Event == StreamError || chunk.Event == StreamDone {
 			return nil
 		}
