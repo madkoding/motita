@@ -93,7 +93,16 @@ func speechCheck(cfg config.Config) doctor.Check {
 		return doctor.Check{Name: "speech", Status: doctor.Warn,
 			Detail: detail + "; no key for a remote endpoint: set voice.tts.api_key or MOTITA_VOICE_TTS_API_KEY"}
 	}
+	if retiredOpenAISpeech(tts.Model) && strings.Contains(cfg.TTSBaseURL(), "api.openai.com") {
+		return doctor.Check{Name: "speech", Status: doctor.Warn, Detail: detail + "; OpenAI stops serving " +
+			tts.Model + " on 2027-01-06: use a local Kokoro-FastAPI or voice.tts.api: dashscope"}
+	}
 	return doctor.Check{Name: "speech", Detail: detail}
+}
+
+// retiredOpenAISpeech reports whether model is one of the OpenAI speech models retired on 2027-01-06.
+func retiredOpenAISpeech(model string) bool {
+	return strings.HasPrefix(model, "tts-1") || strings.HasPrefix(model, "gpt-4o-mini-tts")
 }
 
 // detectSpeech is voice.DetectSpeech, as a variable so a test need not listen on the common ports.

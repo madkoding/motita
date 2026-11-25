@@ -1924,10 +1924,10 @@ voice:
   tts:
     enabled: false
     api: openai # openai, or dashscope for Qwen3-TTS on Alibaba Cloud
-    base_url: "" # empty = the transcription endpoint (voice.base_url, resolved), with its key
+    base_url: "http://127.0.0.1:8880/v1" # a local Kokoro-FastAPI; empty = the transcription endpoint (voice.base_url, resolved), with its key
     api_key: ""
-    model: gpt-4o-mini-tts # tts-1 on OpenAI, kokoro on Kokoro-FastAPI
-    voice: alloy # the default voice
+    model: kokoro # OpenAI's tts-1, tts-1-hd and gpt-4o-mini-tts stop working on 2027-01-06
+    voice: af_heart # the default voice
     voices: [] # more voices the settings offer, besides the default
     format: mp3 # mp3, opus, aac, flac or wav
     max_chars: 4000 # cap on the text of one request

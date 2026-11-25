@@ -56,7 +56,7 @@ func TestSpeechCheckSaysWhoSpeaks(t *testing.T) {
 	}
 	cfg.Voice.TTS.APIKey = "k"
 	if c := speechCheck(cfg); c.Status != doctor.OK || !strings.Contains(c.Detail, "speech.example") ||
-		!strings.Contains(c.Detail, "alloy") {
+		!strings.Contains(c.Detail, "af_heart") {
 		t.Errorf("remote with a key: %+v", c)
 	}
 	cfg.Voice.TTS.APIKey = ""
@@ -122,5 +122,23 @@ func TestLocalSpeechCheckSaysWhatIsListening(t *testing.T) {
 	cfg.Voice.TTS.Enabled = true
 	if c := localSpeechCheck(cfg); strings.Contains(c.Detail, "Settings") {
 		t.Errorf("on: %+v", c)
+	}
+}
+
+// The doctor warns about an OpenAI speech model that stops working on 2027-01-06, and about no other.
+func TestSpeechCheckWarnsAboutRetiredOpenAIModels(t *testing.T) {
+	cfg := config.Default()
+	cfg.Voice.TTS.Enabled = true
+	cfg.Voice.TTS.BaseURL = "https://api.openai.com/v1"
+	cfg.Voice.TTS.APIKey = "k"
+	for _, model := range []string{"gpt-4o-mini-tts", "tts-1", "tts-1-hd"} {
+		cfg.Voice.TTS.Model = model
+		if c := speechCheck(cfg); c.Status != doctor.Warn || !strings.Contains(c.Detail, "2027-01-06") {
+			t.Errorf("%s: %+v", model, c)
+		}
+	}
+	cfg.Voice.TTS.Model = "kokoro"
+	if c := speechCheck(cfg); c.Status != doctor.OK {
+		t.Errorf("kokoro: %+v", c)
 	}
 }
