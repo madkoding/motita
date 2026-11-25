@@ -77,7 +77,7 @@ const (
 	piperVoices = "https://huggingface.co/rhasspy/piper-voices/resolve/v1.0.0/"
 	// The runtime comes from the npm packages the page is built with: the versions here must
 	// be the ones web/package.json pins, or the bundled code and the binary it loads disagree.
-	ortPackage   = "https://registry.npmjs.org/onnxruntime-web/-/onnxruntime-web-1.30.0.tgz"
+	ortPackage   = "https://registry.npmjs.org/onnxruntime-web/-/onnxruntime-web-1.31.1.tgz"
 	piperPackage = "https://registry.npmjs.org/@diffusionstudio/piper-wasm/-/piper-wasm-1.0.0.tgz"
 )
 
@@ -85,7 +85,7 @@ const (
 // which runs it on the processor.
 var OrtRuntime = []ModelFile{
 	{Name: "ort-wasm-simd-threaded.wasm", URL: ortPackage, Member: "package/dist/ort-wasm-simd-threaded.wasm",
-		Size: 14239897, SHA256: "3398c10d07d229bd91b364548e130e0e51a8e5704b88c7c083ebbeb78842dee2"},
+		Size: 14848852, SHA256: "4b884c203b0fa48d057be3332c65513ff85aa3c5bddd6946acc0fab7ecda001d"},
 }
 
 // PhonemizerRuntime is what only Piper's voices need besides OrtRuntime: the phonemizer
@@ -121,7 +121,7 @@ func piperVoice(path, name, lang, quality string, model, config, sample fileSum)
 // that run on the graphics card: one copy for all of them, in RuntimeID.
 var GPURuntime = []ModelFile{{Name: "ort-wasm-simd-threaded.asyncify.wasm", URL: ortPackage,
 	Member: "package/dist/ort-wasm-simd-threaded.asyncify.wasm",
-	Size:   26781914, SHA256: "39f9f0894d478800487ed9f7dbe92618498db320cf55c8e3d89adff8dce658da"}}
+	Size:   28747738, SHA256: "ca319e9539cd0f1e291cf56074760121eaf39650f5dbf84b6e52c07f4b2944ec"}}
 
 // WhisperID starts the id of every Whisper model; WhisperGPU ends the id of those built for the
 // graphics card. The page knows a model by them.
@@ -131,7 +131,7 @@ const (
 )
 
 // The name of a model's tokenizer, in every repository that has one.
-const tokenizerJSON = "tokenizer.json"
+const tokenizerJSON = "tokenizer.json" // #nosec G101 -- a file name, not a credential.
 
 // The parts of a Whisper export: 8-bit for the processor, 4-bit for the graphics card.
 const (
