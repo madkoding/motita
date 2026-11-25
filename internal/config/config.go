@@ -10,7 +10,6 @@ import (
 	"cmp"
 	"errors"
 	"fmt"
-	"log/slog"
 	"net"
 	"os"
 	"path/filepath"
@@ -871,13 +870,7 @@ func load(path string, requireKey bool) (Config, error) {
 		if err := Decode(m, &cfg); err != nil {
 			return cfg, fmt.Errorf("invalid configuration in %q: %w", path, err)
 		}
-		if path == WorkingDirFile {
-			if dropped := dropProjectEndpoints(&cfg); len(dropped) > 0 {
-				slog.Warn("ignoring the endpoints a configuration found in the working directory sets; "+
-					"put them in ~/.motita/motita.yaml or name the file with -config",
-					"file", path, "keys", dropped)
-			}
-		}
+		guardWorkingDirFile(&cfg, path)
 		// Every relative path resolves beside the file, so a configuration is movable and the
 		// program's state stays with it. Applied BEFORE validate, because validate is what fills
 		// an empty path with the default, and a value arriving afterwards would keep the

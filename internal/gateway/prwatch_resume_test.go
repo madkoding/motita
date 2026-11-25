@@ -76,7 +76,8 @@ func TestAResumedReviewingWatchAnswersTheCommentsOfTheDowntime(t *testing.T) {
 		t.Fatalf("the resumed watch did not start from the saved comments: %v, want %v", seen, saved.Seen)
 	}
 
-	host.set(comments, `[{"id":1,"body":"from before","author_association":"OWNER"},{"id":2,"body":"rename y while you are at it",`+
+	host.set(comments, `[{"id":1,"body":"from before","author_association":"OWNER"},`+
+		`{"id":2,"body":"rename y while you are at it",`+
 		`"user":{"login":"bo"},"author_association":"COLLABORATOR"}]`)
 	w := &prWatchState{status: prReviewing}
 	w.talk.Resume(saved.Seen)

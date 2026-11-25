@@ -1,5 +1,7 @@
 package config
 
+import "log/slog"
+
 // WorkingDirFile is the name resolvedConfigPath gives the configuration it finds by standing in a
 // directory, as opposed to the user's own (File) or one named with -config. It is whatever
 // repository the user happened to open, so it is not trusted with where their keys go: see
@@ -29,4 +31,17 @@ func dropProjectEndpoints(cfg *Config) []string {
 		}
 	}
 	return dropped
+}
+
+// guardWorkingDirFile applies dropProjectEndpoints to a configuration read from path when path is the
+// working-directory file, and says so.
+func guardWorkingDirFile(cfg *Config, path string) {
+	if path != WorkingDirFile {
+		return
+	}
+	if dropped := dropProjectEndpoints(cfg); len(dropped) > 0 {
+		slog.Warn("ignoring the endpoints a configuration found in the working directory sets; "+
+			"put them in ~/.motita/motita.yaml or name the file with -config",
+			"file", path, "keys", dropped)
+	}
 }

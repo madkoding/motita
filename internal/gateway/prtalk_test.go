@@ -71,7 +71,8 @@ func TestPRWatchSendsTheAgentToANewReview(t *testing.T) {
 	if srv.pollPR(c, w) || w.status != prPassed || w.attempts != 0 {
 		t.Fatalf("baseline: %s %d", w.status, w.attempts)
 	}
-	host.set(comments, `[{"id":1,"body":"from before","author_association":"OWNER"},{"id":2,"body":"please rename x","user":{"login":"bo"},"author_association":"COLLABORATOR"}]`)
+	host.set(comments, `[{"id":1,"body":"from before","author_association":"OWNER"},`+
+		`{"id":2,"body":"please rename x","user":{"login":"bo"},"author_association":"COLLABORATOR"}]`)
 	if srv.pollPR(c, w) {
 		t.Fatal("a review is not the end of the watch")
 	}
