@@ -1738,6 +1738,7 @@ agent:
       args: [-y, "@example/shop-mcp"]
       env: {SHOP_TOKEN: "..."}   # added to PATH and HOME; nothing else of your environment is passed
       dir: ""                    # empty = the workspace
+      skills: false              # true: the model may read the skills this server serves
 ```
 
 | Action | `command` | Result |
@@ -1745,6 +1746,8 @@ agent:
 | `mcp_tools` | a server name, or nothing for every server | each tool's description and argument schema |
 | `mcp_call` | `<server> <tool>` on the first line, the arguments as a JSON object after it | the tool's answer, cut at 20,000 bytes |
 | `mcp_start` | the same as `mcp_call` | a task id, at once; the tool runs in the background |
+| `mcp_skills` | a server name, or nothing | the skills of the servers marked `skills: true` |
+| `mcp_skill` | `<server> <skill>` or `<server> <skill>/<file>` | that skill, as a third party's instructions |
 | `mcp_task` | `<server> <task id>`, and `cancel` on a second line to stop it | the task's state, or its result once it is over |
 
 Every `mcp_call` is **asked about** (rule `mcp`) with the server, the tool and the arguments; *Allow all commands for this session* answers them all. What a server answers reaches the model marked as data from a third party. A background agent or a read-only session cannot use MCP, and with no server listed the actions are not offered. The servers a run started are stopped when it ends.
@@ -1752,6 +1755,8 @@ Every `mcp_call` is **asked about** (rule `mcp`) with the server, the tool and t
 **Elicitation.** A server may pause a call to ask the person something (confirm before deleting or spending, or send them to a page for a payment or a sign-in). It goes through the same approval (rule `mcp-elicit`): a confirmation shows the server's question, a page shows its full address, and only `http` and `https` addresses are offered. A form asking for a value motita cannot invent (a typed name) is declined and the model is told what the server wanted, so it asks the person in the chat and calls again with the value in the arguments.
 
 **Background tasks.** A tool the server lists as able to run in the background (`execution.taskSupport` `optional` or `required`, shown as `[background: …]` by `mcp_tools`) can be started with `mcp_start` (same `command` as `mcp_call`, asked about the same way). The server answers at once with a task id and the run goes on with other work. `mcp_task` (`<server> <task id>`) reports the state without waiting and, once the task is over, brings its result; a second line `cancel` stops it. A server that does not declare task support is refused with a hint to use `mcp_call`. Tasks belong to the connection: they end with the run.
+
+**Skills served by a server.** A server can also serve *skills*: instructions for using its tools well, published as the resources `skill://<name>/SKILL.md` (the "skills over MCP" extension, still a draft; other files of a skill sit beside it). They are written by whoever runs the server, so they are off by default: only a server marked `skills: true` in `agent.mcp` is read, and nothing a skill says is run. `mcp_skills` (a server name, or nothing for every trusted one) lists them; `mcp_skill` (`<server> <skill>` or `<server> <skill>/<file>`) reads one, headed by a note that it is a third party's instructions that never override the person's request, the approvals or motita's rules. The actions are only taught to the model while some server is trusted.
 
 ### Upkeep: weekly audit and draft pull requests
 
