@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/madkoding/motita/internal/agent"
+	"github.com/madkoding/motita/internal/anchor"
 	"github.com/madkoding/motita/internal/config"
 	"github.com/madkoding/motita/internal/llm"
 	"github.com/madkoding/motita/internal/logx"
@@ -189,5 +190,23 @@ func TestPriceOf(t *testing.T) {
 func TestSupportedFollowsTheShell(t *testing.T) {
 	if !Supported() {
 		t.Skip("no sh on this machine")
+	}
+}
+
+// A PASS that proves nothing about the model's work is not scored as a pass.
+func TestOutcomeOfDoesNotScoreAnUnprovenPass(t *testing.T) {
+	for name, r := range map[string]agent.TaskResult{
+		"chat":        {Pass: true, Kind: "chat", Reason: "hi"},
+		"ask":         {Pass: true, Kind: "ask"},
+		"unverified":  {Pass: true, Validation: &anchor.Result{Unverified: true}},
+		"preexisting": {Pass: true, Validation: &anchor.Result{PreExisting: []string{"go test"}}},
+	} {
+		if o := outcomeOf(r, llm.Usage{}, config.LLM{}); o.Pass || o.Reason == "" {
+			t.Errorf("%s: %+v", name, o)
+		}
+	}
+	good := agent.TaskResult{Pass: true, Kind: "task", Validation: &anchor.Result{Pass: true}}
+	if o := outcomeOf(good, llm.Usage{}, config.LLM{}); !o.Pass {
+		t.Errorf("a verified PASS was refused: %+v", o)
 	}
 }

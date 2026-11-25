@@ -86,13 +86,32 @@ func outcomeOf(r agent.TaskResult, u llm.Usage, l config.LLM) Outcome {
 	// A provider that reported no usage leaves nothing to price: zero dollars would be a wrong answer.
 	known = known && u.Total() > 0
 	o := Outcome{
-		Pass: r.Pass, Steps: r.Attempts, Tokens: u.Total(), DurationMS: r.DurationMS,
+		Pass: r.Pass && unproven(r) == "", Steps: r.Attempts, Tokens: u.Total(), DurationMS: r.DurationMS,
 		Reason: strings.TrimSpace(r.Reason), CostKnown: known,
+	}
+	if why := unproven(r); r.Pass && why != "" {
+		o.Reason = strings.TrimSpace(why + ": " + o.Reason)
 	}
 	if known {
 		o.CostUSD = (float64(u.Input+u.CacheWrite)*in + float64(u.Output)*out + float64(u.CacheRead)*in) / 1e6
 	}
 	return o
+}
+
+// unproven says why a PASS is not proof that the model did the work: a conversational reply ran
+// no task, and a gate that proved nothing (no tests declared) or was already red before the run
+// verified nothing of what the model did. It is "" for a PASS that stands.
+func unproven(r agent.TaskResult) string {
+	switch {
+	case r.Kind == "chat" || r.Kind == "ask":
+		return "a reply, not a task: nothing was done or validated"
+	case r.Validation != nil && r.Validation.Unverified:
+		return "the gate verified nothing"
+	case r.Validation != nil && len(r.Validation.PreExisting) > 0:
+		return "the gate was already failing before the run"
+	default:
+		return ""
+	}
 }
 
 // PriceOf is the approximate price, in USD per million input and output tokens, of a model of the
