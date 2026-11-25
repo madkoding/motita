@@ -563,3 +563,25 @@ func TestOriginOfIsTheHostWhateverThePort(t *testing.T) {
 		}
 	}
 }
+
+// A found computer that is still being seen keeps the certificate it first showed: a beacon with
+// its ID and another certificate neither replaces it nor moves its address, until it went quiet.
+func TestABeaconWithAnotherCertificateDoesNotReplaceAFoundComputer(t *testing.T) {
+	r, c := newReg(t)
+	first := hello("peer0001", "desk")
+	first.Cert = "aaaa"
+	r.Saw(first, ap("192.168.1.5:7477"), SourceLAN)
+	spoof := hello("peer0001", "desk")
+	spoof.Cert = "bbbb"
+	if r.Saw(spoof, ap("192.168.1.99:7477"), SourceLAN) {
+		t.Error("a spoofed beacon counted as a new computer")
+	}
+	if p, _ := r.Find("peer0001"); p.Address != "192.168.1.5:7477" || r.live["peer0001"].hello.Cert != "aaaa" {
+		t.Fatalf("the found computer was replaced: %+v", p)
+	}
+	c.t = c.t.Add(TTL + time.Second)
+	r.Saw(spoof, ap("192.168.1.99:7477"), SourceLAN)
+	if got := r.live["peer0001"].hello.Cert; got != "bbbb" {
+		t.Errorf("a computer that went quiet could not come back with a new certificate: %s", got)
+	}
+}

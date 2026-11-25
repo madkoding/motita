@@ -355,6 +355,13 @@ func (r *Registry) Saw(h Hello, at netip.AddrPort, src Source) bool {
 	}
 	now := r.Now()
 	s, known := r.live[h.ID]
+	// A found computer that is still being seen keeps the certificate it first showed: a later
+	// beacon with the same ID and another certificate is not it, and taking it over would send
+	// the token typed for the first one to whoever sent the second. The sighting may change its
+	// certificate only after it went quiet for a TTL (a computer that really was reinstalled).
+	if known && s.hello.Cert != "" && s.hello.Cert != h.Cert && s.best(now) != "" {
+		return false
+	}
 	if !known {
 		s = &sighting{source: src, addrs: map[netip.AddrPort]time.Time{}}
 		r.live[h.ID] = s
