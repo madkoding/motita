@@ -160,6 +160,8 @@ type Agent struct {
 	box *boxState
 	// desk is the run's desktop and the picture of it the next round shows. See desktopaction.go.
 	desk desktopState
+	// mcp is the run's connected MCP servers. See mcpaction.go.
+	mcp mcpState
 	// roleEngines is the engine a background agent of a role runs on, handed by the session that
 	// runs this agent; nil (or a nil answer) means this agent's own engine. See SetRoleEngines.
 	roleEngines func(role string) *llm.Client
@@ -603,6 +605,7 @@ func (a *Agent) report(format string, args ...any) {
 // context is cancelled (graceful shutdown).
 func (a *Agent) Run(ctx context.Context) error {
 	defer a.saveUsage()
+	defer a.closeMCP()
 	if strings.EqualFold(a.cfg.Anchor.Kind, "none") || a.cfg.Anchor.Kind == "" {
 		// Without an anchor there is no authority to declare PASS, so every task
 		// would end up escalated after burning attempts against the LLM. Failing

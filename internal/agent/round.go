@@ -109,7 +109,7 @@ func (rr *roundRun) kindAction(i int, kind string, action Command) bool {
 // desktop.
 func (rr *roundRun) workAction(i int, kind string, action Command) bool {
 	return rr.agentAction(i, kind, action) || rr.fileAction(i, kind, action) || rr.boxAction(i, kind, action) ||
-		rr.desktopAction(i, kind, action)
+		rr.desktopAction(i, kind, action) || rr.mcpAction(i, kind, action)
 }
 
 // readAction is an action answered from the library, the memory or the session, which change nothing.
@@ -205,6 +205,23 @@ func (rr *roundRun) desktopAction(i int, kind string, action Command) bool {
 	return true
 }
 
+// mcpAction is a call to an MCP server (see mcpaction.go).
+func (rr *roundRun) mcpAction(i int, kind string, action Command) bool {
+	a := rr.a
+	if !isMCPKind(kind) {
+		return false
+	}
+	rr.announce(action, runningFmt, kind, firstLineOf(action.Command))
+	out, refusal := a.mcpStep(rr.ctx, kind, action)
+	fmt.Fprintf(&rr.sb, "[%s] %s\n%s\n", kind, action.Description, out)
+	rr.reportResult(out, refusal)
+	a.log.Info(rr.prefix+"mcp action", "kind", kind)
+	if refusal != nil {
+		rr.lastErr = fmt.Errorf("action %d (%s) was refused: %w", i+1, kind, refusal)
+	}
+	return true
+}
+
 // libraryAction is an operation on the procedure library.
 func (rr *roundRun) libraryAction(kind string, action Command) bool {
 	handled, out := rr.a.runLibraryAction(kind, action)
@@ -237,7 +254,8 @@ func (rr *roundRun) unknownKind(i int, kind string, action Command) bool {
 		"thread, recall, remember, "+
 		"box_up, box_get, box_shot, box_down, "+
 		"desktop_shot, desktop_click, desktop_move, desktop_scroll, desktop_type, desktop_key, "+
-		"desktop_windows, desktop_focus (when the person turned desktop control on). "+
+		"desktop_windows, desktop_focus (when the person turned desktop control on), "+
+		"mcp_tools, mcp_call (when the person connected MCP servers). "+
 		"To run a shell command, use kind \"command\".]\n",
 		kind, action.Description, kind)
 	rr.a.log.Warn(rr.prefix+"action with an unknown kind",

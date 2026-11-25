@@ -1726,6 +1726,29 @@ The coordinates are the picture's pixels and are mapped back to the screen with 
 
 motita must run inside the graphical session (`DISPLAY` or `WAYLAND_DISPLAY` set on Linux): a gateway started as a system service has no desktop, and Settings → Security says so. A connected computer is controlled through its own setting, from its box in the sidebar. The picture reaches every provider (Anthropic, OpenAI-compatible, Gemini, Codex and claude-code); the model must be one that reads images.
 
+### MCP servers (`mcp_tools`, `mcp_call`)
+
+`agent.mcp` lists [Model Context Protocol](https://modelcontextprotocol.io) servers: programs motita starts, the first time a run needs one, and talks to over their standard input and output (protocol revision `2025-11-25`, older servers are spoken to in their own revision). Remote servers that only speak HTTP can be reached through a stdio bridge such as `mcp-remote` until HTTP is supported here.
+
+```yaml
+agent:
+  mcp:
+    - name: shop                 # letters, digits, - and _
+      command: npx
+      args: [-y, "@example/shop-mcp"]
+      env: {SHOP_TOKEN: "..."}   # added to PATH and HOME; nothing else of your environment is passed
+      dir: ""                    # empty = the workspace
+```
+
+| Action | `command` | Result |
+|---|---|---|
+| `mcp_tools` | a server name, or nothing for every server | each tool's description and argument schema |
+| `mcp_call` | `<server> <tool>` on the first line, the arguments as a JSON object after it | the tool's answer, cut at 20,000 bytes |
+
+Every `mcp_call` is **asked about** (rule `mcp`) with the server, the tool and the arguments; *Allow all commands for this session* answers them all. What a server answers reaches the model marked as data from a third party. A background agent or a read-only session cannot use MCP, and with no server listed the actions are not offered. The servers a run started are stopped when it ends.
+
+**Elicitation.** A server may pause a call to ask the person something (confirm before deleting or spending, or send them to a page for a payment or a sign-in). It goes through the same approval (rule `mcp-elicit`): a confirmation shows the server's question, a page shows its full address, and only `http` and `https` addresses are offered. A form asking for a value motita cannot invent (a typed name) is declined and the model is told what the server wanted, so it asks the person in the chat and calls again with the value in the arguments.
+
 ### Upkeep: weekly audit and draft pull requests
 
 Two independent switches in **Settings → Upkeep**, both **off** by default (the first spends model turns every week, the second publishes under your account):

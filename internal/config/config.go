@@ -390,6 +390,8 @@ type Agent struct {
 	// windows (internal/desktop), asking before every step. Off by default: it reaches everything
 	// the person's own session reaches, outside the sandbox.
 	DesktopControl bool `yaml:"desktop_control"`
+	// MCP lists the Model Context Protocol servers the person connected. See MCPServer.
+	MCP []MCPServer `yaml:"mcp"`
 	// Shell is the interpreter used for actions outside read-only mode. Empty means
 	// the platform default (sh on Unix; on Windows PowerShell 7, then Windows PowerShell,
 	// then the command processor).
@@ -1192,6 +1194,9 @@ func (c Config) Deprecations() []string {
 }
 
 func (c *Config) validateAgent() error {
+	if err := c.Agent.validateMCP(); err != nil {
+		return err
+	}
 	if err := c.Agent.validateLoops(); err != nil {
 		return err
 	}

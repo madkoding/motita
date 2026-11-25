@@ -287,6 +287,7 @@ func (a *Agent) baseVariables(t task.Task) map[string]string {
 		"provider":     a.cfg.LLM.Provider,
 		"tools":        describeTools(a.cfg.Sandbox, a.sandbox.Home()) + describeShell(shellFor(a.cfg)) + a.secretsNote(),
 		"desktop":      a.desktopDocs(),
+		"mcp":          a.mcpDocs(),
 	}
 	for k, v := range t.Context {
 		vars["context_"+k] = v
