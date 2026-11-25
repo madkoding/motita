@@ -96,7 +96,7 @@ var argumentRules = map[string]func([]string) (string, bool){
 	// writers by name, so `docker ps` was refused with "can change the system".
 	"docker": containerRule, "podman": podmanRule, "kubectl": clusterRule, "helm": helmRule,
 	"systemctl": func(args []string) (string, bool) {
-		sub := firstNonFlag(args)
+		sub := verbOf("systemctl", args)
 		switch sub {
 		case "status", "show", "list-units", "list-unit-files", "is-active",
 			"is-enabled", "is-failed", "cat", "list-timers", "list-sockets",

@@ -167,7 +167,7 @@ func TestVerifyChecksum(t *testing.T) {
 	defer srv.Close()
 
 	u := &Updater{Goos: "linux", Goarch: "amd64", HTTPClient: srv.Client()}
-	if err := u.verifyChecksum(context.Background(), srv.URL, "", binPath); err != nil {
+	if err := u.verifyChecksum(context.Background(), srv.URL, "", binPath, ""); err != nil {
 		t.Fatalf("verifyChecksum failed: %v", err)
 	}
 }
@@ -186,7 +186,7 @@ func TestVerifyChecksumMismatch(t *testing.T) {
 	defer srv.Close()
 
 	u := &Updater{Goos: "linux", Goarch: "amd64", HTTPClient: srv.Client()}
-	err := u.verifyChecksum(context.Background(), srv.URL, "", binPath)
+	err := u.verifyChecksum(context.Background(), srv.URL, "", binPath, "")
 	if err == nil {
 		t.Error("expected checksum mismatch error")
 	}
@@ -343,7 +343,7 @@ func TestVerifyChecksumHTTPError(t *testing.T) {
 	defer srv.Close()
 
 	u := &Updater{Goos: "linux", Goarch: "amd64", HTTPClient: srv.Client()}
-	err := u.verifyChecksum(context.Background(), srv.URL, "", filepath.Join(t.TempDir(), "x"))
+	err := u.verifyChecksum(context.Background(), srv.URL, "", filepath.Join(t.TempDir(), "x"), "")
 	if err == nil {
 		t.Error("expected error for non-200")
 	}
@@ -351,7 +351,7 @@ func TestVerifyChecksumHTTPError(t *testing.T) {
 
 func TestVerifyChecksumBadURL(t *testing.T) {
 	u := &Updater{Goos: "linux", Goarch: "amd64", HTTPClient: &http.Client{}}
-	err := u.verifyChecksum(context.Background(), "http://\x7f.invalid", "", filepath.Join(t.TempDir(), "x"))
+	err := u.verifyChecksum(context.Background(), "http://\x7f.invalid", "", filepath.Join(t.TempDir(), "x"), "")
 	if err == nil {
 		t.Error("expected error for bad URL")
 	}
@@ -370,7 +370,7 @@ func TestVerifyChecksumNoEntry(t *testing.T) {
 	}
 
 	u := &Updater{Goos: "linux", Goarch: "amd64", HTTPClient: srv.Client()}
-	err := u.verifyChecksum(context.Background(), srv.URL, "", binPath)
+	err := u.verifyChecksum(context.Background(), srv.URL, "", binPath, "")
 	if err == nil {
 		t.Error("expected error for no matching entry")
 	}
@@ -383,7 +383,7 @@ func TestVerifyChecksumFileMissing(t *testing.T) {
 	defer srv.Close()
 
 	u := &Updater{Goos: "linux", Goarch: "amd64", HTTPClient: srv.Client()}
-	err := u.verifyChecksum(context.Background(), srv.URL, "", "/nonexistent-file-xyz")
+	err := u.verifyChecksum(context.Background(), srv.URL, "", "/nonexistent-file-xyz", "")
 	if err == nil {
 		t.Error("expected error for missing binary file")
 	}
@@ -406,7 +406,7 @@ func TestVerifyChecksumEmptyLines(t *testing.T) {
 	defer srv.Close()
 
 	u := &Updater{Goos: "linux", Goarch: "amd64", HTTPClient: srv.Client()}
-	if err := u.verifyChecksum(context.Background(), srv.URL, "", binPath); err != nil {
+	if err := u.verifyChecksum(context.Background(), srv.URL, "", binPath, ""); err != nil {
 		t.Fatal(err)
 	}
 }
@@ -423,7 +423,7 @@ func TestVerifyChecksumBodyReadError(t *testing.T) {
 	defer srv.Close()
 
 	u := &Updater{Goos: "linux", Goarch: "amd64", HTTPClient: srv.Client()}
-	err := u.verifyChecksum(context.Background(), srv.URL, "", filepath.Join(t.TempDir(), "x"))
+	err := u.verifyChecksum(context.Background(), srv.URL, "", filepath.Join(t.TempDir(), "x"), "")
 	if err == nil {
 		t.Error("expected body read error")
 	}
@@ -521,7 +521,7 @@ func TestDownloadFileSelectContextCanceled(t *testing.T) {
 // at connection time.
 func TestVerifyChecksumBadURL2(t *testing.T) {
 	u := &Updater{Goos: "linux", Goarch: "amd64", HTTPClient: &http.Client{Timeout: 2 * time.Second}}
-	err := u.verifyChecksum(context.Background(), "http://127.0.0.1:1/nope", "", filepath.Join(t.TempDir(), "x"))
+	err := u.verifyChecksum(context.Background(), "http://127.0.0.1:1/nope", "", filepath.Join(t.TempDir(), "x"), "")
 	if err == nil {
 		t.Error("expected error from unreachable checksums URL")
 	}
@@ -593,7 +593,7 @@ func TestVerifyChecksumIOCopyFails(t *testing.T) {
 	defer srv.Close()
 
 	u := &Updater{Goos: "linux", Goarch: "amd64", HTTPClient: srv.Client()}
-	err := u.verifyChecksum(context.Background(), srv.URL, "", "/proc/self/mem")
+	err := u.verifyChecksum(context.Background(), srv.URL, "", "/proc/self/mem", "")
 	if err == nil {
 		t.Error("expected io.Copy error reading /proc/self/mem")
 	}

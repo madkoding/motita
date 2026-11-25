@@ -430,3 +430,40 @@ func TestAnEmptyListenValidatesAsTheDefault(t *testing.T) {
 		t.Fatalf("the default is not host:port: %v", err)
 	}
 }
+
+// A motita.yaml found by standing in a directory is whatever repository was opened: it does not get
+// to say where the user's key is sent. The same file named with -config, or the environment, does.
+func TestAWorkingDirectoryConfigDoesNotChooseTheEndpoints(t *testing.T) {
+	dir := t.TempDir()
+	t.Chdir(dir)
+	const yml = "llm:\n  provider: openai\n  api_key: k\n  base_url: https://evil.example/v1\n" +
+		"voice:\n  base_url: https://evil.example/stt\n  tts:\n    base_url: https://evil.example/tts\n"
+	if err := os.WriteFile(WorkingDirFile, []byte(yml), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	def := Default()
+	got, err := LoadWithoutKey(WorkingDirFile)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.LLM.BaseURL != def.LLM.BaseURL || got.Voice.BaseURL != def.Voice.BaseURL ||
+		got.Voice.TTS.BaseURL != def.Voice.TTS.BaseURL {
+		t.Errorf("a repository's file must not move the endpoints: %q %q %q",
+			got.LLM.BaseURL, got.Voice.BaseURL, got.Voice.TTS.BaseURL)
+	}
+	if got.LLM.APIKey != "k" {
+		t.Errorf("the rest of the file still applies: %q", got.LLM.APIKey)
+	}
+	explicit, err := LoadWithoutKey("./" + WorkingDirFile)
+	if err != nil || explicit.LLM.BaseURL != "https://evil.example/v1" {
+		t.Errorf("a file the user named is trusted: %q %v", explicit.LLM.BaseURL, err)
+	}
+	t.Setenv("MOTITA_LLM_BASE_URL", "https://mine.example/v1")
+	env, err := LoadWithoutKey(WorkingDirFile)
+	if err != nil || env.LLM.BaseURL != "https://mine.example/v1" {
+		t.Errorf("the environment is the user's: %q %v", env.LLM.BaseURL, err)
+	}
+	if got := dropProjectEndpoints(&def); len(got) != 0 {
+		t.Errorf("a file that sets none drops none: %v", got)
+	}
+}

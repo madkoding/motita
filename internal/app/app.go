@@ -588,8 +588,8 @@ func resolvedConfigPath(fl flags) string {
 		return fl.configPath
 	case config.File() != "" && exists(config.File()):
 		return config.File()
-	case exists("motita.yaml"):
-		return "motita.yaml"
+	case exists(config.WorkingDirFile):
+		return config.WorkingDirFile
 	default:
 		return ""
 	}

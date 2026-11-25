@@ -85,6 +85,18 @@ func TestUnconfinedProjectCodeIsConfirmed(t *testing.T) {
 			t.Errorf("%q: got %s/%s (%s), want ask/unconfined-run", line, d.Verdict, d.Rule, d.Reason)
 		}
 	}
+	// A shell handed the script is the same run as the script itself.
+	if err := os.WriteFile(filepath.Join(dir, "evil.sh"), []byte("#!/bin/sh\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	for _, line := range []string{"bash evil.sh", "sh -eu evil.sh"} {
+		if d := m.DecideLine(line, dir); d.Verdict != Ask || d.Rule != "unconfined-run" {
+			t.Errorf("%q: got %s/%s (%s), want ask/unconfined-run", line, d.Verdict, d.Rule, d.Reason)
+		}
+		if d := (Mode{Enforce: true}).DecideLine(line, dir); d.Verdict != Allow || d.Rule != "project-script" {
+			t.Errorf("confined %q: got %s/%s, want allow/project-script", line, d.Verdict, d.Rule)
+		}
+	}
 	// Confined, the same lines run as before.
 	for _, line := range []string{"python t.py", "go test ./...", script + " a"} {
 		if d := (Mode{Enforce: true}).DecideLine(line, dir); d.Verdict != Allow {
@@ -127,6 +139,45 @@ func TestPathOperandAndPrivatePath(t *testing.T) {
 	} {
 		if got := privatePath(p); got != want {
 			t.Errorf("privatePath(%q) = %v, want %v", p, got, want)
+		}
+	}
+}
+
+// A trace variable that names a file is a write outside the workspace, in every spelling of the line.
+func TestGitTraceToAFileIsAsked(t *testing.T) {
+	dir := t.TempDir()
+	m := Mode{Enforce: true}
+	for _, line := range []string{
+		"GIT_TRACE=/tmp/x git status", "GIT_TRACE=/tmp/x", "export GIT_TRACE=/tmp/x", "env GIT_TRACE=/tmp/x git status",
+	} {
+		if d := m.DecideLine(line, dir); d.Verdict == Allow {
+			t.Errorf("%q: got %s/%s, want a question", line, d.Verdict, d.Rule)
+		}
+	}
+	if d := m.DecideLine("GIT_TRACE=1 git status", dir); d.Verdict != Allow {
+		t.Errorf("a switch stays silent: got %s/%s", d.Verdict, d.Rule)
+	}
+}
+
+// An option's value is not the subcommand: `kubectl -n get delete` deletes, and an option nobody
+// listed may take a value too, so the line is asked about instead of read as its first word.
+func TestOptionValuesAreNotTheSubcommand(t *testing.T) {
+	dir := t.TempDir()
+	m := Mode{Enforce: true}
+	for _, line := range []string{
+		"docker --log-level info run -v /:/h x", "docker -l info run x", "kubectl -n get delete pod x",
+		"npm --prefix bin exec -c x", "go --unknown ps test",
+	} {
+		if d := m.DecideLine(line, dir); d.Verdict == Allow {
+			t.Errorf("%q: got %s/%s, want a question", line, d.Verdict, d.Rule)
+		}
+	}
+	for _, line := range []string{
+		"kubectl -n ns get pods", "go -C sub test ./...", "docker --log-level=info ps", "npm --silent test",
+		"npm --prefix web test", "go test -v ./...", "docker ps",
+	} {
+		if d := m.DecideLine(line, dir); d.Verdict != Allow {
+			t.Errorf("%q: got %s/%s, want allow", line, d.Verdict, d.Rule)
 		}
 	}
 }

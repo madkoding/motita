@@ -414,7 +414,7 @@ func (u *Updater) DownloadAndInstall(ctx context.Context, release *Release, prog
 
 	// Stage 2: verify checksum
 	progress(ProgressEvent{Stage: "verifying", Percent: 100, Message: "Verifying checksum"})
-	if err := u.verifyChecksum(ctx, checksumsURL, sigURL, tmpBin); err != nil {
+	if err := u.verifyChecksum(ctx, checksumsURL, sigURL, tmpBin, release.TagName); err != nil {
 		return fmt.Errorf("checksum verification failed: %w", err)
 	}
 
@@ -565,9 +565,23 @@ func (u *Updater) fetchSmall(ctx context.Context, url, name string, max int64) (
 	return body, nil
 }
 
+// versionLinePrefix starts the line of SHA256SUMS that names the release the file belongs to
+// ("# motita v1.2.3"). The release workflow writes it before signing.
+const versionLinePrefix = "# motita "
+
+// signedVersion is the release a SHA256SUMS names, or "" when it names none.
+func signedVersion(sums []byte) string {
+	for _, line := range strings.Split(string(sums), "\n") {
+		if v, ok := strings.CutPrefix(strings.TrimSpace(line), versionLinePrefix); ok {
+			return strings.TrimSpace(v)
+		}
+	}
+	return ""
+}
+
 // verifyChecksum downloads SHA256SUMS, checks its signature when a release key is configured,
 // finds the entry for our asset, and compares it with the downloaded file's SHA-256.
-func (u *Updater) verifyChecksum(ctx context.Context, checksumsURL, sigURL, binPath string) error {
+func (u *Updater) verifyChecksum(ctx context.Context, checksumsURL, sigURL, binPath, tag string) error {
 	body, err := u.fetchSmall(ctx, checksumsURL, "SHA256SUMS", maxChecksumsSize)
 	if err != nil {
 		return err
@@ -579,6 +593,12 @@ func (u *Updater) verifyChecksum(ctx context.Context, checksumsURL, sigURL, binP
 		}
 		if !ed25519.Verify(u.PublicKey, body, sig) {
 			return errors.New("SHA256SUMS.sig is not a valid signature by the release key")
+		}
+		// The signature covers the file, and the file used to say nothing about WHICH release it
+		// belongs to, so any older signed release could be published again as the newest. The
+		// version line is inside what is signed: it must be the tag being installed.
+		if signed := signedVersion(body); signed != tag {
+			return fmt.Errorf("SHA256SUMS is signed for %q, not for the release %s; refusing a replayed release", signed, tag)
 		}
 	}
 

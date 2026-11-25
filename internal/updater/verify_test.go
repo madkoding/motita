@@ -34,9 +34,15 @@ type signedRelease struct {
 
 func newSignedRelease(t *testing.T, sig func(sums []byte) []byte) *signedRelease {
 	t.Helper()
+	return newSignedReleaseNamed(t, sig, "# motita v0.7.0\n")
+}
+
+// newSignedReleaseNamed is newSignedRelease with the version line the checksum file carries.
+func newSignedReleaseNamed(t *testing.T, sig func(sums []byte) []byte, versionLine string) *signedRelease {
+	t.Helper()
 	name := "motita-linux-amd64"
 	bin := []byte("signed binary payload")
-	sums := []byte(fmt.Sprintf("%s  %s\n", sha256hex(bin), name))
+	sums := []byte(fmt.Sprintf("%s%s  %s\n", versionLine, sha256hex(bin), name))
 
 	mux := http.NewServeMux()
 	srv := httptest.NewTLSServer(mux)
@@ -155,7 +161,7 @@ func TestAnOversizedChecksumFileIsRefused(t *testing.T) {
 	}))
 	defer srv.Close()
 	u := &Updater{Goos: "linux", Goarch: "amd64", HTTPClient: srv.Client()}
-	err := u.verifyChecksum(context.Background(), srv.URL, "", filepath.Join(t.TempDir(), "x"))
+	err := u.verifyChecksum(context.Background(), srv.URL, "", filepath.Join(t.TempDir(), "x"), "")
 	if err == nil || !strings.Contains(err.Error(), "larger than") {
 		t.Fatalf("a SHA256SUMS over the cap must be refused, got %v", err)
 	}
@@ -333,4 +339,25 @@ func TestMustPublicKeyPanicsOnAMalformedKey(t *testing.T) {
 		}
 	}()
 	mustPublicKey("not base64!")
+}
+
+// An old release's SHA256SUMS and signature are still valid signatures. Published again beside a
+// newer tag they must not install: the signed file names the release it belongs to.
+func TestAReplayedSignedReleaseIsRefused(t *testing.T) {
+	pub, priv := newKey(t)
+	sign := func(sums []byte) []byte { return ed25519.Sign(priv, sums) }
+	for name, line := range map[string]string{"another version": "# motita v0.6.0\n", "no version": ""} {
+		rel := newSignedReleaseNamed(t, sign, line)
+		u, target := rel.updater(t, pub)
+		err := u.DownloadAndInstall(context.Background(), &rel.release, func(ProgressEvent) {})
+		if err == nil || !strings.Contains(err.Error(), "replayed") {
+			t.Fatalf("%s: a release signed for another version must be refused, got %v", name, err)
+		}
+		assertUntouched(t, target)
+	}
+	rel := newSignedRelease(t, sign)
+	u, _ := rel.updater(t, pub)
+	if err := u.DownloadAndInstall(context.Background(), &rel.release, func(ProgressEvent) {}); err != nil {
+		t.Fatalf("a release signed for its own tag installs: %v", err)
+	}
 }

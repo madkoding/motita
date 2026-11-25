@@ -870,6 +870,7 @@ func load(path string, requireKey bool) (Config, error) {
 		if err := Decode(m, &cfg); err != nil {
 			return cfg, fmt.Errorf("invalid configuration in %q: %w", path, err)
 		}
+		guardWorkingDirFile(&cfg, path)
 		// Every relative path resolves beside the file, so a configuration is movable and the
 		// program's state stays with it. Applied BEFORE validate, because validate is what fills
 		// an empty path with the default, and a value arriving afterwards would keep the

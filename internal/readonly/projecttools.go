@@ -48,7 +48,7 @@ func packageReport(name string, verbs map[string]bool, args []string) (string, b
 	if len(args) == 1 && isVersionFlag(args[0]) && args[0] != "version" {
 		return "", false
 	}
-	if verbs[firstNonFlag(args)] {
+	if verbs[verbOf(name, args)] {
 		return "", false
 	}
 	return fmt.Sprintf("%s can change the project or the system; only %s are read-only",

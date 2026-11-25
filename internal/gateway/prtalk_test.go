@@ -51,7 +51,7 @@ const comments = "GET https://api.github.com/repos/o/r/issues/7/comments"
 
 func talkHost(host *gitHost, branch, conclusion, mergeState string) {
 	prHost(host, branch, conclusion, mergeState)
-	host.set(comments, `[{"id":1,"body":"from before","user":{"login":"a"}}]`)
+	host.set(comments, `[{"id":1,"body":"from before","user":{"login":"a"},"author_association":"COLLABORATOR"}]`)
 	host.set("GET https://api.github.com/repos/o/r/pulls/7/reviews", `[]`)
 	host.set("GET https://api.github.com/repos/o/r/pulls/7/comments", `[]`)
 }
@@ -71,7 +71,8 @@ func TestPRWatchSendsTheAgentToANewReview(t *testing.T) {
 	if srv.pollPR(c, w) || w.status != prPassed || w.attempts != 0 {
 		t.Fatalf("baseline: %s %d", w.status, w.attempts)
 	}
-	host.set(comments, `[{"id":1,"body":"from before"},{"id":2,"body":"please rename x","user":{"login":"bo"}}]`)
+	host.set(comments, `[{"id":1,"body":"from before","author_association":"OWNER"},`+
+		`{"id":2,"body":"please rename x","user":{"login":"bo"},"author_association":"COLLABORATOR"}]`)
 	if srv.pollPR(c, w) {
 		t.Fatal("a review is not the end of the watch")
 	}

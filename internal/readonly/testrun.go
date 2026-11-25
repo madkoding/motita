@@ -37,7 +37,7 @@ func testRun(name string, args []string) (allowed bool, reason string, ok bool) 
 func runsTests(name string, args []string) bool {
 	switch name {
 	case "go", "cargo", "dotnet", "mvn", "gradle":
-		return firstNonFlag(args) == "test"
+		return verbOf(name, args) == "test"
 	case "npm", "pnpm", "yarn":
 		return scriptName(args) != ""
 	case "make":

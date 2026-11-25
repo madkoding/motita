@@ -180,3 +180,55 @@ func TestAFailedSignatureGetsTheHint(t *testing.T) {
 		t.Errorf("no hint without the grant: %q", out)
 	}
 }
+
+// A command can leave a symlink where the view, or a file of it, should be. The view is written
+// with the user's rights, so it must not write through the link into the user's real GnuPG home.
+func TestGPGViewDoesNotWriteThroughASymlink(t *testing.T) {
+	g := t.TempDir()
+	real := t.TempDir()
+	s := gpgSandbox(t, gpgagent.Access{Home: g, Socket: "/run/s"}, t.TempDir())
+	if err := os.MkdirAll(s.Home(), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	// The whole view is a link to the real home.
+	if err := os.Symlink(real, filepath.Join(s.Home(), ".gnupg-motita")); err != nil {
+		t.Fatal(err)
+	}
+	if got := s.gpgView(); got != "" {
+		t.Errorf("a view that leaves the HOME: %q", got)
+	}
+	if entries, _ := os.ReadDir(real); len(entries) != 0 {
+		t.Errorf("the view was written through the link: %v", entries)
+	}
+	// One file of it is a link to a file of the user's.
+	os.Remove(filepath.Join(s.Home(), ".gnupg-motita"))
+	view := filepath.Join(s.Home(), ".gnupg-motita")
+	if err := os.MkdirAll(view, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	mine := filepath.Join(real, "authorized_keys")
+	if err := os.WriteFile(mine, []byte("keep"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(mine, filepath.Join(view, "common.conf")); err != nil {
+		t.Fatal(err)
+	}
+	if got := s.gpgView(); got != "" {
+		t.Errorf("a file that leaves the HOME: %q", got)
+	}
+	if got, _ := os.ReadFile(mine); string(got) != "keep" {
+		t.Errorf("the user's file was overwritten: %q", got)
+	}
+}
+
+// A HOME that is not a directory gives no view, rather than a write somewhere else.
+func TestGPGViewWithAHomeThatIsNotADirectory(t *testing.T) {
+	tools := t.TempDir()
+	s := gpgSandbox(t, gpgagent.Access{Home: t.TempDir(), Socket: "/run/s"}, tools)
+	if err := os.WriteFile(filepath.Join(tools, "home"), nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if got := s.gpgView(); got != "" {
+		t.Errorf("a HOME that is a file: %q", got)
+	}
+}

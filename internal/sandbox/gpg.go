@@ -39,22 +39,34 @@ func (s *Sandbox) gpgView() string {
 	if !acc.Enabled() || home == "" {
 		return ""
 	}
-	view := filepath.Join(home, ".gnupg-motita")
-	if err := os.MkdirAll(view, 0o700); err != nil {
+	// Everything below goes through os.Root: the HOME is written by the confined command, which can
+	// leave a symlink where the view, a link or a file of it should be. This process then writes
+	// with the user's own rights, and a path that followed the link would overwrite ~/.gnupg or
+	// any other file the user owns.
+	root, err := os.OpenRoot(home)
+	if err != nil {
 		s.log.Warn("the gpg view could not be made; commits cannot be signed", "error", err)
 		return ""
 	}
+	defer root.Close()
+	const viewName = ".gnupg-motita"
+	view, err := openDir(root, viewName)
+	if err != nil {
+		s.log.Warn("the gpg view could not be made; commits cannot be signed", "error", err)
+		return ""
+	}
+	defer view.Close()
 	for _, name := range gpgagent.PublicNames {
-		link, target := filepath.Join(view, name), filepath.Join(acc.Home, name)
+		target := filepath.Join(acc.Home, name)
 		if _, err := os.Stat(target); err != nil {
-			_ = os.Remove(link)
+			_ = view.Remove(name)
 			continue
 		}
-		if cur, err := os.Readlink(link); err == nil && cur == target {
+		if cur, err := view.Readlink(name); err == nil && cur == target {
 			continue
 		}
-		_ = os.Remove(link)
-		if err := os.Symlink(target, link); err != nil {
+		_ = view.Remove(name)
+		if err := view.Symlink(target, name); err != nil {
 			s.log.Warn("the gpg view could not link the keyring", "name", name, "error", err)
 		}
 	}
@@ -63,14 +75,22 @@ func (s *Sandbox) gpgView() string {
 		"common.conf": "no-autostart\n",
 	}
 	for name, body := range files {
-		path := filepath.Join(view, name)
-		if cur, err := os.ReadFile(path); err == nil && string(cur) == body {
+		if cur, err := view.ReadFile(name); err == nil && string(cur) == body {
 			continue
 		}
-		if err := os.WriteFile(path, []byte(body), 0o600); err != nil {
+		if err := view.WriteFile(name, []byte(body), 0o600); err != nil {
 			s.log.Warn("the gpg view could not be written", "name", name, "error", err)
 			return ""
 		}
 	}
-	return view
+	return filepath.Join(home, viewName)
+}
+
+// openDir makes the directory name inside root, if it is not there, and opens it as a root of its
+// own. A name that is a symlink out of root is an error, not a way out.
+func openDir(root *os.Root, name string) (*os.Root, error) {
+	if err := root.MkdirAll(name, 0o700); err != nil {
+		return nil, err
+	}
+	return root.OpenRoot(name)
 }

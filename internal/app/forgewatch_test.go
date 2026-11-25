@@ -126,10 +126,11 @@ func TestForgeWatchReviewsAndConflicts(t *testing.T) {
 	h := &watchHost{
 		pulls:  []string{prOpen},
 		checks: []string{runsGreen},
-		comments: []string{`[{"id":1,"body":"old","user":{"login":"a"}}]`,
-			`[{"id":1,"body":"old","user":{"login":"a"}},{"id":2,"body":"rename\nthis","html_url":"c2","user":{"login":"b"}}]`},
-		reviews: []string{`[]`, `[{"id":3,"body":"no","state":"CHANGES_REQUESTED"}]`},
-		lines:   []string{`[]`, `[{"id":4,"body":"here","path":"a.go"}]`},
+		comments: []string{`[{"id":1,"body":"old","user":{"login":"a"},"author_association":"OWNER"}]`,
+			`[{"id":1,"body":"old","user":{"login":"a"},"author_association":"OWNER"},` +
+				`{"id":2,"body":"rename\nthis","html_url":"c2","user":{"login":"b"},"author_association":"MEMBER"}]`},
+		reviews: []string{`[]`, `[{"id":3,"body":"no","state":"CHANGES_REQUESTED","author_association":"OWNER"}]`},
+		lines:   []string{`[]`, `[{"id":4,"body":"here","path":"a.go","author_association":"OWNER"}]`},
 	}
 	if code := f.watch(h, "--until-merged"); code != RunError {
 		t.Fatalf("review: code %d out %q", code, f.out.String())

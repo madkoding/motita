@@ -273,7 +273,7 @@ func goRule(args []string) (string, bool) {
 			return reason, true
 		}
 	}
-	sub := firstNonFlag(args)
+	sub := verbOf("go", args)
 	switch sub {
 	case "version", "list", "doc", "vet", "":
 		return "", false

@@ -121,8 +121,7 @@ func envProgram(args []string) (int, string) {
 		case strings.ContainsRune(a, '='):
 			// `env GIT_SSH_COMMAND=x git fetch` hands git a program to run: the same names
 			// that make an export a question make this env one.
-			v, _, _ := strings.Cut(a, "=")
-			if reason, runs := RunnerVariable(v); runs {
+			if reason, runs := RunnerAssignment(a); runs {
 				return 0, "env sets " + reason + ", so the program after it cannot be judged by its arguments"
 			}
 			options = false
