@@ -61,7 +61,7 @@ func crossSiteRefusal(r *http.Request, trusted ...string) string {
 	switch r.Method {
 	case http.MethodGet, http.MethodHead, http.MethodOptions:
 		if !strings.EqualFold(r.Header.Get("Upgrade"), "websocket") {
-			return ""
+			return subresourceRefusal(r)
 		}
 	default:
 		if r.Header.Get(browserHeader) != "1" {
@@ -75,6 +75,19 @@ func crossSiteRefusal(r *http.Request, trusted ...string) string {
 			"this gateway (" + requestOrigin(r) + "). Open the address the gateway prints, or, behind a reverse " +
 			"proxy, have the proxy send the host the browser used in X-Forwarded-Host " +
 			"(nginx: proxy_set_header X-Forwarded-Host $http_host), or list the origin in gateway.origins"
+	}
+	return ""
+}
+
+// subresourceRefusal refuses a GET that a page of another origin, or of another port of this
+// host, caused without the user navigating (an <img>, a fetch, a script): some GETs have side
+// effects, so "another origin cannot read the answer" is not enough. Browsers say so in
+// Sec-Fetch-Site and Sec-Fetch-Mode; a client that sends neither (curl, an older browser) is
+// not judged, and a user opening or following a link (mode "navigate") is left alone.
+func subresourceRefusal(r *http.Request) string {
+	site, mode := r.Header.Get("Sec-Fetch-Site"), r.Header.Get("Sec-Fetch-Mode")
+	if (site == "same-site" || site == "cross-site") && mode != "" && mode != "navigate" {
+		return "this read was started by a page of another origin (Sec-Fetch-Site: " + site + ") and is refused"
 	}
 	return ""
 }
