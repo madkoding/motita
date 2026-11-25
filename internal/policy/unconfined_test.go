@@ -85,6 +85,18 @@ func TestUnconfinedProjectCodeIsConfirmed(t *testing.T) {
 			t.Errorf("%q: got %s/%s (%s), want ask/unconfined-run", line, d.Verdict, d.Rule, d.Reason)
 		}
 	}
+	// A shell handed the script is the same run as the script itself.
+	if err := os.WriteFile(filepath.Join(dir, "evil.sh"), []byte("#!/bin/sh\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	for _, line := range []string{"bash evil.sh", "sh -eu evil.sh"} {
+		if d := m.DecideLine(line, dir); d.Verdict != Ask || d.Rule != "unconfined-run" {
+			t.Errorf("%q: got %s/%s (%s), want ask/unconfined-run", line, d.Verdict, d.Rule, d.Reason)
+		}
+		if d := (Mode{Enforce: true}).DecideLine(line, dir); d.Verdict != Allow || d.Rule != "project-script" {
+			t.Errorf("confined %q: got %s/%s, want allow/project-script", line, d.Verdict, d.Rule)
+		}
+	}
 	// Confined, the same lines run as before.
 	for _, line := range []string{"python t.py", "go test ./...", script + " a"} {
 		if d := (Mode{Enforce: true}).DecideLine(line, dir); d.Verdict != Allow {

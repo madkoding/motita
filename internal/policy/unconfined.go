@@ -25,7 +25,11 @@ import (
 // What stays inside the workspace is still silent: reading and writing the project is the work.
 
 // unconfinedRuns are the rules whose Allow runs code the policy did not read.
-var unconfinedRuns = map[string]bool{"local-tool": true, "project-local": true, "project-tooling": true}
+var unconfinedRuns = map[string]bool{
+	"local-tool": true, "project-local": true, "project-tooling": true,
+	// `bash evil.sh` runs the same file `./evil.sh` does (project-local), so it is asked about the same way.
+	"project-script": true,
+}
 
 // privateDirs are the directories, wherever they are, that hold a person's keys and logins. They
 // are named so a workspace that contains one (a home directory opened as the workspace) does not
