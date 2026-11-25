@@ -5,6 +5,7 @@ import { choose } from "./choose";
 import { errorMessage } from "./errors";
 import {
   type InferenceBody,
+  type InferenceKind,
   type InferenceServer,
   type InferenceView,
   type ProbeResult,
@@ -67,6 +68,48 @@ function useInference(api: Api) {
 
 type Change = ReturnType<typeof useInference>["change"];
 
+// Draft is what the form holds besides the key.
+interface Draft {
+  name: string;
+  kind: string;
+  base: string;
+  model: string;
+}
+
+// draftOf starts the form empty, or from the server being edited.
+function draftOf(editing: InferenceServer | null, firstKind: string): Draft {
+  return {
+    name: editing?.name ?? "",
+    kind: editing?.kind ?? firstKind,
+    base: editing?.base_url ?? "",
+    model: editing?.model ?? "",
+  };
+}
+
+// usualAddress is where a kind listens by default, "" when it has none to guess.
+function usualAddress(kinds: InferenceKind[], kind: string): string {
+  return kinds.find((k) => k.id === kind)?.default_base_url ?? "";
+}
+
+// canSubmit says whether the draft names a server and an address, typed or usual.
+function canSubmit(d: Draft, usual: string): boolean {
+  return d.name.trim() !== "" && (d.base.trim() !== "" || usual !== "");
+}
+
+// bodyOf is what the form sends; the key only when one was typed, so an edit keeps the saved one.
+function bodyOf(d: Draft, key: string): InferenceBody {
+  const body: InferenceBody = {
+    name: d.name,
+    kind: d.kind,
+    base_url: d.base,
+    model: d.model,
+  };
+  if (key !== "") {
+    body.api_key = key;
+  }
+  return body;
+}
+
 // ServerForm adds a server, or edits the one it is given.
 function ServerForm({
   api,
@@ -83,19 +126,17 @@ function ServerForm({
   editing: InferenceServer | null;
   onDone: () => void;
 }) {
-  const [name, setName] = useState(editing?.name ?? "");
-  const [kind, setKind] = useState(editing?.kind ?? view.kinds[0].id);
-  const [base, setBase] = useState(editing?.base_url ?? "");
-  const [model, setModel] = useState(editing?.model ?? "");
+  const [draft, setDraft] = useState(() => draftOf(editing, view.kinds[0].id));
   const [key, setKey] = useState("");
-  const usual = view.kinds.find((k) => k.id === kind)?.default_base_url ?? "";
-  const valid = name.trim() !== "" && (base.trim() !== "" || usual !== "");
+  const usual = usualAddress(view.kinds, draft.kind);
+  // field is the handler that keeps one text field of the draft.
+  const field = (k: keyof Draft) => (e: Event) => {
+    const value = (e.target as HTMLInputElement | HTMLSelectElement).value;
+    setDraft((d) => ({ ...d, [k]: value }));
+  };
   const submit = async (e: Event) => {
     e.preventDefault();
-    const body: InferenceBody = { name, kind, base_url: base, model };
-    if (key !== "") {
-      body.api_key = key;
-    }
+    const body = bodyOf(draft, key);
     const write = editing
       ? () => editInference(api, editing.id, body)
       : () => addInference(api, body);
@@ -112,17 +153,17 @@ function ServerForm({
           aria-label={t("Server name")}
           placeholder={t("My GPU box")}
           maxLength={80}
-          value={name}
+          value={draft.name}
           disabled={!view.can_save}
-          onInput={(e) => setName((e.target as HTMLInputElement).value)}
+          onInput={field("name")}
         />
         <select
           class={selectCls}
           data-testid="inference-kind"
           aria-label={t("Kind")}
-          value={kind}
+          value={draft.kind}
           disabled={!view.can_save}
-          onChange={(e) => setKind((e.target as HTMLSelectElement).value)}
+          onChange={field("kind")}
         >
           {view.kinds.map((k) => (
             <option key={k.id} value={k.id}>
@@ -139,9 +180,9 @@ function ServerForm({
           placeholder={usual || "https://host:port/v1"}
           autocomplete="off"
           spellcheck={false}
-          value={base}
+          value={draft.base}
           disabled={!view.can_save}
-          onInput={(e) => setBase((e.target as HTMLInputElement).value)}
+          onInput={field("base")}
         />
         <input
           class={inputCls + " font-mono flex-1 basis-40"}
@@ -150,9 +191,9 @@ function ServerForm({
           placeholder={t("Model (optional)")}
           autocomplete="off"
           spellcheck={false}
-          value={model}
+          value={draft.model}
           disabled={!view.can_save}
-          onInput={(e) => setModel((e.target as HTMLInputElement).value)}
+          onInput={field("model")}
         />
       </div>
       <div class="flex flex-wrap gap-2 w-full">
@@ -175,7 +216,7 @@ function ServerForm({
           type="submit"
           class={primaryBtn}
           data-testid="inference-save"
-          disabled={!valid || busy || !view.can_save}
+          disabled={!canSubmit(draft, usual) || busy || !view.can_save}
         >
           {choose(!!editing, t("Save"), t("Add"))}
         </button>
@@ -218,7 +259,7 @@ function ServerRow({
   server: InferenceServer;
   busy: boolean;
   change: Change;
-  onEdit: () => void;
+  onEdit: (s: InferenceServer) => void;
   canSave: boolean;
 }) {
   const [probe, setProbe] = useState<ProbeResult | "running" | null>(null);
@@ -249,17 +290,16 @@ function ServerRow({
         </div>
         <div class="text-xs text-[#7a7a8c] mt-0.5">{key}</div>
         {probe && (
-          <div
+          <output
             class={
-              "text-xs mt-0.5 " +
+              "block text-xs mt-0.5 " +
               choose(probe !== "running" && !probe.ok, "text-danger", "")
             }
-            role="status"
             data-testid={"inference-probe-" + server.id}
           >
             {choose(probe === "running", t("Testing") + "…", "")}
             {probe !== "running" && probeLine(probe)}
-          </div>
+          </output>
         )}
       </div>
       <div class="settings-row-control flex gap-2">
@@ -279,7 +319,7 @@ function ServerRow({
           data-testid={"inference-edit-" + server.id}
           aria-label={tf("Edit {name}", { name: server.name })}
           disabled={busy || !canSave}
-          onClick={onEdit}
+          onClick={() => onEdit(server)}
         >
           {t("Edit")}
         </button>
@@ -305,6 +345,10 @@ export function InferenceSettings({ api }: { api: Api }) {
   const [editing, setEditing] = useState<InferenceServer | null>(null);
   // formRun changes after each save, so the form starts over empty.
   const [formRun, setFormRun] = useState(0);
+  const done = useCallback(() => {
+    setEditing(null);
+    setFormRun((n) => n + 1);
+  }, []);
   if (view === undefined || (view === null && !err)) {
     return null;
   }
@@ -338,7 +382,7 @@ export function InferenceSettings({ api }: { api: Api }) {
                     busy={busy}
                     change={change}
                     canSave={view.can_save}
-                    onEdit={() => setEditing(s)}
+                    onEdit={setEditing}
                   />
                 ))}
               </ul>,
@@ -350,10 +394,7 @@ export function InferenceSettings({ api }: { api: Api }) {
               busy={busy}
               change={change}
               editing={editing}
-              onDone={() => {
-                setEditing(null);
-                setFormRun((n) => n + 1);
-              }}
+              onDone={done}
             />
             <p class="settings-card-note text-xs text-[#7a7a8c]">
               {choose(
