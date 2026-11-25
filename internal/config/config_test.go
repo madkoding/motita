@@ -446,8 +446,10 @@ func TestAWorkingDirectoryConfigDoesNotChooseTheEndpoints(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got.LLM.BaseURL != def.LLM.BaseURL || got.Voice.BaseURL != def.Voice.BaseURL || got.Voice.TTS.BaseURL != def.Voice.TTS.BaseURL {
-		t.Errorf("a repository's file must not move the endpoints: %q %q %q", got.LLM.BaseURL, got.Voice.BaseURL, got.Voice.TTS.BaseURL)
+	if got.LLM.BaseURL != def.LLM.BaseURL || got.Voice.BaseURL != def.Voice.BaseURL ||
+		got.Voice.TTS.BaseURL != def.Voice.TTS.BaseURL {
+		t.Errorf("a repository's file must not move the endpoints: %q %q %q",
+			got.LLM.BaseURL, got.Voice.BaseURL, got.Voice.TTS.BaseURL)
 	}
 	if got.LLM.APIKey != "k" {
 		t.Errorf("the rest of the file still applies: %q", got.LLM.APIKey)
