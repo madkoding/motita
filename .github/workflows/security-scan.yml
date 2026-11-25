@@ -24,6 +24,10 @@ env:
   TRIVY_VERSION: "0.75.0"
   SEMGREP_VERSION: "1.180.0"
   SCANNER_VERSION: "8.1.0.6389"
+  # SHA-256 of the downloads, written here so a swapped release or mirror cannot vouch for itself:
+  # the checksum used to come from the same origin as the file it checks.
+  TRIVY_SHA256: "c6e65abddb348e25f10549df887045629cf28cc72453cd1c63acb717316b3f3f"
+  SCANNER_SHA256: "bb8f709f9cb73352f8d1260a3b3c506c0f41146754bc630762c126d795499d0b"
   GOSEC_VERSION: "v2.29.0"
   GOVULNCHECK_VERSION: "v1.8.0"
 
@@ -68,8 +72,7 @@ jobs:
           set -euo pipefail
           cd "$RUNNER_TEMP"
           curl -sSfLO "https://github.com/aquasecurity/trivy/releases/download/v${TRIVY_VERSION}/trivy_${TRIVY_VERSION}_Linux-64bit.tar.gz"
-          curl -sSfLO "https://github.com/aquasecurity/trivy/releases/download/v${TRIVY_VERSION}/trivy_${TRIVY_VERSION}_checksums.txt"
-          grep "Linux-64bit.tar.gz" "trivy_${TRIVY_VERSION}_checksums.txt" | sha256sum -c -
+          echo "${TRIVY_SHA256}  trivy_${TRIVY_VERSION}_Linux-64bit.tar.gz" | sha256sum -c -
           tar xzf "trivy_${TRIVY_VERSION}_Linux-64bit.tar.gz" trivy
           install -m 755 trivy "$HOME/kv-bin/trivy"
           pipx install "semgrep==${SEMGREP_VERSION}" >/dev/null
@@ -138,7 +141,7 @@ jobs:
           cd "$RUNNER_TEMP"
           base="https://binaries.sonarsource.com/Distribution/sonar-scanner-cli/sonar-scanner-cli-${SCANNER_VERSION}-linux-x64.zip"
           curl -sSfLO "$base"
-          echo "$(curl -sSf "$base.sha256")  sonar-scanner-cli-${SCANNER_VERSION}-linux-x64.zip" | sha256sum -c -
+          echo "${SCANNER_SHA256}  sonar-scanner-cli-${SCANNER_VERSION}-linux-x64.zip" | sha256sum -c -
           unzip -q "sonar-scanner-cli-${SCANNER_VERSION}-linux-x64.zip" -d "$HOME/kv-sonar"
 
       - name: SonarQube (main branch; publishes every report)
