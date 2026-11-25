@@ -127,6 +127,8 @@ func TestTheReadersWhoseFlagsWrite(t *testing.T) {
 		{"yq", []string{".a", "in.yaml"}, false},
 		{"yq", []string{"-i", ".a=1", "in.yaml"}, true},
 		{"yq", []string{"--inplace", ".a=1", "in.yaml"}, true},
+		{"yq", []string{"-Pi", ".a=1", "in.yaml"}, true},
+		{"yq", []string{"-i=true", ".a=1", "in.yaml"}, true},
 
 		{"base64", []string{"in.bin"}, false},
 		{"base64", []string{"-w", "0", "in.bin"}, false},

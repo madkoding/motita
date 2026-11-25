@@ -188,8 +188,11 @@ var argumentRules = map[string]func([]string) (string, bool){
 	"mawk": awkRule,
 	"yq": func(args []string) (string, bool) {
 		// A query is a read; `-i` writes the result back into the input file.
+		// It may sit in a cluster of short flags (`-Pi`) or take a value (`-i=true`).
 		for _, a := range args {
-			if a == "-i" || a == "--inplace" {
+			name, _, _ := strings.Cut(a, "=")
+			cluster := !strings.HasPrefix(a, "--") && strings.HasPrefix(a, "-") && strings.Contains(name, "i")
+			if cluster || name == "--inplace" {
 				return "yq -i rewrites the input file", true
 			}
 		}
@@ -209,6 +212,8 @@ var argumentRules = map[string]func([]string) (string, bool){
 	"route":       routeRule,
 	"ifconfig":    ifconfigRule,
 	"arp":         arpRule,
+	"ss":          ssRule,
+	"loginctl":    loginctlRule,
 	"ag":          agRule,
 	// --- what a project asks its tools about ------------------------------------
 	//

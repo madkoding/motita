@@ -231,3 +231,38 @@ func agRule(args []string) (string, bool) {
 	}
 	return "", false
 }
+
+// ssRule refuses the forms of ss that act on sockets instead of listing them: `-K`/`--kill`
+// closes them, and `-D FILE`/`--diag=FILE` writes a raw dump to a file.
+func ssRule(args []string) (string, bool) {
+	for _, a := range args {
+		name, _, _ := strings.Cut(a, "=")
+		short := !strings.HasPrefix(a, "--") && strings.HasPrefix(a, "-")
+		switch {
+		case name == "--kill" || name == "--diag":
+			return fmt.Sprintf("ss %s acts on sockets or writes a file", name), true
+		case short && strings.ContainsAny(a, "KD"):
+			return fmt.Sprintf("ss %s acts on sockets or writes a file", a), true
+		default:
+			// Every other option filters or formats the listing.
+		}
+	}
+	return "", false
+}
+
+// loginctlReads are the loginctl verbs that only report; every other verb (terminate-user,
+// kill-session, lock-sessions, poweroff, enable-linger, ...) changes the system.
+var loginctlReads = map[string]bool{
+	"list-sessions": true, "list-users": true, "list-seats": true, "session-status": true,
+	"user-status": true, "seat-status": true, "show-session": true, "show-user": true,
+	"show-seat": true, "show": true, "status": true, "help": true,
+}
+
+// loginctlRule allows only the reporting verbs of loginctl.
+func loginctlRule(args []string) (string, bool) {
+	verb := firstNonFlag(args)
+	if verb == "" || loginctlReads[verb] {
+		return "", false
+	}
+	return fmt.Sprintf("loginctl %s changes the system", verb), true
+}

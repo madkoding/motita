@@ -31,6 +31,9 @@ func TestSystemReadersRefuseTheFormsThatChangeTheSystem(t *testing.T) {
 		{"ip", "-n", "x", "link", "set", "lo", "up"}, {"ip", "neigh", "flush", "all"},
 		{"route", "add", "default", "gw", "x"}, {"route", "del", "default"}, {"route", "-A", "inet6", "add", "x"},
 		{"ifconfig", "eth0", "down"}, {"ifconfig", "eth0", "1.2.3.4"}, {"ifconfig", "-a", "eth0", "mtu", "1"},
+		{"ss", "-K"}, {"ss", "--kill"}, {"ss", "-tK"}, {"ss", "-D", "/tmp/x"}, {"ss", "--diag=/tmp/x"},
+		{"loginctl", "terminate-user", "bob"}, {"loginctl", "kill-session", "1"}, {"loginctl", "poweroff"},
+		{"loginctl", "enable-linger", "bob"},
 		{"arp", "-d", "1.2.3.4"}, {"arp", "-s", "1.2.3.4", "x"}, {"arp", "-f", "file"},
 		{"arp", "--delete", "x"}, {"arp", "--set", "x"}, {"arp", "--file=x"}, {"arp", "-nd", "x"},
 		{"ag", "--pager", "./x", "p"}, {"ag", "--pager=./x", "p"},
@@ -65,6 +68,8 @@ func TestSystemReadersStillRead(t *testing.T) {
 		{"ip", "link", "help"}, {"ip", "-j", "-p", "link", "lst"},
 		{"route"}, {"route", "-n"}, {"route", "-A", "inet6"},
 		{"ifconfig"}, {"ifconfig", "-a"}, {"ifconfig", "eth0"},
+		{"ss"}, {"ss", "-tlnp"}, {"ss", "--summary"}, {"ss", "state", "established"},
+		{"loginctl"}, {"loginctl", "list-sessions"}, {"loginctl", "show-user", "bob"}, {"loginctl", "--no-pager", "status"},
 		{"arp"}, {"arp", "-n"}, {"arp", "-a"}, {"arp", "-i", "eth0"},
 		{"ag", "pattern"}, {"ag", "--nopager", "p"},
 	} {
