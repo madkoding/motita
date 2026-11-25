@@ -565,9 +565,11 @@ func TestResourcesAndSkills(t *testing.T) {
 		t.Fatalf("resources = %v, %v", res, err)
 	}
 	skills := Skills(res)
-	if len(skills) != 2 || skills[0].Name != "shop" || skills[0].Description != "run a store" ||
-		skills[0].URI != "skill://shop/SKILL.md" || skills[1].Name != "a/b" {
+	if len(skills) != 2 || skills[0].Name != "shop" || skills[1].Name != "a/b" {
 		t.Fatalf("skills = %+v", skills)
+	}
+	if skills[0].Description != "run a store" || skills[0].URI != "skill://shop/SKILL.md" {
+		t.Fatalf("skill = %+v", skills[0])
 	}
 	if text, err := c.ReadResource(context.Background(), "skill://shop/SKILL.md"); err != nil || text != "one\ntwo" {
 		t.Fatalf("read = %q, %v", text, err)
