@@ -12,6 +12,7 @@ import (
 	"io"
 	"net/http"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"runtime"
 	"strconv"
@@ -612,6 +613,21 @@ func TestStartProcessStartsAndReportsFailure(t *testing.T) {
 	}
 	if err := startProcess(filepath.Join(t.TempDir(), "no-such-program")); err == nil {
 		t.Error("a missing program is an error")
+	}
+}
+
+func TestReapWaitsForTheProcess(t *testing.T) {
+	exe, err := os.Executable()
+	if err != nil {
+		t.Skip(err)
+	}
+	cmd := exec.Command(exe, "-test.run=^$")
+	if err := cmd.Start(); err != nil {
+		t.Fatal(err)
+	}
+	reap(cmd)
+	if cmd.ProcessState == nil || !cmd.ProcessState.Exited() {
+		t.Error("the process was not waited for")
 	}
 }
 

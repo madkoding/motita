@@ -404,10 +404,19 @@ func (t *TUI) openBrowser(url string) {
 	_ = open(url)
 }
 
-// startProcess starts a command without waiting for it; a variable so a test can stand in.
+// startProcess starts a command without waiting for it; a variable so a test can stand in. The
+// process is reaped in the background, so a finished browser opener is not left a zombie.
 var startProcess = func(name string, args ...string) error {
-	return exec.Command(name, args...).Start()
+	cmd := exec.Command(name, args...)
+	if err := cmd.Start(); err != nil {
+		return err
+	}
+	go reap(cmd)
+	return nil
 }
+
+// reap waits for a started command so the system can release it.
+func reap(cmd *exec.Cmd) { _ = cmd.Wait() }
 
 // openCommand is the command that opens a URL on an operating system.
 func openCommand(goos, url string) (string, []string) {
