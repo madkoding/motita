@@ -44,6 +44,9 @@ func (t *TUI) approvalScope() string {
 
 // alwaysAllowed says whether the person already said "always" to this shape of command here.
 func (t *TUI) alwaysAllowed(req agent.ApprovalRequest) bool {
+	if notACommand(req) {
+		return false
+	}
 	for _, it := range req.Items() {
 		keys, ok := approvals.KeysOf(it.Rule, it.Command)
 		if !ok || !t.approvalStore().AllowedAll(t.approvalScope(), keys) {
@@ -57,6 +60,9 @@ func (t *TUI) alwaysAllowed(req agent.ApprovalRequest) bool {
 // was a shape to remember: a line with no program, or no rule, is approved once as a plain yes.
 // A file that cannot be written still remembers for this process.
 func (t *TUI) rememberApproval(req agent.ApprovalRequest) bool {
+	if notACommand(req) {
+		return false
+	}
 	kept := false
 	for _, it := range req.Items() {
 		if keys, ok := approvals.KeysOf(it.Rule, it.Command); ok {
@@ -65,4 +71,11 @@ func (t *TUI) rememberApproval(req agent.ApprovalRequest) bool {
 		}
 	}
 	return kept
+}
+
+// notACommand says whether a question is not about running a command: spending another step
+// budget, or accepting a PASS from a gate the run rewrote. "Always" never covers these, as in the
+// gateway: a yes to one of them must not become a standing yes to every later one.
+func notACommand(req agent.ApprovalRequest) bool {
+	return req.Rule == agent.BudgetRule || req.Rule == agent.GateRule
 }

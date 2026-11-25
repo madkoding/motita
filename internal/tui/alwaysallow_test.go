@@ -140,3 +140,18 @@ func TestAlwaysAllowOnABatchKeepsEachLine(t *testing.T) {
 		t.Error("a new shape on the card still asks")
 	}
 }
+
+// "Always" is never kept for the questions that are not commands (a changed gate, another step
+// budget): the gateway excludes them, and so does the terminal.
+func TestAlwaysIsNeverKeptForAChangedGateOrBudget(t *testing.T) {
+	tu := newFakeTUI("", &fakeRunner{})
+	for _, rule := range []string{agent.GateRule, agent.BudgetRule} {
+		req := agent.ApprovalRequest{Command: "go test ./...", Rule: rule}
+		if tu.rememberApproval(req) {
+			t.Errorf("%s: an answer was remembered", rule)
+		}
+		if tu.alwaysAllowed(req) {
+			t.Errorf("%s: answered by an earlier always", rule)
+		}
+	}
+}
