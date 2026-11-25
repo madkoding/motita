@@ -126,8 +126,8 @@ func exportDecision(name string, args []string) (Decision, bool) {
 			return Decision{}, false
 		}
 		// `export NAME` alone publishes the value NAME already has; only `NAME=value` sets one.
-		if v, _, set := strings.Cut(a, "="); set {
-			if _, runs := readonly.RunnerVariable(v); runs {
+		if _, _, set := strings.Cut(a, "="); set {
+			if _, runs := readonly.RunnerAssignment(a); runs {
 				return Decision{}, false
 			}
 		}

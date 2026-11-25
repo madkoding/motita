@@ -2,6 +2,29 @@ package readonly
 
 import "strings"
 
+// RunnerAssignment is RunnerVariable for a whole `NAME=value`, which is how every caller meets a
+// variable. It adds the one thing the name cannot say: the GIT_TRACE family is harmless as a
+// switch (`GIT_TRACE=1`) and a file write as a path (`GIT_TRACE=~/.ssh/authorized_keys` appends
+// trace lines to it, even to a file the sandbox keeps read-only on a platform with none).
+func RunnerAssignment(assignment string) (string, bool) {
+	name, value, _ := strings.Cut(assignment, "=")
+	if reason, ok := RunnerVariable(name); ok {
+		return reason, true
+	}
+	if gitTraceVariables[name] && !traceSwitches[value] {
+		return name + " names a file git appends its trace to", true
+	}
+	return "", false
+}
+
+// gitTraceVariables are the harmless GIT_* names whose value may be the file the trace goes to.
+var gitTraceVariables = map[string]bool{
+	"GIT_TRACE": true, "GIT_TRACE_PACKET": true, "GIT_TRACE_PERFORMANCE": true, "GIT_TRACE_SETUP": true,
+}
+
+// traceSwitches are the values of a trace variable that name no file: off, or stderr.
+var traceSwitches = map[string]bool{"": true, "0": true, "1": true, "2": true, "true": true, "false": true}
+
 // RunnerVariable reports whether setting the environment variable name changes which program
 // the commands after it run, or what those programs load, and says how. It is one table for
 // every way a line can set a variable - `export NAME=value`, the `NAME=value cmd` prefix and

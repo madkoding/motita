@@ -172,8 +172,7 @@ func assignmentDecision(command string, args []string) (Decision, bool) {
 	if len(args) != 0 || !exportVar.MatchString(command) || !strings.ContainsRune(command, '=') {
 		return Decision{}, false
 	}
-	name, _, _ := strings.Cut(command, "=")
-	if reason, runs := readonly.RunnerVariable(name); runs {
+	if reason, runs := readonly.RunnerAssignment(command); runs {
 		return Decision{Ask, reason + ", so the commands after it cannot be checked, and it needs " +
 			"the user's approval before it is set", "environment-runs-code", false}, true
 	}
@@ -188,8 +187,7 @@ func (m Mode) decisionFor(command string, args []string, dir string) Decision {
 	for strings.ContainsRune(command, '=') && len(args) > 0 && !strings.HasPrefix(command, "/") {
 		// The value is for the program, but the NAME can be the program's back door:
 		// `GIT_EXTERNAL_DIFF=x git diff` runs x. The same table as `export` says which.
-		v, _, _ := strings.Cut(command, "=")
-		if reason, runs := readonly.RunnerVariable(v); runs {
+		if reason, runs := readonly.RunnerAssignment(command); runs {
 			return m.unclassified(reason+", so the commands after it cannot be checked", "environment-runs-code")
 		}
 		command, args = args[0], args[1:]

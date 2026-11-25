@@ -142,3 +142,19 @@ func TestPathOperandAndPrivatePath(t *testing.T) {
 		}
 	}
 }
+
+// A trace variable that names a file is a write outside the workspace, in every spelling of the line.
+func TestGitTraceToAFileIsAsked(t *testing.T) {
+	dir := t.TempDir()
+	m := Mode{Enforce: true}
+	for _, line := range []string{
+		"GIT_TRACE=/tmp/x git status", "GIT_TRACE=/tmp/x", "export GIT_TRACE=/tmp/x", "env GIT_TRACE=/tmp/x git status",
+	} {
+		if d := m.DecideLine(line, dir); d.Verdict == Allow {
+			t.Errorf("%q: got %s/%s, want a question", line, d.Verdict, d.Rule)
+		}
+	}
+	if d := m.DecideLine("GIT_TRACE=1 git status", dir); d.Verdict != Allow {
+		t.Errorf("a switch stays silent: got %s/%s", d.Verdict, d.Rule)
+	}
+}

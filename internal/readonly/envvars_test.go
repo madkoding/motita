@@ -41,3 +41,23 @@ func TestEnvWithARunnerVariableIsNotUnwrapped(t *testing.T) {
 		t.Errorf("env with a plain variable is the program after it: %q %v %q", inner, args, reason)
 	}
 }
+
+// TestATraceVariableNamingAFileIsAWrite: GIT_TRACE=<path> appends git's trace to that file, so only
+// the values that name no file keep the variable harmless.
+func TestATraceVariableNamingAFileIsAWrite(t *testing.T) {
+	for _, a := range []string{"GIT_TRACE=/home/u/.ssh/authorized_keys", "GIT_TRACE_PACKET=~/x", "GIT_TRACE_SETUP=out.log",
+		"GIT_TRACE_PERFORMANCE=/tmp/x"} {
+		if reason, ok := RunnerAssignment(a); !ok || !strings.Contains(reason, "file") {
+			t.Errorf("%s must be a question about a file write: %q %v", a, reason, ok)
+		}
+	}
+	for _, a := range []string{"GIT_TRACE=1", "GIT_TRACE=0", "GIT_TRACE=2", "GIT_TRACE=true", "GIT_TRACE=false",
+		"GIT_TRACE=", "GIT_TRACE", "CI=1", "GIT_AUTHOR_NAME=/x"} {
+		if reason, ok := RunnerAssignment(a); ok {
+			t.Errorf("%s names no file and must stay harmless: %q", a, reason)
+		}
+	}
+	if _, ok := RunnerAssignment("GIT_SSH_COMMAND=x"); !ok {
+		t.Error("a name in the table is still a runner")
+	}
+}
