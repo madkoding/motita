@@ -113,6 +113,8 @@ func Check(s Server) string {
 		return fmt.Sprintf("the model id is at most %d characters", MaxModel)
 	case strings.ContainsAny(s.Model, "\r\n\x00"):
 		return "the model id cannot span lines"
+	default:
+		// Name and model are fine; the kind is checked next.
 	}
 	if _, ok := KindOf(s.Kind); !ok {
 		return "the kind must be one of: " + kindIDs()
