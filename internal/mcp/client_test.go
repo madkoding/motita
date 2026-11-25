@@ -30,7 +30,10 @@ func newFake(t *testing.T) *fakeServer {
 	cr, sw := io.Pipe() // server writes, client reads
 	sr, cw := io.Pipe() // client writes, server reads
 	f := &fakeServer{t: t, in: bufio.NewScanner(sr), out: sw, r: cr, w: cw, c: cw}
-	t.Cleanup(func() { _ = sw.Close(); _ = cw.Close() })
+	t.Cleanup(func() {
+		_ = sw.Close()
+		_ = cw.Close()
+	})
 	return f
 }
 
@@ -84,7 +87,10 @@ func connect(t *testing.T, h Handler) (*Client, *fakeServer) {
 	t.Helper()
 	f := newFake(t)
 	done := make(chan struct{})
-	go func() { f.handshake(); close(done) }()
+	go func() {
+		f.handshake()
+		close(done)
+	}()
 	c, err := NewClient(context.Background(), "fake", f.r, f.w, f.c, h)
 	if err != nil {
 		t.Fatal(err)
@@ -208,7 +214,10 @@ func TestRequestCancelled(t *testing.T) {
 		got <- f.read()
 		got <- f.read()
 	}()
-	go func() { <-time.After(20 * time.Millisecond); cancel() }()
+	go func() {
+		<-time.After(20 * time.Millisecond)
+		cancel()
+	}()
 	if err := c.Request(ctx, "slow", map[string]any{}, nil); !errors.Is(err, context.Canceled) {
 		t.Fatalf("err = %v", err)
 	}
@@ -244,7 +253,10 @@ func TestRequestBadResult(t *testing.T) {
 
 func TestServerGone(t *testing.T) {
 	c, f := connect(t, Handler{})
-	go func() { f.read(); _ = f.out.Close() }()
+	go func() {
+		f.read()
+		_ = f.out.Close()
+	}()
 	if err := c.Request(context.Background(), "x", map[string]any{}, nil); err == nil ||
 		!strings.Contains(err.Error(), "closed") {
 		t.Fatalf("err = %v", err)

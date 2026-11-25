@@ -109,7 +109,7 @@ func (rr *roundRun) kindAction(i int, kind string, action Command) bool {
 // desktop.
 func (rr *roundRun) workAction(i int, kind string, action Command) bool {
 	return rr.agentAction(i, kind, action) || rr.fileAction(i, kind, action) || rr.boxAction(i, kind, action) ||
-		rr.desktopAction(i, kind, action) || rr.mcpAction(i, kind, action)
+		rr.serviceAction(i, kind, action)
 }
 
 // readAction is an action answered from the library, the memory or the session, which change nothing.
@@ -203,6 +203,11 @@ func (rr *roundRun) desktopAction(i int, kind string, action Command) bool {
 		rr.lastErr = fmt.Errorf("action %d (%s) was refused: %w", i+1, kind, refusal)
 	}
 	return true
+}
+
+// serviceAction is a step on this computer's desktop or a call to an MCP server.
+func (rr *roundRun) serviceAction(i int, kind string, action Command) bool {
+	return rr.desktopAction(i, kind, action) || rr.mcpAction(i, kind, action)
 }
 
 // mcpAction is a call to an MCP server (see mcpaction.go).

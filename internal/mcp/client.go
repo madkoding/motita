@@ -98,6 +98,7 @@ type Config struct {
 
 // Start runs the server and completes the protocol handshake.
 func Start(ctx context.Context, cfg Config, h Handler) (*Client, error) {
+	// #nosec G204 -- the person configured this program in agent.mcp.
 	cmd := exec.Command(cfg.Command, cfg.Args...)
 	cmd.Dir = cfg.Dir
 	cmd.Env = environment(cfg.Env)
