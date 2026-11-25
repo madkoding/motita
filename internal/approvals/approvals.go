@@ -10,6 +10,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"regexp"
 	"slices"
 	"strings"
 	"sync"
@@ -53,7 +54,7 @@ func KeysOf(rule, command string) ([]Key, bool) {
 		if !ok {
 			continue
 		}
-		if runsAnythingElse(k.Program) {
+		if runsAnythingElse(k.Program) || unkeyable(words) {
 			return nil, false // one "always" must not cover whatever that program is handed next
 		}
 		list := &keys
@@ -93,6 +94,30 @@ func runsAnythingElse(program string) bool {
 	name := strings.TrimSuffix(strings.ToLower(program), ".exe")
 	return opaquePrograms[name] || strings.HasPrefix(name, "python")
 }
+
+// unkeyable says a command's shape would hide what it does, so no "always allow" may be made of it:
+//
+//   - the program is named by a path outside the system's own directories (`./tools/git push`): the
+//     shape keeps only the base name, so remembering it would cover the real `git push` and any
+//     file called git the repository ships;
+//   - a global option comes before the subcommand (`git -c core.sshCommand=x fetch`, `docker
+//     --log-level info run`): the options of such a tool change what the subcommand does, and the
+//     shape would be the bare program.
+func unkeyable(words []string) bool { // words has a program: keyOfWords said so
+	for len(words) > 0 && strings.Contains(words[0], "=") {
+		words = words[1:]
+	}
+	// keyOfWords has found a program, so there is a word left.
+	if strings.ContainsAny(words[0], `/\`) && !systemPrograms.MatchString(words[0]) {
+		return true
+	}
+	return len(words) > 1 && withSubcommands[strings.TrimSuffix(strings.ToLower(words[0]), ".exe")] &&
+		strings.HasPrefix(words[1], "-")
+}
+
+// systemPrograms are the paths of a program in the directories the system installs its own into
+// (`/usr/bin/go`), which is the same program as its base name on any machine a person set up.
+var systemPrograms = regexp.MustCompile(`^(/usr(/local)?|/opt/homebrew)?/s?bin/[^/]+$`)
 
 // keyOfWords is the shape of one command: its program, with the subcommand when it has one.
 func keyOfWords(rule string, words []string) (Key, bool) {
