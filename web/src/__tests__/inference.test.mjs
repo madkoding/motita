@@ -371,5 +371,7 @@ test("using a server marks it in use, and the managed local model has no buttons
   assert.ok(q(m.root, "inference-inuse-gpu"));
   assert.equal(q(m.root, "inference-use-gpu").disabled, true);
   await m.unmount();
-  assert.ok(es["Use {name}"] && es["In use"] && es["Use"]);
+  for (const k of ["Use {name}", "In use", "Use"]) {
+    assert.ok(es[k], k);
+  }
 });
