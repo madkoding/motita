@@ -123,7 +123,13 @@ const staleTempAge = 24 * time.Hour
 
 // removeOlder removes the entries of dir whose name starts with prefix and that were last changed
 // more than age ago.
+//
+// A directory that is a symlink is left alone: the command that fills these directories could
+// otherwise point one at the user's own files, and this process removes with the user's rights.
 func removeOlder(dir, prefix string, age time.Duration) {
+	if info, err := os.Lstat(dir); err != nil || info.Mode()&os.ModeSymlink != 0 {
+		return
+	}
 	entries, _ := os.ReadDir(dir)
 	for _, e := range entries {
 		if !strings.HasPrefix(e.Name(), prefix) {
@@ -296,6 +302,10 @@ func (s *Sandbox) scratchDir() string {
 	}
 	dir := filepath.Join(home, "scratch")
 	if err := os.MkdirAll(dir, 0o750); err != nil {
+		return ""
+	}
+	// A symlink in its place (planted by a command) would hand out, and clean, somebody else's directory.
+	if info, err := os.Lstat(dir); err != nil || info.Mode()&os.ModeSymlink != 0 {
 		return ""
 	}
 	removeOlder(dir, "", scratchMaxAge)

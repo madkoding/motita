@@ -408,3 +408,36 @@ func TestSystemToolsFirstPutsToolsLastInTheChildEnvironment(t *testing.T) {
 		t.Errorf("with systemFirst the tools directory trails PATH:\n%s", last)
 	}
 }
+
+// A command can leave a symlink where the scratch directory is. This process removes old files with
+// the user's rights, so it must not clean (or hand out) the directory the link points at.
+func TestAScratchSymlinkIsNeitherCleanedNorHandedOut(t *testing.T) {
+	s := toolsSandbox(t, t.TempDir(), t.TempDir())
+	victim := t.TempDir()
+	old := filepath.Join(victim, "Documents.txt")
+	if err := os.WriteFile(old, []byte("mine"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	past := time.Now().Add(-2 * scratchMaxAge)
+	if err := os.Chtimes(old, past, past); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(s.Home(), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(victim, filepath.Join(s.Home(), "scratch")); err != nil {
+		t.Fatal(err)
+	}
+	if got := s.scratchDir(); got != "" {
+		t.Errorf("a symlink is not a scratch directory: %q", got)
+	}
+	if _, err := os.Stat(old); err != nil {
+		t.Errorf("the file the link points at must survive: %v", err)
+	}
+	// removeOlder itself, as the temporary root uses it.
+	removeOlder(filepath.Join(s.Home(), "scratch"), "", 0)
+	if _, err := os.Stat(old); err != nil {
+		t.Errorf("removeOlder followed the link: %v", err)
+	}
+	removeOlder(filepath.Join(s.Home(), "missing"), "", 0)
+}
