@@ -371,7 +371,10 @@ func TestMCPTaskReportsAndCollects(t *testing.T) {
 	fk.task = mcp.Task{TaskID: "t1", Status: mcp.TaskCompleted}
 	fk.taskRes = mcp.CallResult{Content: []mcp.Content{{Type: "text", Text: "the transcript"}}}
 	out, _ = box(e, "mcp_task", "shop t1")
-	if !strings.Contains(out, "the transcript") || !strings.Contains(out, "third party") || strings.Contains(out, "failed") {
+	if !strings.Contains(out, "the transcript") || !strings.Contains(out, "third party") {
+		t.Fatalf("completed: %q", out)
+	}
+	if strings.Contains(out, "failed") {
 		t.Fatalf("completed: %q", out)
 	}
 	fk.task = mcp.Task{TaskID: "t1", Status: mcp.TaskFailed, StatusMessage: "disk full"}

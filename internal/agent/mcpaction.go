@@ -71,6 +71,9 @@ func isMCPKind(kind string) bool {
 	return kind == "mcp_tools" || kind == "mcp_call" || kind == "mcp_start" || kind == "mcp_task"
 }
 
+// mcpTaskPrefix opens every line that reports a task.
+const mcpTaskPrefix = "[task "
+
 // mcpTaskTTL is how long a server is asked to keep the result of a background task.
 const mcpTaskTTL = time.Hour
 
@@ -276,7 +279,7 @@ func (a *Agent) mcpTask(ctx context.Context, command string) (string, error) {
 		if err != nil {
 			return boxFailed(err.Error())
 		}
-		return "[task " + t.TaskID + " is " + t.Status + "]", nil
+		return mcpTaskPrefix + t.TaskID + " is " + t.Status + "]", nil
 	}
 	t, err := c.Task(ctx, fields[1])
 	if err != nil {
@@ -287,10 +290,10 @@ func (a *Agent) mcpTask(ctx context.Context, command string) (string, error) {
 		msg = ": " + oneLine(t.StatusMessage, 300)
 	}
 	if !t.Done() {
-		return "[task " + t.TaskID + " is " + t.Status + msg + ". Do something else and ask again later]", nil
+		return mcpTaskPrefix + t.TaskID + " is " + t.Status + msg + ". Do something else and ask again later]", nil
 	}
 	if t.Status == mcp.TaskCancelled {
-		return "[task " + t.TaskID + " was cancelled" + msg + "]", nil
+		return mcpTaskPrefix + t.TaskID + " was cancelled" + msg + "]", nil
 	}
 	res, err := c.TaskResult(ctx, fields[1])
 	notes := a.takeUnanswered()
