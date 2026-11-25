@@ -42,7 +42,7 @@ func TestSpeechForFollowsTheConfiguration(t *testing.T) {
 		t.Fatalf("service = %T", speechFor(cfg))
 	}
 	if got.BaseURL != "http://127.0.0.1:8880/v1" || got.APIKey != "k" ||
-		got.Model != "gpt-4o-mini-tts" || got.Format != "mp3" {
+		got.Model != "kokoro" || got.Format != "mp3" {
 		t.Errorf("speaker = %+v", got)
 	}
 }

@@ -1244,7 +1244,7 @@ This is tested the way you'd test something you were about to bet on.
 
 |                           |                                                                                                                                                                                                           |
 | ------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **Statement coverage**    | **100% in every package that ships** — 57 of 57 (`./internal/... ./cmd/...`), checked package by package so a gap can't hide behind an average. `tools/` holds the CI harnesses and is counted separately |
+| **Statement coverage**    | **100% in every package that ships** — 58 of 58 (`./internal/... ./cmd/...`), checked package by package so a gap can't hide behind an average. `tools/` holds the CI harnesses and is counted separately |
 | **Test functions**        | 6,093 across 732 files                                                                                                                                                                                    |
 | **Code vs tests**         | 112,944 lines of Go · 167,538 lines of test                                                                                                                                                               |
 | **External dependencies** | 0                                                                                                                                                                                                         |

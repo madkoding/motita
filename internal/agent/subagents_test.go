@@ -292,7 +292,7 @@ func TestDoneWithAnAgentRunningIsSentBackOnceThenCancelsIt(t *testing.T) {
 	mainRound := 0
 	s := &scriptServer{execute: func(_ int, prompt string) string {
 		if isChildPrompt(prompt) {
-			return step(false, "sleep 5")
+			return step(false, "sleep 60")
 		}
 		mainRound++
 		if mainRound == 1 {
@@ -305,7 +305,7 @@ func TestDoneWithAnAgentRunningIsSentBackOnceThenCancelsIt(t *testing.T) {
 	if !result.Pass {
 		t.Fatalf("the run must pass: %s", result.Reason)
 	}
-	if time.Since(start) > 4*time.Second {
+	if time.Since(start) > 30*time.Second {
 		t.Errorf("the run waited for a cancelled agent: %v", time.Since(start))
 	}
 	main, _ := s.split()

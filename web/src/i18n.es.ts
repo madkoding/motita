@@ -9,6 +9,7 @@ import evals from "./i18n.es.evals.ts";
 import custom from "./i18n.es.custom.ts";
 import commands from "./i18n.es.commands.ts";
 import secrets from "./i18n.es.secrets.ts";
+import inference from "./i18n.es.inference.ts";
 import automode from "./i18n.es.automode.ts";
 import terminal from "./i18n.es.terminal.ts";
 import speechService from "./i18n.es.speechservice.ts";
@@ -61,6 +62,12 @@ const first: Record<string, string> = {
   "1 agent": "1 agente",
   "1 subagent": "1 subagente",
   "1 background agent running": "1 agente en segundo plano trabajando",
+  "Default for new threads": "Predeterminado para hilos nuevos",
+  "Use for new threads": "Usar en hilos nuevos",
+  "New threads will use the local model": "Los hilos nuevos usarán el modelo local",
+  "Its model is not being served: start the local model": "Su modelo no está activo: inicia el modelo local",
+  "Model not served": "Modelo sin servir",
+  "1 message waiting in the queue": "1 mensaje esperando en la cola",
   "1 change": "1 cambio",
   "1 command": "1 comando",
   "1 file changed": "1 archivo cambiado",
@@ -576,6 +583,7 @@ const first: Record<string, string> = {
   "{n} min": "{n} min",
   "Waiting for you": "Esperando tu respuesta",
   "Waiting for your approval": "Esperando tu aprobación para un comando",
+  "{n} messages waiting in the queue": "{n} mensajes esperando en la cola",
   "{n} background agents running": "{n} agentes en segundo plano trabajando",
   "{n} changes": "{n} cambios",
   "{n} commands": "{n} comandos",
@@ -920,6 +928,7 @@ const es: Record<string, string> = {
   ...terminal,
   ...speechService,
   ...secrets,
+  ...inference,
   ...pinnedPlan,
   ...memoryKinds,
   ...signin,

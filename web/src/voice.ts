@@ -91,6 +91,7 @@ export const SPEECH_PRESETS = [
     label: "OpenAI",
     api: "openai",
     base_url: "https://api.openai.com/v1",
+    // OpenAI retires tts-1, tts-1-hd and gpt-4o-mini-tts on 2027-01-06; kept for now, then Qwen3-TTS.
     model: "gpt-4o-mini-tts",
     voice: "alloy",
   },

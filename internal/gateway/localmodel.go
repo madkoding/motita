@@ -86,6 +86,9 @@ func (s *Server) localReady(r localmodel.Ready) error {
 	if err == nil {
 		err = setCredential(s.opts.ConfigPath, config.LocalContextVariable, strconv.Itoa(r.Context))
 	}
+	if err == nil {
+		err = s.preferLocalForBackground()
+	}
 	if err != nil {
 		return err
 	}
@@ -160,6 +163,9 @@ func (s *Server) handleLocalDelete(w http.ResponseWriter, r *http.Request) {
 		}
 		if err == nil {
 			err = s.forgetEverywhere(cfg, p)
+		}
+		if err == nil {
+			err = s.releaseLocalBackground()
 		}
 		if err != nil {
 			writeError(w, http.StatusInternalServerError, err.Error())
