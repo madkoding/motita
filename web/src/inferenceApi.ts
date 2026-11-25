@@ -20,6 +20,10 @@ export interface InferenceServer {
   provider: string;
   has_key: boolean;
   key_hint?: string;
+  // The provider runs with this server's address now.
+  in_use: boolean;
+  // Motita's own local model: listed, but managed in Settings → Providers.
+  managed?: boolean;
 }
 
 export interface InferenceView {
@@ -109,6 +113,19 @@ export async function probeInference(
   return read(
     await api(
       INFERENCE_PATH + "/" + encodeURIComponent(id) + "/probe",
+      send("POST"),
+    ),
+  );
+}
+
+// selectInference makes a server the endpoint of the provider that speaks its kind.
+export async function selectInference(
+  api: Api,
+  id: string,
+): Promise<InferenceView> {
+  return read(
+    await api(
+      INFERENCE_PATH + "/" + encodeURIComponent(id) + "/use",
       send("POST"),
     ),
   );

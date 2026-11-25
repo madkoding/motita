@@ -12,6 +12,7 @@ import (
 
 	"github.com/madkoding/motita/internal/config"
 	"github.com/madkoding/motita/internal/inference"
+	"github.com/madkoding/motita/internal/onboard"
 )
 
 // THE REGISTRY OF INFERENCE SERVERS, as Settings → Inference lists and changes it.
@@ -28,6 +29,11 @@ type inferenceView struct {
 	// Provider is the LLM provider that speaks to the server.
 	Provider string `json:"provider"`
 	HasKey   bool   `json:"has_key"`
+	// InUse says the server's address is the one its provider runs with now.
+	InUse bool `json:"in_use"`
+	// Managed marks Motita's own local model: listed so it shows beside the others, but started,
+	// stopped and removed from Settings → Providers, so it has no key, no edit and no probe here.
+	Managed bool `json:"managed,omitempty"`
 	// KeyHint is the last four characters of a key of 16 or more.
 	KeyHint string `json:"key_hint,omitempty"`
 }
@@ -64,6 +70,7 @@ func (s *Server) inferenceRoutes(mux *http.ServeMux, plain func(http.HandlerFunc
 	mux.Handle("PUT /v1/inference-servers/{id}", plain(s.handleInferenceEdit))
 	mux.Handle("DELETE /v1/inference-servers/{id}", plain(s.handleInferenceRemove))
 	mux.Handle("POST /v1/inference-servers/{id}/probe", plain(s.handleInferenceProbe))
+	mux.Handle("POST /v1/inference-servers/{id}/use", plain(s.handleInferenceUse))
 }
 
 func (s *Server) inferenceStore() *inference.Store {
@@ -77,17 +84,33 @@ func (s *Server) inferenceSnapshot() (inferenceList, error) {
 		return inferenceList{}, err
 	}
 	creds := config.StoredCredentials(s.opts.ConfigPath)
+	cfg := s.configuredLLM()
 	out := inferenceList{
 		CanSave: s.opts.ConfigPath != "",
 		Max:     inference.MaxServers,
 		Kinds:   inference.Kinds,
-		Servers: make([]inferenceView, 0, len(list)),
+		Servers: make([]inferenceView, 0, len(list)+1),
+	}
+	// Motita's own local model is an entry of the list while it has an address: it comes from
+	// Settings → Providers, so it is shown and never stored here.
+	if base := config.StoredBaseURL(config.ProviderLocal); base != "" {
+		out.Servers = append(out.Servers, inferenceView{
+			Server:   inference.Server{ID: managedLocalID, Name: "Motita local model", Kind: "llamacpp", BaseURL: base},
+			Provider: config.ProviderLocal,
+			InUse:    strings.EqualFold(cfg.Provider, config.ProviderLocal),
+			Managed:  true,
+		})
 	}
 	for _, v := range list {
-		out.Servers = append(out.Servers, inferenceViewOf(v, creds[inference.KeyVariable(v.ID)]))
+		view := inferenceViewOf(v, creds[inference.KeyVariable(v.ID)])
+		view.InUse = effectiveBase(cfg, view.Provider) == v.BaseURL
+		out.Servers = append(out.Servers, view)
 	}
 	return out, nil
 }
+
+// managedLocalID is the id the managed local model has in the list; it is never a stored id.
+const managedLocalID = "motita-local"
 
 func inferenceViewOf(v inference.Server, key string) inferenceView {
 	k, _ := inference.KindOf(v.Kind)
@@ -314,4 +337,51 @@ func (s *Server) handleInferenceProbe(w http.ResponseWriter, r *http.Request) {
 	}
 	sort.Strings(models)
 	writeJSON(w, http.StatusOK, probeResult{OK: true, LatencyMS: took, Models: models})
+}
+
+// handleInferenceUse makes a server the endpoint of the provider that speaks its kind: its address
+// and key are saved where that provider keeps them, and the open conversations get them at once.
+// Nothing else moves: the default model and the other providers stay as they were, so using a
+// server is as undoable as saving a provider.
+func (s *Server) handleInferenceUse(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	if !inference.ValidID(id) {
+		writeError(w, http.StatusNotFound, inference.ErrNotFound.Error())
+		return
+	}
+	if !s.needFile(w) {
+		return
+	}
+	v, err := s.inferenceStore().Get(id)
+	if err != nil {
+		writeInferenceError(w, err)
+		return
+	}
+	k, _ := inference.KindOf(v.Kind)
+	p, _ := onboard.Lookup(k.Provider)
+	key := config.StoredCredentials(s.opts.ConfigPath)[inference.KeyVariable(id)]
+	if key == "" && k.Provider == config.ProviderCustom {
+		// The custom provider always sends a token, and a server that takes none ignores it.
+		key = "none"
+	}
+	cfg := s.configuredLLM()
+	if err := s.saveProvider(cfg, p, true, key, true, v.BaseURL); err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	if v.Model != "" && k.Provider == config.ProviderCustom {
+		custom := s.configuredCustom()
+		custom.Model = v.Model
+		if err := setCustom(s.opts.ConfigPath, custom); err != nil {
+			writeError(w, http.StatusInternalServerError, err.Error())
+			return
+		}
+		for _, c := range s.snapshot() {
+			if cs, ok := c.svc.(customModelSetter); ok {
+				cs.SetCustomModel(custom)
+			}
+		}
+	}
+	s.refreshSessions(p.ID)
+	s.writeInferenceSnapshot(w, http.StatusOK)
 }

@@ -1575,9 +1575,13 @@ plain http outside your network).
 | `POST /v1/inference-servers`            | `{"name","kind","base_url","model","api_key"}` adds one (`201`); `400` for a bad field, `409` for a repeated name or a full list |
 | `PUT /v1/inference-servers/{id}`        | changes the fields sent and keeps the rest; `"api_key":""` removes the key; `404` for an unknown id    |
 | `DELETE /v1/inference-servers/{id}`     | removes the server and its key                                                                         |
+| `POST /v1/inference-servers/{id}/use`   | makes the server the endpoint of its provider: its address and key are saved where that provider keeps them (`custom` gets the placeholder token `none` when the server has no key, and the server's `model` becomes the custom model) and the open conversations get them at once; nothing else changes. `404` for an unknown id |
 | `POST /v1/inference-servers/{id}/probe` | asks the server for its models: `{"ok","latency_ms","models","error"}`, `200` whether it answered or not |
 
-Each write answers with the whole list; `409` without a configuration file.
+Each write answers with the whole list; `409` without a configuration file. A server says `in_use`
+when its provider runs with its address. Once Motita's own local model has an address it is listed
+first as `motita-local` with `managed: true`: shown beside the others, but started and stopped from
+**Providers**, so it has no key, edit, probe or use here.
 
 ### Models per kind of work
 

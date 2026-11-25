@@ -14,6 +14,7 @@ import {
   getInference,
   probeInference,
   removeInference,
+  selectInference,
 } from "./inferenceApi";
 import {
   dangerBtn,
@@ -246,6 +247,60 @@ function probeLine(r: ProbeResult): string {
   return tf("Not reachable: {error}", { error: r.error ?? "" });
 }
 
+// keyLabel says whether the server has a key, without ever showing it.
+function keyLabel(server: InferenceServer): string {
+  if (server.managed) {
+    return t("Managed in Settings → Providers");
+  }
+  if (!server.has_key) {
+    return t("No key");
+  }
+  if (!server.key_hint) {
+    return t("Key saved");
+  }
+  return tf("Key saved (…{hint})", { hint: server.key_hint.slice(-4) });
+}
+
+// ServerText is what a row says about a server, with the last answer of its test.
+function ServerText({
+  server,
+  probe,
+}: {
+  server: InferenceServer;
+  probe: ProbeResult | "running" | null;
+}) {
+  const failed = probe !== null && probe !== "running" && !probe.ok;
+  return (
+    <div class="settings-row-text">
+      <div class="text-sm">
+        {server.name}
+        {server.in_use && (
+          <span
+            class="ml-2 text-xs text-accent"
+            data-testid={"inference-inuse-" + server.id}
+          >
+            {t("In use")}
+          </span>
+        )}
+      </div>
+      <div class="text-xs text-[#7a7a8c] mt-0.5 font-mono break-all">
+        {server.base_url}
+        {server.model ? " · " + server.model : ""}
+      </div>
+      <div class="text-xs text-[#7a7a8c] mt-0.5">{keyLabel(server)}</div>
+      {probe && (
+        <output
+          class={"block text-xs mt-0.5 " + choose(failed, "text-danger", "")}
+          data-testid={"inference-probe-" + server.id}
+        >
+          {choose(probe === "running", t("Testing") + "…", "")}
+          {probe !== "running" && probeLine(probe)}
+        </output>
+      )}
+    </div>
+  );
+}
+
 // ServerRow is one server with its buttons and the last answer of its test.
 function ServerRow({
   api,
@@ -271,69 +326,53 @@ function ServerRow({
       setProbe({ ok: false, latency_ms: 0, error: errorMessage(e) });
     }
   };
-  const key = choose(
-    server.has_key,
-    choose(
-      !!server.key_hint,
-      tf("Key saved (…{hint})", { hint: (server.key_hint ?? "").slice(-4) }),
-      t("Key saved"),
-    ),
-    t("No key"),
-  );
   return (
     <li class="settings-row" data-testid={"inference-row-" + server.id}>
-      <div class="settings-row-text">
-        <div class="text-sm">{server.name}</div>
-        <div class="text-xs text-[#7a7a8c] mt-0.5 font-mono break-all">
-          {server.base_url}
-          {server.model ? " · " + server.model : ""}
-        </div>
-        <div class="text-xs text-[#7a7a8c] mt-0.5">{key}</div>
-        {probe && (
-          <output
-            class={
-              "block text-xs mt-0.5 " +
-              choose(probe !== "running" && !probe.ok, "text-danger", "")
-            }
-            data-testid={"inference-probe-" + server.id}
+      <ServerText server={server} probe={probe} />
+      {!server.managed && (
+        <div class="settings-row-control flex gap-2">
+          <button
+            type="button"
+            class={smallBtn}
+            data-testid={"inference-use-" + server.id}
+            aria-label={tf("Use {name}", { name: server.name })}
+            disabled={busy || !canSave || server.in_use}
+            onClick={() => void change(() => selectInference(api, server.id))}
           >
-            {choose(probe === "running", t("Testing") + "…", "")}
-            {probe !== "running" && probeLine(probe)}
-          </output>
-        )}
-      </div>
-      <div class="settings-row-control flex gap-2">
-        <button
-          type="button"
-          class={smallBtn}
-          data-testid={"inference-test-" + server.id}
-          aria-label={tf("Test {name}", { name: server.name })}
-          disabled={probe === "running"}
-          onClick={() => void test()}
-        >
-          {t("Test")}
-        </button>
-        <button
-          type="button"
-          class={smallBtn}
-          data-testid={"inference-edit-" + server.id}
-          aria-label={tf("Edit {name}", { name: server.name })}
-          disabled={busy || !canSave}
-          onClick={() => onEdit(server)}
-        >
-          {t("Edit")}
-        </button>
-        <button
-          type="button"
-          class={dangerBtn}
-          data-testid={"inference-remove-" + server.id}
-          aria-label={tf("Remove {name}", { name: server.name })}
-          disabled={busy || !canSave}
-          onClick={() => void change(() => removeInference(api, server.id))}
-        >
-          {t("Remove")}
-        </button>
-      </div>
+            {t("Use")}
+          </button>
+          <button
+            type="button"
+            class={smallBtn}
+            data-testid={"inference-test-" + server.id}
+            aria-label={tf("Test {name}", { name: server.name })}
+            disabled={probe === "running"}
+            onClick={() => void test()}
+          >
+            {t("Test")}
+          </button>
+          <button
+            type="button"
+            class={smallBtn}
+            data-testid={"inference-edit-" + server.id}
+            aria-label={tf("Edit {name}", { name: server.name })}
+            disabled={busy || !canSave}
+            onClick={() => onEdit(server)}
+          >
+            {t("Edit")}
+          </button>
+          <button
+            type="button"
+            class={dangerBtn}
+            data-testid={"inference-remove-" + server.id}
+            aria-label={tf("Remove {name}", { name: server.name })}
+            disabled={busy || !canSave}
+            onClick={() => void change(() => removeInference(api, server.id))}
+          >
+            {t("Remove")}
+          </button>
+        </div>
+      )}
     </li>
   );
 }

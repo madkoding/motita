@@ -276,3 +276,127 @@ func TestInferenceServersReportFailures(t *testing.T) {
 		t.Errorf("delete: %d", w.Code)
 	}
 }
+
+func TestAnInferenceServerIsUsedAsTheEndpointOfItsProvider(t *testing.T) {
+	path := llmEnv(t, openAIConfig)
+	srv, svc := modelsServer(t, path)
+	inferenceCall(t, srv, http.MethodPost, infPath,
+		`{"name":"Box","kind":"llamacpp","base_url":"http://10.0.0.5:8080/v1","model":"qwen"}`)
+	inferenceCall(t, srv, http.MethodPost, infPath,
+		`{"name":"Oll","kind":"ollama","base_url":"http://10.0.0.6:11434/v1","api_key":"okey"}`)
+
+	_, v, _ := inferenceCall(t, srv, http.MethodGet, infPath, "")
+	if v.Servers[0].InUse || v.Servers[1].InUse {
+		t.Fatalf("nothing is in use yet: %+v", v.Servers)
+	}
+
+	// A keyless server gets the placeholder token the custom provider always sends, and its model
+	// becomes the custom model.
+	code, v, raw := inferenceCall(t, srv, http.MethodPost, infPath+"/box/use", "")
+	if code != http.StatusOK || !v.Servers[0].InUse || v.Servers[1].InUse {
+		t.Fatalf("use: %d %s", code, raw)
+	}
+	creds := config.StoredCredentials(path)
+	if creds["MOTITA_CUSTOM_BASE_URL"] != "http://10.0.0.5:8080/v1" || creds["MOTITA_CUSTOM_API_KEY"] != "none" {
+		t.Errorf("credentials = %v", creds)
+	}
+	if len(svc.custom) != 1 || svc.custom[0].Model != "qwen" {
+		t.Errorf("custom model = %+v", svc.custom)
+	}
+	if len(svc.refreshed) == 0 || !strings.HasPrefix(svc.refreshed[len(svc.refreshed)-1], "custom|none|") {
+		t.Errorf("refreshed = %v", svc.refreshed)
+	}
+
+	// An Ollama server keeps its own key and sets no custom model.
+	code, v, raw = inferenceCall(t, srv, http.MethodPost, infPath+"/oll/use", "")
+	creds = config.StoredCredentials(path)
+	if code != http.StatusOK || !v.Servers[1].InUse {
+		t.Errorf("ollama: %d %s", code, raw)
+	}
+	if creds["MOTITA_OLLAMA_BASE_URL"] != "http://10.0.0.6:11434/v1" || creds["MOTITA_OLLAMA_API_KEY"] != "okey" {
+		t.Errorf("ollama credentials = %v", creds)
+	}
+	if len(svc.custom) != 1 {
+		t.Errorf("an Ollama server sets no custom model: %+v", svc.custom)
+	}
+}
+
+func TestTheManagedLocalModelIsListedReadOnly(t *testing.T) {
+	path := llmEnv(t, openAIConfig)
+	srv, _ := llmServer(t, path)
+	_, v, _ := inferenceCall(t, srv, http.MethodGet, infPath, "")
+	if len(v.Servers) != 0 {
+		t.Fatalf("no local model, no entry: %+v", v.Servers)
+	}
+	localCreds := [][2]string{{"MOTITA_LOCAL_BASE_URL", "http://127.0.0.1:8471/v1"}, {"MOTITA_LOCAL_API_KEY", "k"}}
+	for _, kv := range localCreds {
+		if err := config.SetCredential(path, kv[0], kv[1]); err != nil {
+			t.Fatal(err)
+		}
+	}
+	_, v, _ = inferenceCall(t, srv, http.MethodGet, infPath, "")
+	if len(v.Servers) != 1 {
+		t.Fatalf("managed = %+v", v.Servers)
+	}
+	m := v.Servers[0]
+	if !m.Managed || m.ID != managedLocalID || m.Provider != "local" {
+		t.Errorf("managed entry = %+v", m)
+	}
+	if m.HasKey || m.InUse {
+		t.Errorf("managed entry has no key and is not in use yet: %+v", m)
+	}
+	for _, m := range []string{infPath + "/motita-local/use", infPath + "/motita-local/probe"} {
+		if w := llmCall(t, srv, http.MethodPost, m, ""); w.Code != http.StatusNotFound {
+			t.Errorf("%s: %d", m, w.Code)
+		}
+	}
+	// Running on it, the entry says so.
+	if err := config.SetLLMDefault(path, "local", "m", "http://127.0.0.1:8471/v1"); err != nil {
+		t.Fatal(err)
+	}
+	_, v, _ = inferenceCall(t, srv, http.MethodGet, infPath, "")
+	if !v.Servers[0].InUse {
+		t.Errorf("the default provider's own address is in use: %+v", v.Servers[0])
+	}
+}
+
+func TestUsingAServerRefusesBadRequests(t *testing.T) {
+	path := llmEnv(t, openAIConfig)
+	srv, _ := modelsServer(t, path)
+	inferenceCall(t, srv, http.MethodPost, infPath,
+		`{"name":"Box","kind":"llamacpp","model":"qwen"}`)
+	for p, want := range map[string]int{
+		infPath + "/A_/use":  http.StatusNotFound,
+		infPath + "/zzz/use": http.StatusNotFound,
+	} {
+		if w := llmCall(t, srv, http.MethodPost, p, ""); w.Code != want {
+			t.Errorf("%s: %d", p, w.Code)
+		}
+	}
+
+	old := setCredential
+	setCredential = func(string, string, string) error { return errors.New("disk full") }
+	w := llmCall(t, srv, http.MethodPost, infPath+"/box/use", "")
+	setCredential = old
+	if w.Code != http.StatusInternalServerError {
+		t.Errorf("credential write: %d", w.Code)
+	}
+	oldCustom := setCustom
+	setCustom = func(string, config.CustomModel) error { return errors.New("disk full") }
+	w = llmCall(t, srv, http.MethodPost, infPath+"/box/use", "")
+	setCustom = oldCustom
+	if w.Code != http.StatusInternalServerError {
+		t.Errorf("custom write: %d", w.Code)
+	}
+
+	// A broken list is an error, and without a file there is nowhere to save.
+	_ = os.WriteFile(inference.PathBeside(path), []byte("{nope"), 0o600)
+	w = llmCall(t, srv, http.MethodPost, infPath+"/box/use", "")
+	if w.Code != http.StatusInternalServerError {
+		t.Errorf("broken list: %d", w.Code)
+	}
+	bare := newTestServer(t, &refreshingService{})
+	if w := llmCall(t, bare, http.MethodPost, infPath+"/box/use", ""); w.Code != http.StatusConflict {
+		t.Errorf("no file: %d", w.Code)
+	}
+}
