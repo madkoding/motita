@@ -131,7 +131,7 @@ const (
 )
 
 // The name of a model's tokenizer, in every repository that has one.
-const tokenizerJSON = "tokenizer.json"
+const tokenizerJSON = "tokenizer.json" // #nosec G101 -- a file name, not a credential.
 
 // The parts of a Whisper export: 8-bit for the processor, 4-bit for the graphics card.
 const (
