@@ -1556,6 +1556,29 @@ gateway runs them, so they reach the same download and the same server as the br
 | `POST /v1/local-model/stop`      | stops it                                                                                                       |
 | `DELETE /v1/local-model`         | stops it, deletes `~/.motita/local` and disconnects the provider                                               |
 
+### Inference servers
+
+A list of the servers that serve models over HTTP, kept in `inference-servers.json` beside the
+configuration (`0600`, at most 32). A server has a `name` (its `id` is the name as a slug and never
+changes), a `kind` (`llamacpp`, `lmstudio`, `ollama` or `openai` for any OpenAI-compatible
+endpoint such as TensorFold or vLLM), a `base_url` (the kind's usual address when left out; `openai`
+has none), an optional `model` and an optional key. The key goes to the credentials file as
+`MOTITA_INFERENCE_<ID>_API_KEY` and is never returned: a server shows `has_key` and the last four
+characters in `key_hint`. The registry adds no protocol: `ollama` is spoken by the `ollama`
+provider and the others by the OpenAI chat one (`custom`), and each server says which in `provider`.
+Addresses follow the provider rules (no user, query or link-local address; a key is never sent in
+plain http outside your network).
+
+| Endpoint                                | What it does                                                                                           |
+| --------------------------------------- | ------------------------------------------------------------------------------------------------------ |
+| `GET /v1/inference-servers`             | `{"can_save","max","kinds":[…],"servers":[…]}`                                                           |
+| `POST /v1/inference-servers`            | `{"name","kind","base_url","model","api_key"}` adds one (`201`); `400` for a bad field, `409` for a repeated name or a full list |
+| `PUT /v1/inference-servers/{id}`        | changes the fields sent and keeps the rest; `"api_key":""` removes the key; `404` for an unknown id    |
+| `DELETE /v1/inference-servers/{id}`     | removes the server and its key                                                                         |
+| `POST /v1/inference-servers/{id}/probe` | asks the server for its models: `{"ok","latency_ms","models","error"}`, `200` whether it answered or not |
+
+Each write answers with the whole list; `409` without a configuration file.
+
 ### Models per kind of work
 
 The **Models** tab holds the default model and, under it, a model for each kind of work. A kind
