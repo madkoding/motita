@@ -479,10 +479,26 @@ func SessionBranches(ctx context.Context, dir string) []string {
 	return strings.Fields(out)
 }
 
+// refName refuses a branch or start point that git would read as an option. A name arrives from a
+// remote (a branch of a pull request, a ref of a repository the user opened), and `git checkout
+// --orphan=x --` or `git branch -d -f` do something other than name a branch. git itself never
+// makes such a name, so a leading dash is not a branch.
+func refName(names ...string) error {
+	for _, n := range names {
+		if strings.HasPrefix(n, "-") {
+			return fmt.Errorf("%q is not a branch name: it starts with a dash, and git would read it as an option", n)
+		}
+	}
+	return nil
+}
+
 // Checkout puts the checkout at dir on a branch. A branch that exists only on origin is created
 // locally, tracking it. Git's own refusal (uncommitted changes that would be overwritten, a
 // branch checked out in another worktree) is reported as it is.
 func Checkout(ctx context.Context, dir, branch string) error {
+	if err := refName(branch); err != nil {
+		return err
+	}
 	_, err := noGitOr(ctx, "could not check out "+branch, dir, "checkout", branch, "--")
 	return err
 }
@@ -694,6 +710,9 @@ func AddWorktree(ctx context.Context, repoDir, path, branch string) error {
 // (a branch or commit) instead of the repository's HEAD, which in a repository the user works in is
 // whatever they have checked out. "" is HEAD. A branch that exists keeps its own history.
 func AddWorktreeFrom(ctx context.Context, repoDir, path, branch, start string) error {
+	if err := refName(branch, start); err != nil {
+		return err
+	}
 	root, err := Root(ctx, repoDir)
 	if err != nil {
 		return err
@@ -838,6 +857,9 @@ type MergeResult struct {
 // the most confusing state git has, and a program that leaves one behind is a
 // program that broke the thing the user was in the middle of.
 func MergeInto(ctx context.Context, repoDir, baseBranch, branch, message string) (MergeResult, error) {
+	if err := refName(baseBranch, branch); err != nil {
+		return MergeResult{}, err
+	}
 	branchNow, detached, err := Head(ctx, repoDir)
 	if err != nil {
 		return MergeResult{}, err
@@ -883,6 +905,9 @@ func MergeInto(ctx context.Context, repoDir, baseBranch, branch, message string)
 // remote because pulling and merging blindly would change history the user did
 // not ask to merge.
 func PullFastForward(ctx context.Context, dir, branch string) error {
+	if err := refName(branch); err != nil {
+		return err
+	}
 	if _, err := noGitOr(ctx, "could not fetch the latest changes", dir, "fetch", "--", "origin", branch); err != nil {
 		return err
 	}
@@ -943,6 +968,9 @@ func HasRemote(ctx context.Context, dir string) bool {
 // away. A refusal names the commits it would have taken, which is the message
 // the user needs in order to decide.
 func DeleteBranch(ctx context.Context, dir, branch string) error {
+	if err := refName(branch); err != nil {
+		return err
+	}
 	_, err := noGitOr(ctx, "the branch was not deleted", dir, "branch", "-d", branch)
 	return err
 }
@@ -953,6 +981,9 @@ func DeleteBranch(ctx context.Context, dir, branch string) error {
 // for ever, although every line of it is on the base branch. The caller holds that proof; this
 // function does not ask for it, so it is never the default.
 func ForceDeleteBranch(ctx context.Context, dir, branch string) error {
+	if err := refName(branch); err != nil {
+		return err
+	}
 	_, err := noGitOr(ctx, "the branch was not deleted", dir, "branch", "-D", branch)
 	return err
 }
@@ -960,6 +991,9 @@ func ForceDeleteBranch(ctx context.Context, dir, branch string) error {
 // SwitchNew creates branch at the checkout's HEAD and switches to it, carrying uncommitted work
 // along. A branch that already exists is switched to as it is.
 func SwitchNew(ctx context.Context, dir, branch string) error {
+	if err := refName(branch); err != nil {
+		return err
+	}
 	if BranchExists(ctx, dir, branch) {
 		return Checkout(ctx, dir, branch)
 	}
