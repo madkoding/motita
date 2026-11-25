@@ -260,7 +260,7 @@ func (rr *roundRun) unknownKind(i int, kind string, action Command) bool {
 		"box_up, box_get, box_shot, box_down, "+
 		"desktop_shot, desktop_click, desktop_move, desktop_scroll, desktop_type, desktop_key, "+
 		"desktop_windows, desktop_focus (when the person turned desktop control on), "+
-		"mcp_tools, mcp_call (when the person connected MCP servers). "+
+		"mcp_tools, mcp_call, mcp_start, mcp_task (when the person connected MCP servers). "+
 		"To run a shell command, use kind \"command\".]\n",
 		kind, action.Description, kind)
 	rr.a.log.Warn(rr.prefix+"action with an unknown kind",
