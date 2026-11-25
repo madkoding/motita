@@ -32,7 +32,12 @@ func TestKinds(t *testing.T) {
 }
 
 func TestSlugKeyAndID(t *testing.T) {
-	cases := map[string]string{"Mi GPU #2": "mi-gpu-2", "  --A--  ": "a", "!!!": "", strings.Repeat("ab", 30): strings.Repeat("ab", 20)}
+	cases := map[string]string{
+		"Mi GPU #2":              "mi-gpu-2",
+		"  --A--  ":              "a",
+		"!!!":                    "",
+		strings.Repeat("ab", 30): strings.Repeat("ab", 20),
+	}
 	for in, want := range cases {
 		if got := SlugOf(in); got != want {
 			t.Errorf("SlugOf(%q) = %q, want %q", in, got, want)
@@ -44,8 +49,13 @@ func TestSlugKeyAndID(t *testing.T) {
 	if got := KeyVariable("mi-gpu-2"); got != "MOTITA_INFERENCE_MI_GPU_2_API_KEY" {
 		t.Errorf("KeyVariable = %q", got)
 	}
-	if !ValidID("mi-gpu-2") || ValidID("Mi") || ValidID("a--b") || ValidID("") || ValidID(strings.Repeat("a", 41)) {
-		t.Error("ValidID gave a wrong answer")
+	if !ValidID("mi-gpu-2") {
+		t.Error("a slug is a valid id")
+	}
+	for _, bad := range []string{"Mi", "a--b", "", strings.Repeat("a", 41)} {
+		if ValidID(bad) {
+			t.Errorf("ValidID(%q)", bad)
+		}
 	}
 }
 
@@ -68,7 +78,7 @@ func TestCheck(t *testing.T) {
 	}
 }
 
-func TestStoreRoundTrip(t *testing.T) {
+func TestStoreAddAndGet(t *testing.T) {
 	s := store(t)
 	if !s.CanSave() {
 		t.Fatal("CanSave")
@@ -93,6 +103,18 @@ func TestStoreRoundTrip(t *testing.T) {
 	if _, err := s.Get("zzz"); !errors.Is(err, ErrNotFound) {
 		t.Errorf("get missing: %v", err)
 	}
+	if info, err := os.Stat(s.path); err != nil || info.Mode().Perm() != 0o600 {
+		t.Errorf("mode: %v %v", info, err)
+	}
+}
+
+func TestStoreUpdateAndRemove(t *testing.T) {
+	s := store(t)
+	for _, n := range []string{"Alpha", "Beta"} {
+		if _, err := s.Add(srv(n)); err != nil {
+			t.Fatal(err)
+		}
+	}
 	up, err := s.Update("alpha", Server{ID: "other", Name: "Renamed", Kind: "ollama", BaseURL: "http://h:1/v1"})
 	if err != nil || up.ID != "alpha" || up.Name != "Renamed" {
 		t.Fatalf("update: %+v %v", up, err)
@@ -109,9 +131,6 @@ func TestStoreRoundTrip(t *testing.T) {
 	list, _ := s.List()
 	if len(list) != 1 || list[0].ID != "beta" {
 		t.Errorf("list = %+v", list)
-	}
-	if info, err := os.Stat(s.path); err != nil || info.Mode().Perm() != 0o600 {
-		t.Errorf("mode: %v %v", info, err)
 	}
 }
 
