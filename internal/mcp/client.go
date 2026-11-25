@@ -140,7 +140,9 @@ func environment(extra map[string]string) []string {
 
 // NewClient talks to a server already connected through r and w (a test, or a transport the
 // caller opened) and completes the handshake.
-func NewClient(ctx context.Context, name string, r io.Reader, w io.Writer, closer io.Closer, h Handler) (*Client, error) {
+func NewClient(
+	ctx context.Context, name string, r io.Reader, w io.Writer, closer io.Closer, h Handler,
+) (*Client, error) {
 	c := newClient(name, w, r, closer, h)
 	if err := c.initialize(ctx); err != nil {
 		_ = c.Close()

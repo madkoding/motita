@@ -54,6 +54,13 @@ func (f *fakeServer) send(v any) {
 	}
 }
 
+func (f *fakeServer) fail(m message, code int, text string) {
+	f.t.Helper()
+	f.send(map[string]any{
+		"jsonrpc": "2.0", "id": json.RawMessage(m.ID), "error": map[string]any{"code": code, "message": text},
+	})
+}
+
 func (f *fakeServer) answer(m message, result any) {
 	f.send(map[string]any{"jsonrpc": "2.0", "id": json.RawMessage(m.ID), "result": result})
 }
@@ -89,9 +96,12 @@ func connect(t *testing.T, h Handler) (*Client, *fakeServer) {
 
 func TestHandshake(t *testing.T) {
 	c, _ := connect(t, Handler{})
-	if c.Name() != "fake" || c.Server.Name != "fake" || c.Server.Protocol != "2025-06-18" ||
-		c.Server.Instructions != "be nice" || len(c.Server.Capabilities) == 0 {
-		t.Fatalf("server = %+v", c.Server)
+	s := c.Server
+	if c.Name() != "fake" || s.Name != "fake" || s.Protocol != "2025-06-18" {
+		t.Fatalf("server = %+v", s)
+	}
+	if s.Instructions != "be nice" || len(s.Capabilities) == 0 {
+		t.Fatalf("server = %+v", s)
 	}
 }
 
@@ -125,7 +135,7 @@ func TestHandshakeFails(t *testing.T) {
 	f := newFake(t)
 	go func() {
 		m := f.read()
-		f.send(map[string]any{"jsonrpc": "2.0", "id": json.RawMessage(m.ID), "error": map[string]any{"code": -1, "message": "no"}})
+		f.fail(m, -1, "no")
 	}()
 	if _, err := NewClient(context.Background(), "x", f.r, f.w, nil, Handler{}); err == nil ||
 		!strings.Contains(err.Error(), "handshake") || !strings.Contains(err.Error(), "mcp error -1: no") {
@@ -160,7 +170,7 @@ func TestToolsError(t *testing.T) {
 	c, f := connect(t, Handler{})
 	go func() {
 		m := f.read()
-		f.send(map[string]any{"jsonrpc": "2.0", "id": json.RawMessage(m.ID), "error": map[string]any{"code": -32601, "message": "nope"}})
+		f.fail(m, -32601, "nope")
 	}()
 	if _, err := c.Tools(context.Background()); err == nil || !strings.Contains(err.Error(), "nope") {
 		t.Fatalf("err = %v", err)
@@ -355,7 +365,9 @@ func TestElicitationUsesTheCallContext(t *testing.T) {
 
 func TestElicitationRefusals(t *testing.T) {
 	_, f := connect(t, Handler{})
-	f.send(map[string]any{"jsonrpc": "2.0", "id": 1, "method": "elicitation/create", "params": map[string]any{"message": "q"}})
+	f.send(map[string]any{
+		"jsonrpc": "2.0", "id": 1, "method": "elicitation/create", "params": map[string]any{"message": "q"},
+	})
 	if m := f.read(); m.Error == nil || !strings.Contains(m.Error.Message, "not supported") {
 		t.Fatalf("no handler = %+v", m)
 	}
@@ -367,7 +379,8 @@ func TestElicitationRefusals(t *testing.T) {
 }
 
 func TestDefaults(t *testing.T) {
-	schema := json.RawMessage(`{"type":"object","properties":{"ok":{"type":"boolean","default":true},"name":{"type":"string"},"n":{"default":3}},"required":["ok","name"]}`)
+	schema := json.RawMessage(`{"type":"object","required":["ok","name"],"properties":{` +
+		`"ok":{"type":"boolean","default":true},"name":{"type":"string"},"n":{"default":3}}}`)
 	values, missing := Defaults(schema)
 	if values["ok"] != true || values["n"] != float64(3) || len(missing) != 1 || missing[0] != "name" {
 		t.Fatalf("values = %v, missing = %v", values, missing)
@@ -395,7 +408,10 @@ func runHelperServer() {
 		if len(m.ID) == 0 {
 			continue
 		}
-		res := map[string]any{"protocolVersion": ProtocolVersion, "serverInfo": map[string]any{"name": "proc"}, "env": os.Getenv("MCP_TEST_EXTRA")}
+		res := map[string]any{
+			"protocolVersion": ProtocolVersion, "serverInfo": map[string]any{"name": "proc"},
+			"env": os.Getenv("MCP_TEST_EXTRA"),
+		}
 		raw, _ := json.Marshal(map[string]any{"jsonrpc": "2.0", "id": json.RawMessage(m.ID), "result": res})
 		_, _ = os.Stdout.Write(append(raw, '\n'))
 	}

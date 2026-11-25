@@ -27,7 +27,10 @@ type fakeMCP struct {
 }
 
 func (f *fakeMCP) Tools(context.Context) ([]mcp.Tool, error) { return f.tools, f.toolsErr }
-func (f *fakeMCP) Close() error                              { f.closed++; return nil }
+func (f *fakeMCP) Close() error {
+	f.closed++
+	return nil
+}
 func (f *fakeMCP) Call(ctx context.Context, name string, args json.RawMessage) (mcp.CallResult, error) {
 	f.calls = append(f.calls, name)
 	f.args = append(f.args, string(args))
@@ -65,11 +68,14 @@ func mcpAgent(t *testing.T, answer bool) (*fixture, map[string]*fakeMCP, *[]Appr
 
 func TestMCPToolsListsEveryServer(t *testing.T) {
 	e, fakes, asked := mcpAgent(t, true)
-	fakes["shop"].tools = []mcp.Tool{{Name: "buy", Description: "buys\n  things", InputSchema: json.RawMessage(`{"type":"object"}`)}}
+	schema := json.RawMessage(`{"type":"object"}`)
+	fakes["shop"].tools = []mcp.Tool{{Name: "buy", Description: "buys\n  things", InputSchema: schema}}
 	fakes["db"].toolsErr = errors.New("down")
 	out, err := box(e, "mcp_tools", "")
-	if err != nil || !strings.Contains(out, "data from a third party") || !strings.Contains(out, "## shop (1 tools)") ||
-		!strings.Contains(out, "- buy: buys things") || !strings.Contains(out, "## db\n[failed: down]") {
+	if err != nil || !strings.Contains(out, "data from a third party") || !strings.Contains(out, "## shop (1 tools)") {
+		t.Fatalf("%v %q", err, out)
+	}
+	if !strings.Contains(out, "- buy: buys things") || !strings.Contains(out, "## db\n[failed: down]") {
 		t.Fatalf("%v %q", err, out)
 	}
 	if len(*asked) != 0 {
@@ -107,7 +113,8 @@ func TestMCPCallAsksThenCalls(t *testing.T) {
 	}
 	// The second call reuses the connection.
 	fakes["shop"].result = mcp.CallResult{IsError: true, Content: []mcp.Content{{Type: "text", Text: "no stock"}}}
-	if out, _ := box(e, "mcp_call", "shop buy"); !strings.Contains(out, "[the tool reported an error]\n") || len(fakes["shop"].calls) != 2 {
+	out, _ = box(e, "mcp_call", "shop buy")
+	if !strings.Contains(out, "[the tool reported an error]\n") || len(fakes["shop"].calls) != 2 {
 		t.Fatalf("%q", out)
 	}
 	e.agent.closeMCP()
@@ -137,7 +144,8 @@ func TestMCPCallRefusals(t *testing.T) {
 
 func TestMCPCallNotApproved(t *testing.T) {
 	e, fakes, _ := mcpAgent(t, false)
-	if out, err := box(e, "mcp_call", "shop buy"); err == nil || !strings.Contains(out, "not approved") || len(fakes["shop"].calls) != 0 {
+	out, err := box(e, "mcp_call", "shop buy")
+	if err == nil || !strings.Contains(out, "not approved") || len(fakes["shop"].calls) != 0 {
 		t.Fatalf("%v %q", err, out)
 	}
 	e.agent.SetApprover(nil)
@@ -214,7 +222,8 @@ func TestMCPElicitationAnswers(t *testing.T) {
 
 func TestMCPElicitationURLIsShownWithItsAddress(t *testing.T) {
 	e, _, asked := mcpAgent(t, true)
-	res := e.agent.elicit(context.Background(), mcp.ElicitRequest{Mode: "url", Server: "db", Message: "pay", URL: "https://pay.example/x?a=1"})
+	req := mcp.ElicitRequest{Mode: "url", Server: "db", Message: "pay", URL: "https://pay.example/x?a=1"}
+	res := e.agent.elicit(context.Background(), req)
 	if res.Action != mcp.Accept || (*asked)[0].Command != "open https://pay.example/x?a=1" ||
 		!strings.Contains((*asked)[0].Reason, "asks you to open this page: pay") {
 		t.Fatalf("%+v %+v", res, *asked)
@@ -235,7 +244,8 @@ func TestMCPElicitationForTypedValuesIsDeclinedAndReported(t *testing.T) {
 		Schema: json.RawMessage(`{"properties":{"repo":{"type":"string"}},"required":["repo"]}`)}
 	out, _ := box(e, "mcp_call", "shop delete")
 	if fakes["shop"].asked.Action != mcp.Decline || len(*asked) != 1 ||
-		!strings.Contains(out, "asked the person for repo and it was declined") || !strings.Contains(out, "Ask the person in the chat") {
+		!strings.Contains(out, "asked the person for repo and it was declined") ||
+		!strings.Contains(out, "Ask the person in the chat") {
 		t.Fatalf("%+v %q", fakes["shop"].asked, out)
 	}
 	if e.agent.takeUnanswered() != "" {
@@ -279,7 +289,8 @@ func TestRealStartMCPFails(t *testing.T) {
 
 func TestMCPElicitationDeclinedByThePerson(t *testing.T) {
 	e, _, _ := mcpAgent(t, false)
-	if res := e.agent.elicit(context.Background(), mcp.ElicitRequest{Message: "delete it?"}); res.Action != mcp.Decline || res.Content != nil {
+	res := e.agent.elicit(context.Background(), mcp.ElicitRequest{Message: "delete it?"})
+	if res.Action != mcp.Decline || res.Content != nil {
 		t.Fatalf("%+v", res)
 	}
 }

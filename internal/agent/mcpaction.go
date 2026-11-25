@@ -112,8 +112,8 @@ func (a *Agent) mcpConnect(ctx context.Context, s config.MCPServer) (mcpClient, 
 	if dir == "" {
 		dir = a.cfg.Agent.WorkspaceDir
 	}
-	c, err := startMCP(context.WithoutCancel(ctx), mcp.Config{Name: s.Name, Command: s.Command, Args: s.Args, Env: s.Env, Dir: dir},
-		mcp.Handler{Elicit: a.elicit})
+	cfg := mcp.Config{Name: s.Name, Command: s.Command, Args: s.Args, Env: s.Env, Dir: dir}
+	c, err := startMCP(context.WithoutCancel(ctx), cfg, mcp.Handler{Elicit: a.elicit})
 	if err != nil {
 		return nil, err
 	}
@@ -148,7 +148,8 @@ func (a *Agent) mcpTools(ctx context.Context, name string) (string, error) {
 		}
 		fmt.Fprintf(&sb, "## %s (%d tools)\n", s.Name, len(tools))
 		for _, t := range tools {
-			fmt.Fprintf(&sb, "- %s: %s\n  arguments: %s\n", t.Name, oneLine(t.Description, 300), oneLine(string(t.InputSchema), 600))
+			fmt.Fprintf(&sb, "- %s: %s\n  arguments: %s\n", t.Name,
+				oneLine(t.Description, 300), oneLine(string(t.InputSchema), 600))
 		}
 	}
 	return mcpData(sb.String()), nil
@@ -169,7 +170,8 @@ func (a *Agent) mcpCall(ctx context.Context, command string) (string, error) {
 	head, body, _ := strings.Cut(strings.TrimSpace(command), "\n")
 	fields := strings.Fields(head)
 	if len(fields) != 2 {
-		return boxFailed(`the command is "<server> <tool>" on the first line and the arguments as a JSON object after it`)
+		return boxFailed(`the command is "<server> <tool>" on the first line, ` +
+			`and the arguments as a JSON object after it`)
 	}
 	s, ok := a.mcpServer(fields[0])
 	if !ok {
@@ -186,8 +188,9 @@ func (a *Agent) mcpCall(ctx context.Context, command string) (string, error) {
 	if len(args) > 0 {
 		line += " " + oneLine(string(args), 2000)
 	}
-	plan := RequestPlan{Verdict: policy.Ask, Rule: MCPRule,
-		Reason: "it runs the tool " + fields[1] + " of the MCP server " + s.Name + " (" + s.Command + "), a program you connected: it can act outside this computer"}
+	reason := "it runs the tool " + fields[1] + " of the MCP server " + s.Name + " (" + s.Command +
+		"), a program you connected: it can act outside this computer"
+	plan := RequestPlan{Verdict: policy.Ask, Rule: MCPRule, Reason: reason}
 	approved, err := a.approve(ctx, plan, line)
 	if err == nil && !approved {
 		err = errors.New("the user declined this MCP call")
@@ -224,7 +227,8 @@ func (a *Agent) takeUnanswered() string {
 		return ""
 	}
 	note := "\n[the server asked the person for " + strings.Join(a.mcp.unanswered, "; ") +
-		" and it was declined: motita cannot collect typed values. Ask the person in the chat, then call again with them in the arguments]"
+		" and it was declined: motita cannot collect typed values. " +
+		"Ask the person in the chat, then call again with them in the arguments]"
 	a.mcp.unanswered = nil
 	return note
 }
@@ -237,39 +241,57 @@ func (a *Agent) takeUnanswered() string {
 // chat: a typed value does not pass through here.
 func (a *Agent) elicit(ctx context.Context, req mcp.ElicitRequest) mcp.ElicitResult {
 	message := oneLine(req.Message, 1000)
-	line, reason := "", ""
-	var values map[string]any
-	switch req.Mode {
-	case "url":
-		u, err := url.Parse(req.URL)
-		if err != nil || (u.Scheme != "https" && u.Scheme != "http") || u.Host == "" {
-			return mcp.ElicitResult{Action: mcp.Decline}
-		}
-		line = "open " + u.String()
-		reason = "the MCP server " + req.Server + " asks you to open this page: " + message
-	default:
-		var missing []string
-		values, missing = mcp.Defaults(req.Schema)
-		if len(missing) > 0 {
-			a.mcp.mu.Lock()
-			a.mcp.unanswered = append(a.mcp.unanswered, strings.Join(missing, ", "))
-			a.mcp.mu.Unlock()
-			return mcp.ElicitResult{Action: mcp.Decline}
-		}
-		raw, _ := json.Marshal(values)
-		line = "answer " + req.Server + ": " + string(raw)
-		reason = "the MCP server " + req.Server + " asks you: " + message
+	var q elicitQuestion
+	if req.Mode == "url" {
+		q = elicitPage(req, message)
+	} else {
+		q = a.elicitForm(req, message)
 	}
-	plan := RequestPlan{Verdict: policy.Ask, Rule: MCPElicitRule, Reason: reason}
-	approved, err := a.approve(ctx, plan, line)
+	if q.refuse {
+		return mcp.ElicitResult{Action: mcp.Decline}
+	}
+	plan := RequestPlan{Verdict: policy.Ask, Rule: MCPElicitRule, Reason: q.reason}
+	approved, err := a.approve(ctx, plan, q.line)
 	switch {
 	case err != nil:
 		return mcp.ElicitResult{Action: mcp.Cancel}
 	case !approved:
 		return mcp.ElicitResult{Action: mcp.Decline}
 	default:
-		return mcp.ElicitResult{Action: mcp.Accept, Content: values}
+		return mcp.ElicitResult{Action: mcp.Accept, Content: q.values}
 	}
+}
+
+// elicitQuestion is what the person is asked about a server's question, or a refusal to ask.
+type elicitQuestion struct {
+	line, reason string
+	values       map[string]any
+	refuse       bool
+}
+
+// elicitPage is the question of a server that sends the person to a page.
+func elicitPage(req mcp.ElicitRequest, message string) elicitQuestion {
+	u, err := url.Parse(req.URL)
+	if err != nil || (u.Scheme != "https" && u.Scheme != "http") || u.Host == "" {
+		return elicitQuestion{refuse: true}
+	}
+	return elicitQuestion{line: "open " + u.String(),
+		reason: "the MCP server " + req.Server + " asks you to open this page: " + message}
+}
+
+// elicitForm is the question of a server that wants values: answered with the defaults of its
+// form, or refused (and remembered for the model) when it wants what has no default.
+func (a *Agent) elicitForm(req mcp.ElicitRequest, message string) elicitQuestion {
+	values, missing := mcp.Defaults(req.Schema)
+	if len(missing) > 0 {
+		a.mcp.mu.Lock()
+		a.mcp.unanswered = append(a.mcp.unanswered, strings.Join(missing, ", "))
+		a.mcp.mu.Unlock()
+		return elicitQuestion{refuse: true}
+	}
+	raw, _ := json.Marshal(values)
+	return elicitQuestion{line: "answer " + req.Server + ": " + string(raw), values: values,
+		reason: "the MCP server " + req.Server + " asks you: " + message}
 }
 
 // oneLine collapses white space and cuts the text to limit bytes.

@@ -21,7 +21,10 @@ func TestMCPServersLoadAndValidate(t *testing.T) {
 		t.Fatal(err)
 	}
 	s := cfg.Agent.MCP
-	if len(s) != 2 || s[0].Name != "shop" || s[0].Args[1] != "@shop/mcp" || s[0].Env["TOKEN"] != "abc" || s[1].Dir != "/srv" {
+	if len(s) != 2 || s[0].Name != "shop" || s[0].Args[1] != "@shop/mcp" {
+		t.Fatalf("servers = %+v", s)
+	}
+	if s[0].Env["TOKEN"] != "abc" || s[1].Dir != "/srv" {
 		t.Fatalf("servers = %+v", s)
 	}
 }
