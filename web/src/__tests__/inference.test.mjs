@@ -44,6 +44,7 @@ const GPU = {
   provider: "custom",
   has_key: true,
   key_hint: "…1234",
+  in_use: false,
 };
 const PLAIN = {
   id: "plain",
@@ -52,8 +53,19 @@ const PLAIN = {
   base_url: "https://x.test/v1",
   provider: "custom",
   has_key: false,
+  in_use: false,
 };
 const SHORT = { ...PLAIN, id: "short", name: "Short", has_key: true };
+const LOCAL = {
+  id: "motita-local",
+  name: "Motita local model",
+  kind: "llamacpp",
+  base_url: "http://127.0.0.1:8471/v1",
+  provider: "local",
+  has_key: false,
+  in_use: true,
+  managed: true,
+};
 const ODD = { ...PLAIN, id: "odd", name: "Odd", kind: "gone" };
 const VIEW = {
   can_save: true,
@@ -83,6 +95,13 @@ function gateway(initial, probe) {
     "GET /v1/inference-servers": () => json(200, state),
     "POST /v1/inference-servers/": (p) => {
       const id = p.split("/")[3];
+      if (p.endsWith("/use")) {
+        state.servers = state.servers.map((s) => ({
+          ...s,
+          in_use: s.id === id,
+        }));
+        return json(200, state);
+      }
       return probe(id);
     },
     "POST /v1/inference-servers": (_p, init) => {
@@ -333,4 +352,24 @@ test("the Inference tab appears in Settings only when the page hands it an API",
   await settle();
   assert.equal(root.querySelector("#settings-tab-inference"), null);
   render(null, root);
+});
+
+test("using a server marks it in use, and the managed local model has no buttons", async () => {
+  const f = gateway({ ...VIEW, servers: [LOCAL, GPU, PLAIN] }, probes.gpu);
+  const m = await mount(f.api);
+  assert.ok(q(m.root, "inference-inuse-motita-local"));
+  assert.match(
+    text(q(m.root, "inference-row-motita-local")),
+    /Managed in Settings → Providers/,
+  );
+  assert.equal(q(m.root, "inference-use-motita-local"), null);
+  assert.equal(q(m.root, "inference-remove-motita-local"), null);
+  assert.equal(q(m.root, "inference-inuse-gpu"), null);
+  click(q(m.root, "inference-use-gpu"));
+  await settle();
+  assert.equal(f.calls.at(-1).path, "/v1/inference-servers/gpu/use");
+  assert.ok(q(m.root, "inference-inuse-gpu"));
+  assert.equal(q(m.root, "inference-use-gpu").disabled, true);
+  await m.unmount();
+  assert.ok(es["Use {name}"] && es["In use"] && es["Use"]);
 });
