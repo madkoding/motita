@@ -159,14 +159,35 @@ func publicOnly(_, address string, _ syscall.RawConn) error {
 // public reports whether ip is on the public internet.
 func public(ip netip.Addr) bool {
 	ip = ip.Unmap()
-	if !ip.IsValid() || ip.IsUnspecified() || ip.IsMulticast() || cgnat.Contains(ip) {
+	if !ip.IsValid() || ip.IsUnspecified() || ip.IsMulticast() {
 		return false
 	}
-	return !ip.IsLoopback() && !ip.IsPrivate() && !ip.IsLinkLocalUnicast()
+	if ip.IsLoopback() || ip.IsPrivate() || ip.IsLinkLocalUnicast() {
+		return false
+	}
+	for _, p := range reserved {
+		if p.Contains(ip) {
+			return false
+		}
+	}
+	return true
 }
 
-// cgnat is the shared address space of carrier-grade NAT (RFC 6598), which IsPrivate leaves out.
-var cgnat = netip.MustParsePrefix("100.64.0.0/10")
+// reserved holds the ranges IsPrivate leaves out but that reach internal hosts: carrier-grade NAT,
+// benchmarking, the old class E, "this network", the protocol block, and the IPv6 forms that
+// embed an IPv4 address (NAT64, 6to4, the deprecated IPv4-compatible form) and so can point at
+// a private one.
+var reserved = []netip.Prefix{
+	netip.MustParsePrefix("100.64.0.0/10"),
+	netip.MustParsePrefix("198.18.0.0/15"),
+	netip.MustParsePrefix("240.0.0.0/4"),
+	netip.MustParsePrefix("0.0.0.0/8"),
+	netip.MustParsePrefix("192.0.0.0/24"),
+	netip.MustParsePrefix("64:ff9b::/96"),
+	netip.MustParsePrefix("64:ff9b:1::/48"),
+	netip.MustParsePrefix("2002::/16"),
+	netip.MustParsePrefix("::/96"),
+}
 
 // textual reports whether a media type is text a model can read.
 func textual(kind string) bool {

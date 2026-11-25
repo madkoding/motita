@@ -488,28 +488,28 @@ jobs:
           - {
               goos: linux,
               goarch: "386",
-              container: i386/debian:bookworm-slim,
+              container: i386/debian:bookworm-slim@sha256:1f3abe640aabd37062ef40a5d5dc8cbd4680e9b489641c4d360ba67a60aa0f3f,
               platform: linux/386,
               e2e: "true",
             }
           - {
               goos: linux,
               goarch: amd64,
-              container: debian:bookworm-slim,
+              container: debian:bookworm-slim@sha256:e67eeead736ff7bbe258ef088bff683635c561b1fcfefad0806c1df4ab49ce0e,
               platform: linux/amd64,
               e2e: "true",
             }
           - {
               goos: linux,
               goarch: arm,
-              container: arm32v7/debian:bookworm-slim,
+              container: arm32v7/debian:bookworm-slim@sha256:bca6c97e4983d1c0aa47b9ec72240ed2dc3ef54ddfc56254c8c0174de2695839,
               platform: linux/arm/v7,
               e2e: "true",
             }
           - {
               goos: linux,
               goarch: arm64,
-              container: arm64v8/debian:bookworm-slim,
+              container: arm64v8/debian:bookworm-slim@sha256:3d4916b5338e26d7662d9937e5bcdadc64006468fae5a9069633e556f07e148f,
               platform: linux/arm64,
               e2e: "true",
             }
@@ -521,7 +521,7 @@ jobs:
           - {
               goos: android,
               goarch: arm64,
-              container: termux/termux-docker:aarch64,
+              container: termux/termux-docker:aarch64@sha256:23c8657859853c973cf574b5596c98261098b894a45cca131423d53024c0fd21,
               platform: linux/arm64,
             }
           - { goos: windows, goarch: "386" }

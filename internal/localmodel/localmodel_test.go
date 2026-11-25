@@ -14,6 +14,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
 	"sync/atomic"
@@ -413,18 +414,24 @@ func TestStartRefusesWithoutGPUOrFiles(t *testing.T) {
 }
 
 func TestServerArgsStayOnLoopback(t *testing.T) {
-	args := strings.Join(serverArgs("/m.gguf", 8471, "k", 8192, 99), " ")
-	wants := []string{"--host 127.0.0.1", "--port 8471", "--api-key k", "-c 8192", "-ngl 99", "--alias " + ModelID}
+	args := strings.Join(serverArgs("/m.gguf", 8471, 8192, 99), " ")
+	wants := []string{"--host 127.0.0.1", "--port 8471", "-c 8192", "-ngl 99", "--alias " + ModelID}
 	for _, want := range wants {
 		if !strings.Contains(args, want) {
 			t.Errorf("args %q lack %q", args, want)
 		}
 	}
-	env := serverEnv([]string{"A=1", "LD_LIBRARY_PATH=/x"}, "/rt", "linux")
+	if strings.Contains(args, "api-key") || strings.Contains(args, " k ") {
+		t.Errorf("the token is on the command line: %q", args)
+	}
+	env := serverEnv([]string{"A=1", "LD_LIBRARY_PATH=/x", "LLAMA_API_KEY=old"}, "/rt", "linux", "k")
 	if env[len(env)-1] != "LD_LIBRARY_PATH=/rt"+string(os.PathListSeparator)+"/x" {
 		t.Errorf("env = %v", env)
 	}
-	if got := serverEnv([]string{"A=1"}, "/rt", "darwin"); len(got) != 1 {
+	if !slices.Contains(env, "LLAMA_API_KEY=k") || slices.Contains(env, "LLAMA_API_KEY=old") {
+		t.Errorf("token not handed over through the environment: %v", env)
+	}
+	if got := serverEnv([]string{"A=1"}, "/rt", "darwin", "k"); len(got) != 3 || got[0] != "A=1" {
 		t.Errorf("darwin env = %v", got)
 	}
 }

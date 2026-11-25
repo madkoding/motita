@@ -120,6 +120,26 @@ func TestAWebSocketUpgradeIsJudgedByItsOrigin(t *testing.T) {
 	}
 }
 
+// A GET started by a script or an image of another port of this host is refused, because some GETs
+// have side effects; a typed address, a followed link and a client with no fetch metadata pass.
+func TestASubresourceReadFromAnotherSiteIsRefused(t *testing.T) {
+	for _, c := range []struct {
+		site, mode string
+		refused    bool
+	}{
+		{"same-site", "no-cors", true}, {"cross-site", "cors", true}, {"same-site", "cors", true},
+		{"same-origin", "cors", false}, {"none", "navigate", false}, {"cross-site", "navigate", false},
+		{"same-site", "navigate", false}, {"same-site", "", false}, {"", "", false},
+	} {
+		r := httptest.NewRequest(http.MethodGet, "/v1/git/default-branch", nil)
+		r.Header.Set("Sec-Fetch-Site", c.site)
+		r.Header.Set("Sec-Fetch-Mode", c.mode)
+		if got := crossSiteRefusal(r) != ""; got != c.refused {
+			t.Errorf("site %q mode %q: refused = %v", c.site, c.mode, got)
+		}
+	}
+}
+
 // Behind TLS the origin a browser writes is https.
 func TestRequestOriginFollowsTheScheme(t *testing.T) {
 	r := httptest.NewRequest(http.MethodGet, "/", nil)

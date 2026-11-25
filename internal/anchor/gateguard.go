@@ -70,8 +70,14 @@ func isTestFile(name string) bool {
 // plus Rust's inline `#[test]` modules in any source file. It is a floor, not a gate - the caller
 // compares it with the count the task started with, and a drop means the run deleted or emptied
 // tests. Adding tests raises it and is never a finding.
+//
+// A Go package whose TestMain never calls m.Run() runs no test at all and still exits 0 (that is
+// how `func TestMain(m *testing.M) { os.Exit(0) }` turns a red run green), so the tests of that
+// directory are not counted: the count drops and the floor trips.
 func (a *Anchor) TestCount() int {
 	n := 0
+	perDir := map[string]int{}
+	muted := map[string]bool{}
 	_ = filepath.WalkDir(a.dir, func(p string, d fs.DirEntry, err error) error {
 		if err != nil {
 			return nil
@@ -86,10 +92,19 @@ func (a *Anchor) TestCount() int {
 			return nil
 		}
 		if body, ok := readLimited(p); ok {
-			n += len(testMarker.FindAllStringIndex(body, -1))
+			found := len(testMarker.FindAllStringIndex(body, -1))
+			n += found
+			perDir[filepath.Dir(p)] += found
+			if strings.HasSuffix(p, "_test.go") && strings.Contains(body, "func TestMain(") &&
+				!strings.Contains(body, ".Run()") {
+				muted[filepath.Dir(p)] = true
+			}
 		}
 		return nil
 	})
+	for dir := range muted {
+		n -= perDir[dir]
+	}
 	return n
 }
 

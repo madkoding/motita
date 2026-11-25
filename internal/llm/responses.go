@@ -200,7 +200,7 @@ type responsesReader struct {
 // read forwards the stream until it ends.
 func (s *responsesReader) read(reader *bufio.Reader) {
 	for {
-		line, err := reader.ReadBytes('\n')
+		line, err := readStreamLine(reader)
 		if err != nil {
 			s.end(err)
 			return

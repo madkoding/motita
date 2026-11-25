@@ -249,3 +249,23 @@ func TestHasGateAndTestsInReadTheFolder(t *testing.T) {
 		t.Fatalf("HasGate %v, TestsIn %d", HasGate(dir), TestsIn(dir))
 	}
 }
+
+// A TestMain that never calls m.Run() runs nothing and exits 0: the tests beside it no longer
+// count, so the test floor sees them go; a TestMain that does call m.Run() is left alone.
+func TestATestMainThatNeverRunsTheTestsMutesTheirCount(t *testing.T) {
+	dir := t.TempDir()
+	a := autoAnchor(dir)
+	writeFile(t, dir, "pkg/a_test.go", "package a\nfunc TestOne(t *testing.T) {}\nfunc TestTwo(t *testing.T) {}\n")
+	writeFile(t, dir, "other/b_test.go", "package b\nfunc TestThree(t *testing.T) {}\n")
+	if got := a.TestCount(); got != 3 {
+		t.Fatalf("expected 3 tests, got %d", got)
+	}
+	writeFile(t, dir, "pkg/main_test.go", "package a\nfunc TestMain(m *testing.M) { os.Exit(m.Run()) }\n")
+	if got := a.TestCount(); got != 4 { // TestMain itself matches the marker
+		t.Errorf("a TestMain that runs the tests muted the count: %d", got)
+	}
+	writeFile(t, dir, "pkg/main_test.go", "package a\nfunc TestMain(m *testing.M) { os.Exit(0) }\n")
+	if got := a.TestCount(); got != 1 {
+		t.Errorf("a TestMain that exits 0 must mute its package (want 1 left), got %d", got)
+	}
+}

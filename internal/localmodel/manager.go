@@ -369,9 +369,9 @@ func (m *Manager) Start(ctx context.Context) error {
 	port := freePort(PreferredPort)
 	key := "motita-local-" + rand.Text()
 	nctx, layers := plan(*st.GPU)
-	cmd := exec.Command(bin, serverArgs(m.modelPath(), port, key, nctx, layers)...)
+	cmd := exec.Command(bin, serverArgs(m.modelPath(), port, nctx, layers)...)
 	cmd.Dir = filepath.Dir(bin)
-	cmd.Env = serverEnv(os.Environ(), filepath.Dir(bin), m.probe.goos)
+	cmd.Env = serverEnv(os.Environ(), filepath.Dir(bin), m.probe.goos, key)
 	m.log = &tail{}
 	cmd.Stdout, cmd.Stderr = m.log, m.log
 	setProcAttr(cmd)
@@ -385,23 +385,21 @@ func (m *Manager) Start(ctx context.Context) error {
 	return nil
 }
 
-// serverArgs are llama-server's flags: loopback only, a token, every layer that fits on the GPU,
+// serverArgs are llama-server's flags: loopback only, every layer that fits on the GPU,
 // the cache in q8_0 with flash attention, and the chat template the model ships (--jinja).
-func serverArgs(model string, port int, key string, nctx, layers int) []string {
+func serverArgs(model string, port, nctx, layers int) []string {
 	return []string{
 		"-m", model, "--host", "127.0.0.1", "--port", strconv.Itoa(port),
-		"--api-key", key, "--alias", ModelID,
+		"--alias", ModelID,
 		"-c", strconv.Itoa(nctx), "-ngl", strconv.Itoa(layers),
 		"-fa", "on", "-ctk", "q8_0", "-ctv", "q8_0", "--jinja",
 	}
 }
 
-// serverEnv lets the server find the libraries unpacked beside it on Linux.
-func serverEnv(env []string, dir, goos string) []string {
-	if goos != "linux" {
-		return env
-	}
-	out := make([]string, 0, len(env)+1)
+// serverEnv lets the server find the libraries unpacked beside it on Linux, and hands it the
+// token through the environment: a flag would show in the process list for every local user.
+func serverEnv(env []string, dir, goos, key string) []string {
+	out := make([]string, 0, len(env)+3)
 	lib := dir
 	for _, kv := range env {
 		if v, ok := strings.CutPrefix(kv, "LD_LIBRARY_PATH="); ok {
@@ -410,7 +408,14 @@ func serverEnv(env []string, dir, goos string) []string {
 			}
 			continue
 		}
+		if strings.HasPrefix(kv, "LLAMA_API_KEY=") || strings.HasPrefix(kv, "LLAMA_ARG_API_KEY=") {
+			continue
+		}
 		out = append(out, kv)
+	}
+	out = append(out, "LLAMA_API_KEY="+key, "LLAMA_ARG_API_KEY="+key)
+	if goos != "linux" {
+		return out
 	}
 	return append(out, "LD_LIBRARY_PATH="+lib)
 }

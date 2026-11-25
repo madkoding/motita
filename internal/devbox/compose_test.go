@@ -293,3 +293,30 @@ func TestComposeFollowsLinksOutOfTheProject(t *testing.T) {
 func bindOf(source string) string {
 	return `{"services":{"web":{"volumes":[{"type":"bind","source":"` + source + `"}]}}}`
 }
+
+// A named volume can be a bind mount in disguise (driver_opts device) or use a remote driver:
+// both are held to the rule of a bind mount.
+func TestANamedVolumeCannotReachOutsideTheProject(t *testing.T) {
+	dir := t.TempDir()
+	inside := filepath.Join(dir, "data")
+	for name, c := range map[string]struct {
+		vol    composeVolume
+		refuse bool
+	}{
+		"bind outside":   {composeVolume{DriverOpts: map[string]string{"type": "none", "o": "bind", "device": "/etc"}}, true},
+		"relative":       {composeVolume{DriverOpts: map[string]string{"device": "../x"}}, true},
+		"remote driver":  {composeVolume{Driver: "rexray/s3fs"}, true},
+		"bind inside":    {composeVolume{DriverOpts: map[string]string{"o": "bind", "device": inside}}, false},
+		"tmpfs":          {composeVolume{DriverOpts: map[string]string{"type": "tmpfs", "device": "tmpfs"}}, false},
+		"plain local":    {composeVolume{Driver: "local"}, false},
+		"no driver opts": {composeVolume{}, false},
+	} {
+		cfg := composeConfig{
+			Services: map[string]composeService{"app": {}},
+			Volumes:  map[string]composeVolume{"v": c.vol},
+		}
+		if err := checkCompose(cfg, dir, "app"); (err != nil) != c.refuse {
+			t.Errorf("%s: err = %v", name, err)
+		}
+	}
+}

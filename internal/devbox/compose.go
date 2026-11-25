@@ -26,6 +26,14 @@ type composeConfig struct {
 	Services map[string]composeService `json:"services"`
 	Configs  map[string]composeRef     `json:"configs"`
 	Secrets  map[string]composeRef     `json:"secrets"`
+	Volumes  map[string]composeVolume  `json:"volumes"`
+}
+
+// composeVolume is a named volume. A "local" volume with driver_opts type=none, o=bind and a
+// device is a bind mount spelled as a volume, so it is held to the same rule as a bind mount.
+type composeVolume struct {
+	Driver     string            `json:"driver"`
+	DriverOpts map[string]string `json:"driver_opts"`
 }
 
 type composeRef struct {
@@ -143,6 +151,26 @@ func serviceFault(s composeService, dir string) string {
 	return buildFault(s.Build, dir)
 }
 
+// volumeFault is what a named volume asks for that would reach outside the project: a driver
+// other than the local one, or a device (the bind mount of a volume) that is not a folder inside
+// the project.
+func volumeFault(v composeVolume, dir string) string {
+	if v.Driver != "" && v.Driver != "local" {
+		return "uses the volume driver " + v.Driver + " (only local volumes are allowed)"
+	}
+	device := v.DriverOpts["device"]
+	switch {
+	case device == "":
+		return ""
+	case v.DriverOpts["type"] == "tmpfs":
+		return ""
+	case !filepath.IsAbs(device) || !realInside(dir, device):
+		return "mounts " + device + ", outside the project"
+	default:
+		return ""
+	}
+}
+
 // checkCompose returns why a resolved compose file may not run, or nil.
 func checkCompose(cfg composeConfig, dir, service string) error {
 	if _, ok := cfg.Services[service]; !ok {
@@ -156,6 +184,11 @@ func checkCompose(cfg composeConfig, dir, service string) error {
 	for name, s := range cfg.Services {
 		if bad := serviceFault(s, dir); bad != "" {
 			return fmt.Errorf("service %q %s", name, bad)
+		}
+	}
+	for name, v := range cfg.Volumes {
+		if bad := volumeFault(v, dir); bad != "" {
+			return fmt.Errorf("volume %q %s", name, bad)
 		}
 	}
 	for _, group := range []map[string]composeRef{cfg.Configs, cfg.Secrets} {

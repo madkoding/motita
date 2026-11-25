@@ -106,7 +106,12 @@ func TestTheLessonsFileIsReplacedWholeOrNotAtAll(t *testing.T) {
 	if err := os.MkdirAll(filepath.Join(target, "x"), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	if err := writeFileAtomic(target, []byte("data")); err == nil {
+	root, err := os.OpenRoot(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer root.Close()
+	if err := writeFileAtomic(root, "target", []byte("data")); err == nil {
 		t.Fatal("replacing a folder must fail")
 	}
 	left, _ := filepath.Glob(filepath.Join(dir, ".target.*.tmp"))
@@ -114,7 +119,38 @@ func TestTheLessonsFileIsReplacedWholeOrNotAtAll(t *testing.T) {
 		t.Errorf("temporary files left: %v", left)
 	}
 	// And no folder to write in is an error too.
-	if err := writeFileAtomic(filepath.Join(dir, "missing", "f"), []byte("x")); err == nil {
+	if err := writeFileAtomic(root, "missing/f", []byte("x")); err == nil {
 		t.Fatal("a missing folder must fail")
+	}
+}
+
+// A repository can carry a `.motita` that is a symlink out of the workspace. Lessons are read and
+// written in plan mode too, so neither may follow it.
+func TestTheLessonsFileDoesNotFollowASymlinkOutOfTheWorkspace(t *testing.T) {
+	dir, outside := t.TempDir(), t.TempDir()
+	if err := os.WriteFile(filepath.Join(outside, "memory.md"), []byte("- secret\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(outside, filepath.Join(dir, ".motita")); err != nil {
+		t.Fatal(err)
+	}
+	if got := Lessons(dir); len(got) != 0 {
+		t.Errorf("read through the link: %v", got)
+	}
+	if err := RecordLessons(dir, []string{"planted"}); err == nil {
+		t.Error("writing through the link must fail")
+	}
+	if raw, _ := os.ReadFile(filepath.Join(outside, "memory.md")); string(raw) != "- secret\n" {
+		t.Errorf("the file outside was changed: %q", raw)
+	}
+	file := filepath.Join(t.TempDir(), "file")
+	if err := os.WriteFile(file, nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := RecordLessons(file, []string{"x"}); err == nil {
+		t.Error("a workspace that is a file is an error")
+	}
+	if got := Lessons(filepath.Join(dir, "missing")); got != nil {
+		t.Errorf("no workspace, no lessons: %v", got)
 	}
 }

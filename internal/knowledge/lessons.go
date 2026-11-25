@@ -2,8 +2,10 @@ package knowledge
 
 import (
 	"os"
-	"path/filepath"
+	"path"
+	"strconv"
 	"strings"
+	"time"
 )
 
 // LessonsFile is where what the agent learned about a project is kept, relative to the workspace:
@@ -35,7 +37,13 @@ func RecordLessons(workspace string, lessons []string) error {
 	if workspace == "" || len(lessons) == 0 {
 		return nil
 	}
-	path := filepath.Join(workspace, LessonsFile)
+	// Through an os.Root: a repository can carry a `.motita` that is a symlink out of the workspace,
+	// and this runs in plan mode too, so the file must not be read or written outside the project.
+	root, err := openWorkspace(workspace)
+	if err != nil {
+		return err
+	}
+	defer root.Close()
 	known := Lessons(workspace)
 	have := map[string]bool{}
 	for _, l := range known {
@@ -51,7 +59,7 @@ func RecordLessons(workspace string, lessons []string) error {
 	if len(known) > maxLessons {
 		known = known[len(known)-maxLessons:]
 	}
-	if err := os.MkdirAll(filepath.Dir(path), 0o750); err != nil {
+	if err := root.MkdirAll(path.Dir(LessonsFile), 0o750); err != nil {
 		return err
 	}
 	var b strings.Builder
@@ -59,27 +67,35 @@ func RecordLessons(workspace string, lessons []string) error {
 	for _, l := range known {
 		b.WriteString("- " + l + "\n")
 	}
-	return writeFileAtomic(path, []byte(b.String()))
+	return writeFileAtomic(root, LessonsFile, []byte(b.String()))
 }
 
-// writeFileAtomic replaces path with data through a temporary file in the same folder and a
-// rename, so a crash or a full disk leaves the old file whole instead of a truncated one: this file
-// holds every lesson the project has learned.
-func writeFileAtomic(path string, data []byte) error {
-	tmp, err := os.CreateTemp(filepath.Dir(path), "."+filepath.Base(path)+".*.tmp")
+// openWorkspace makes the workspace if it is not there yet and opens it as a root.
+func openWorkspace(workspace string) (*os.Root, error) {
+	if err := os.MkdirAll(workspace, 0o750); err != nil {
+		return nil, err
+	}
+	return os.OpenRoot(workspace)
+}
+
+// writeFileAtomic replaces name inside root with data through a temporary file in the same folder
+// and a rename, so a crash or a full disk leaves the old file whole instead of a truncated one: this
+// file holds every lesson the project has learned.
+func writeFileAtomic(root *os.Root, name string, data []byte) error {
+	tmp := path.Join(path.Dir(name), "."+path.Base(name)+"."+strconv.FormatInt(time.Now().UnixNano(), 36)+".tmp")
+	f, err := root.OpenFile(tmp, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
 	if err != nil {
 		return err
 	}
-	name := tmp.Name()
-	_, werr := tmp.Write(data)
-	if cerr := tmp.Close(); werr == nil {
+	_, werr := f.Write(data)
+	if cerr := f.Close(); werr == nil {
 		werr = cerr
 	}
 	if werr == nil {
-		werr = os.Rename(name, path)
+		werr = root.Rename(tmp, name)
 	}
 	if werr != nil {
-		_ = os.Remove(name)
+		_ = root.Remove(tmp)
 	}
 	return werr
 }
@@ -89,7 +105,12 @@ func Lessons(workspace string) []string {
 	if workspace == "" {
 		return nil
 	}
-	raw, err := os.ReadFile(filepath.Join(workspace, LessonsFile)) // #nosec G304 -- the project's own lessons file.
+	root, err := os.OpenRoot(workspace)
+	if err != nil {
+		return nil
+	}
+	defer root.Close()
+	raw, err := root.ReadFile(LessonsFile)
 	if err != nil {
 		return nil
 	}
