@@ -24,6 +24,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"net/http"
 	"strings"
 	"sync/atomic"
@@ -580,7 +581,7 @@ func fetchModelList(
 			Name string `json:"name"`
 		} `json:"models"`
 	}
-	if err := json.NewDecoder(resp.Body).Decode(&payload); err != nil {
+	if err := json.NewDecoder(io.LimitReader(resp.Body, 8<<20)).Decode(&payload); err != nil {
 		return nil, fmt.Errorf("could not decode the model list from %s: %w", url, err)
 	}
 
