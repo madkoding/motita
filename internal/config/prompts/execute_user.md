@@ -173,6 +173,7 @@ Add `box: <name>` to a line set when more than one box is up. If the service doe
 answer carries the end of its log.
 
 {{desktop}}
+{{mcp}}
 ## THREADS (only when the action exists in this session)
 
 A project has ONE main session, this one, and parallel work happens in threads: each thread is one

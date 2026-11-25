@@ -389,7 +389,8 @@ type Agent struct {
 	// DesktopControl lets the agent see this computer's screen and use its mouse, keyboard and
 	// windows (internal/desktop), asking before every step. Off by default: it reaches everything
 	// the person's own session reaches, outside the sandbox.
-	DesktopControl bool `yaml:"desktop_control"`
+	DesktopControl bool        `yaml:"desktop_control"`
+	MCP            []MCPServer `yaml:"mcp"` // the MCP servers the person connected
 	// Shell is the interpreter used for actions outside read-only mode. Empty means
 	// the platform default (sh on Unix; on Windows PowerShell 7, then Windows PowerShell,
 	// then the command processor).
@@ -960,7 +961,7 @@ func (c *Config) validate(requireKey bool) error {
 	if err := errors.Join(c.validateAutopilot()); err != nil {
 		return err
 	}
-	return c.validateAgent()
+	return errors.Join(c.validateAgent(), c.Agent.validateMCP())
 }
 
 // validateGateway checks the settings of the HTTP face.
