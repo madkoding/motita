@@ -19,6 +19,10 @@ type MCPServer struct {
 	Env map[string]string `yaml:"env"`
 	// Dir is the directory the server starts in; empty is the workspace.
 	Dir string `yaml:"dir"`
+	// Skills lets the model read the skills this server serves (instructions for using its tools
+	// well). They are written by whoever runs the server, so they are read only from a server the
+	// person marked here, and are never run.
+	Skills bool `yaml:"skills"`
 }
 
 // validateMCP checks the servers: a name each, unique, and a command to start.

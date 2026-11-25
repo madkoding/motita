@@ -540,3 +540,59 @@ func TestTaskStatuses(t *testing.T) {
 		t.Fatal("forbidden does not")
 	}
 }
+
+func TestResourcesAndSkills(t *testing.T) {
+	c, f := connect(t, Handler{})
+	go func() {
+		m := f.read()
+		f.answer(m, map[string]any{"resources": []map[string]any{
+			{"uri": "skill://shop/SKILL.md", "description": "run a store"},
+			{"uri": "skill://shop/refs/tax.md"},
+		}, "nextCursor": "n"})
+		m = f.read()
+		f.answer(m, map[string]any{"resources": []map[string]any{
+			{"uri": "file:///x"}, {"uri": "skill:///SKILL.md"}, {"uri": "skill://../SKILL.md"}, {"uri": "skill://a/b/SKILL.md"},
+		}})
+		m = f.read()
+		f.answer(m, map[string]any{"contents": []map[string]any{{"text": "one"}, {"blob": "AAAA"}, {"text": "two"}}})
+		m = f.read()
+		f.fail(m, -32002, "gone")
+		m = f.read()
+		f.fail(m, -32002, "gone")
+	}()
+	res, err := c.Resources(context.Background())
+	if err != nil || len(res) != 6 {
+		t.Fatalf("resources = %v, %v", res, err)
+	}
+	skills := Skills(res)
+	if len(skills) != 2 || skills[0].Name != "shop" || skills[1].Name != "a/b" {
+		t.Fatalf("skills = %+v", skills)
+	}
+	if skills[0].Description != "run a store" || skills[0].URI != "skill://shop/SKILL.md" {
+		t.Fatalf("skill = %+v", skills[0])
+	}
+	if text, err := c.ReadResource(context.Background(), "skill://shop/SKILL.md"); err != nil || text != "one\ntwo" {
+		t.Fatalf("read = %q, %v", text, err)
+	}
+	if _, err := c.ReadResource(context.Background(), "x"); err == nil {
+		t.Fatal("a read error is an error")
+	}
+	if _, err := c.Resources(context.Background()); err == nil {
+		t.Fatal("a list error is an error")
+	}
+}
+
+func TestSkillURI(t *testing.T) {
+	for in, want := range map[string]string{
+		"shop": "skill://shop/SKILL.md", "/shop/": "skill://shop/SKILL.md", "shop/refs/tax.md": "skill://shop/refs/tax.md",
+	} {
+		if got, ok := SkillURI(in); !ok || got != want {
+			t.Errorf("%q = %q, %v", in, got, ok)
+		}
+	}
+	for _, bad := range []string{"", "/", "../x", "a/../b", `a\b`} {
+		if _, ok := SkillURI(bad); ok {
+			t.Errorf("%q should be refused", bad)
+		}
+	}
+}
