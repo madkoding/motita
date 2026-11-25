@@ -78,6 +78,8 @@ func (a API) pullsActivity(ctx context.Context, r Remote, n int) (Activity, erro
 		Body    string `json:"body"`
 		HTMLURL string `json:"html_url"`
 		User    ghUser `json:"user"`
+		// Assoc is what the author is to the repository; GitHub states it, Gitea does not.
+		Assoc string `json:"author_association"`
 	}
 	commentsPath := fmt.Sprintf("%s/issues/%d/comments?per_page=100", base, n)
 	if err := a.do(ctx, http.MethodGet, commentsPath, nil, &general); err != nil {
@@ -85,6 +87,9 @@ func (a API) pullsActivity(ctx context.Context, r Remote, n int) (Activity, erro
 	}
 	var out Activity
 	for _, c := range general {
+		if !a.mayAsk(c.Assoc) {
+			continue
+		}
 		out.Comments = append(out.Comments, newComment(CommentGeneral, c.ID, c.User.Login, c.Body, c.HTMLURL))
 	}
 	var reviews []struct {
@@ -93,12 +98,17 @@ func (a API) pullsActivity(ctx context.Context, r Remote, n int) (Activity, erro
 		State   string `json:"state"`
 		HTMLURL string `json:"html_url"`
 		User    ghUser `json:"user"`
+		// Assoc is what the author is to the repository; GitHub states it, Gitea does not.
+		Assoc string `json:"author_association"`
 	}
 	reviewsPath := fmt.Sprintf("%s/pulls/%d/reviews?per_page=100", base, n)
 	if err := a.do(ctx, http.MethodGet, reviewsPath, nil, &reviews); err != nil {
 		return Activity{}, err
 	}
 	for _, rv := range reviews {
+		if !a.mayAsk(rv.Assoc) {
+			continue
+		}
 		state := reviewState(rv.State)
 		// An approval asks for nothing, and an empty "commented" review is only the envelope of
 		// its line comments, which are read on their own.
@@ -118,17 +128,39 @@ func (a API) pullsActivity(ctx context.Context, r Remote, n int) (Activity, erro
 		Path    string `json:"path"`
 		HTMLURL string `json:"html_url"`
 		User    ghUser `json:"user"`
+		// Assoc is what the author is to the repository; GitHub states it, Gitea does not.
+		Assoc string `json:"author_association"`
 	}
 	endpoint := fmt.Sprintf("%s/pulls/%d/comments?per_page=100&sort=created&direction=desc", base, n)
 	if err := a.do(ctx, http.MethodGet, endpoint, nil, &lines); err != nil {
 		return Activity{}, err
 	}
 	for _, l := range lines {
+		if !a.mayAsk(l.Assoc) {
+			continue
+		}
 		c := newComment(CommentLine, l.ID, l.User.Login, l.Body, l.HTMLURL)
 		c.Path = l.Path
 		out.Comments = append(out.Comments, c)
 	}
 	return out, nil
+}
+
+// mayAsk says a comment's author may ask the agent for something. A comment becomes a task with
+// push authority (see the gateway's reviewTask), and anyone with a GitHub account can comment on a
+// public pull request, so on GitHub only the repository's owner, its members and its collaborators
+// are heard: the rest could write the task. Gitea does not state the relation, so its comments are
+// all read as before.
+func (a API) mayAsk(association string) bool {
+	if a.Service.Kind != KindGitHub {
+		return true
+	}
+	switch strings.ToUpper(association) {
+	case "OWNER", "MEMBER", "COLLABORATOR":
+		return true
+	default:
+		return false
+	}
 }
 
 // reviewState folds GitHub's and Gitea's review verdicts into the two that ask for something, and
