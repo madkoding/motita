@@ -45,7 +45,7 @@ const Repo = "madkoding/motita"
 //
 // With it set, a release without a valid SHA256SUMS.sig is refused (an empty value would fall back
 // to the checksum-only behaviour with a warning). The installers carry the same value.
-const ReleasePublicKey = "MCowBQYDK2VwAyEASjFxVSWdJ8wOLF06ooBU3hDEWtR+aRwNbRAog83ZW1c="
+const ReleasePublicKey = "MCowBQYDK2VwAyEATTRttsn9nWcTFcGhxtds07k8PH0B3QhlO6dySfmRvdo="
 
 // DefaultAssetHosts are the hosts release files may be fetched from, always over https: the
 // download URL itself and the CDN hosts GitHub redirects it to.

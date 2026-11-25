@@ -40,7 +40,7 @@ API="https://api.github.com/repos/${REPO}/releases/latest"
 # public key. It is the same value as ReleasePublicKey in internal/updater, and
 # scripts/release-signing-key.sh prints it. Empty is the placeholder: no key has
 # been configured yet, and the signature is not checked.
-RELEASE_PUBLIC_KEY="MCowBQYDK2VwAyEASjFxVSWdJ8wOLF06ooBU3hDEWtR+aRwNbRAog83ZW1c="
+RELEASE_PUBLIC_KEY="MCowBQYDK2VwAyEATTRttsn9nWcTFcGhxtds07k8PH0B3QhlO6dySfmRvdo="
 
 say()  { printf '%s\n' "$*"; }
 die()  { printf 'error: %s\n' "$*" >&2; exit 1; }
