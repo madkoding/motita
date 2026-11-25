@@ -473,3 +473,70 @@ func TestStartFailures(t *testing.T) {
 		t.Fatal("want the stdout error")
 	}
 }
+
+func TestTasks(t *testing.T) {
+	c, f := connect(t, Handler{})
+	if c.SupportsTasks() {
+		t.Fatal("the fake server declared no tasks")
+	}
+	c.Server.Capabilities = json.RawMessage(`{"tasks":{"requests":{"tools":{"call":{}}}}}`)
+	if !c.SupportsTasks() {
+		t.Fatal("tasks/requests/tools/call is the capability")
+	}
+	go func() {
+		m := f.read()
+		if !strings.Contains(string(m.Params), `"ttl":60000`) || !strings.Contains(string(m.Params), `"arguments":{}`) {
+			t.Errorf("params = %s", m.Params)
+		}
+		f.answer(m, map[string]any{"task": map[string]any{"taskId": "t1", "status": "working", "pollInterval": 500}})
+		m = f.read()
+		f.answer(m, map[string]any{"taskId": "t1", "status": "completed"})
+		m = f.read()
+		f.answer(m, map[string]any{"content": []map[string]any{{"type": "text", "text": "transcript"}}})
+		m = f.read()
+		f.answer(m, map[string]any{"taskId": "t1", "status": "cancelled"})
+		m = f.read()
+		f.answer(m, map[string]any{"nothing": 1})
+	}()
+	task, err := c.CallTask(context.Background(), "transcribe", nil, time.Minute)
+	if err != nil || task.TaskID != "t1" || task.Done() || task.PollInterval != 500 {
+		t.Fatalf("task = %+v, %v", task, err)
+	}
+	if got, err := c.Task(context.Background(), "t1"); err != nil || !got.Done() {
+		t.Fatalf("get = %+v, %v", got, err)
+	}
+	if res, err := c.TaskResult(context.Background(), "t1"); err != nil || res.Text(100) != "transcript" {
+		t.Fatalf("result = %+v, %v", res, err)
+	}
+	if got, err := c.CancelTask(context.Background(), "t1"); err != nil || got.Status != TaskCancelled || !got.Done() {
+		t.Fatalf("cancel = %+v, %v", got, err)
+	}
+	if _, err := c.CallTask(context.Background(), "x", json.RawMessage(`{"a":1}`), time.Second); err == nil ||
+		!strings.Contains(err.Error(), "did not return a task") {
+		t.Fatalf("no task = %v", err)
+	}
+}
+
+func TestTaskStatuses(t *testing.T) {
+	statuses := map[string]bool{
+		TaskWorking: false, TaskInputRequired: false, TaskCompleted: true, TaskFailed: true, TaskCancelled: true,
+	}
+	for status, done := range statuses {
+		if (Task{Status: status}).Done() != done {
+			t.Errorf("%s: done should be %v", status, done)
+		}
+	}
+	var tool Tool
+	_ = json.Unmarshal([]byte(`{"name":"a","execution":{"taskSupport":"required"}}`), &tool)
+	if !tool.Background() || !tool.MustBackground() {
+		t.Fatal("required runs as a task")
+	}
+	tool.Execution.TaskSupport = "optional"
+	if !tool.Background() || tool.MustBackground() {
+		t.Fatal("optional may run as a task")
+	}
+	tool.Execution.TaskSupport = "forbidden"
+	if tool.Background() {
+		t.Fatal("forbidden does not")
+	}
+}

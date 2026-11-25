@@ -38,6 +38,8 @@ var kindDoing = map[string]string{
 	"box_down":      "Stopping a service",
 	"mcp_tools":     "Looking at an MCP server's tools",
 	"mcp_call":      "Calling an MCP server",
+	"mcp_start":     "Starting a background job on an MCP server",
+	"mcp_task":      "Checking a background job",
 }
 
 // The names a shell command is given by the program it runs.

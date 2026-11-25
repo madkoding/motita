@@ -13,7 +13,20 @@ type Tool struct {
 	Title       string          `json:"title,omitempty"`
 	Description string          `json:"description,omitempty"`
 	InputSchema json.RawMessage `json:"inputSchema,omitempty"`
+	// Execution says whether the tool may run as a background task (see tasks.go).
+	Execution struct {
+		TaskSupport string `json:"taskSupport,omitempty"`
+	} `json:"execution,omitzero"`
 }
+
+// Background says whether the tool can run as a task: "optional" and "required" can, and a
+// tool that says nothing cannot.
+func (t Tool) Background() bool {
+	return t.Execution.TaskSupport == "optional" || t.Execution.TaskSupport == "required"
+}
+
+// MustBackground says the tool can only run as a task.
+func (t Tool) MustBackground() bool { return t.Execution.TaskSupport == "required" }
 
 // Tools lists every tool of the server, following its pages.
 func (c *Client) Tools(ctx context.Context) ([]Tool, error) {

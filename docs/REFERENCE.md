@@ -1744,10 +1744,14 @@ agent:
 |---|---|---|
 | `mcp_tools` | a server name, or nothing for every server | each tool's description and argument schema |
 | `mcp_call` | `<server> <tool>` on the first line, the arguments as a JSON object after it | the tool's answer, cut at 20,000 bytes |
+| `mcp_start` | the same as `mcp_call` | a task id, at once; the tool runs in the background |
+| `mcp_task` | `<server> <task id>`, and `cancel` on a second line to stop it | the task's state, or its result once it is over |
 
 Every `mcp_call` is **asked about** (rule `mcp`) with the server, the tool and the arguments; *Allow all commands for this session* answers them all. What a server answers reaches the model marked as data from a third party. A background agent or a read-only session cannot use MCP, and with no server listed the actions are not offered. The servers a run started are stopped when it ends.
 
 **Elicitation.** A server may pause a call to ask the person something (confirm before deleting or spending, or send them to a page for a payment or a sign-in). It goes through the same approval (rule `mcp-elicit`): a confirmation shows the server's question, a page shows its full address, and only `http` and `https` addresses are offered. A form asking for a value motita cannot invent (a typed name) is declined and the model is told what the server wanted, so it asks the person in the chat and calls again with the value in the arguments.
+
+**Background tasks.** A tool the server lists as able to run in the background (`execution.taskSupport` `optional` or `required`, shown as `[background: …]` by `mcp_tools`) can be started with `mcp_start` (same `command` as `mcp_call`, asked about the same way). The server answers at once with a task id and the run goes on with other work. `mcp_task` (`<server> <task id>`) reports the state without waiting and, once the task is over, brings its result; a second line `cancel` stops it. A server that does not declare task support is refused with a hint to use `mcp_call`. Tasks belong to the connection: they end with the run.
 
 ### Upkeep: weekly audit and draft pull requests
 

@@ -6,6 +6,7 @@ import (
 	"errors"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/madkoding/motita/internal/config"
 	"github.com/madkoding/motita/internal/mcp"
@@ -21,12 +22,36 @@ type fakeMCP struct {
 	calls    []string
 	args     []string
 	closed   int
+	tasks    bool
+	task     mcp.Task
+	taskErr  error
+	taskRes  mcp.CallResult
+	resErr   error
+	cancels  []string
 	ask      *mcp.ElicitRequest
 	asked    mcp.ElicitResult
 	handler  mcp.Handler
 }
 
 func (f *fakeMCP) Tools(context.Context) ([]mcp.Tool, error) { return f.tools, f.toolsErr }
+func (f *fakeMCP) SupportsTasks() bool                       { return f.tasks }
+
+func (f *fakeMCP) CallTask(ctx context.Context, name string, _ json.RawMessage, ttl time.Duration) (mcp.Task, error) {
+	f.calls = append(f.calls, "task:"+name)
+	f.args = append(f.args, ttl.String())
+	if f.ask != nil {
+		f.asked = f.handler.Elicit(ctx, *f.ask)
+	}
+	return f.task, f.taskErr
+}
+func (f *fakeMCP) Task(context.Context, string) (mcp.Task, error) { return f.task, f.taskErr }
+func (f *fakeMCP) TaskResult(context.Context, string) (mcp.CallResult, error) {
+	return f.taskRes, f.resErr
+}
+func (f *fakeMCP) CancelTask(_ context.Context, id string) (mcp.Task, error) {
+	f.cancels = append(f.cancels, id)
+	return mcp.Task{TaskID: id, Status: mcp.TaskCancelled}, f.taskErr
+}
 func (f *fakeMCP) Close() error {
 	f.closed++
 	return nil
@@ -292,5 +317,114 @@ func TestMCPElicitationDeclinedByThePerson(t *testing.T) {
 	res := e.agent.elicit(context.Background(), mcp.ElicitRequest{Message: "delete it?"})
 	if res.Action != mcp.Decline || res.Content != nil {
 		t.Fatalf("%+v", res)
+	}
+}
+
+func TestMCPStartRunsABackgroundTask(t *testing.T) {
+	e, fakes, asked := mcpAgent(t, true)
+	fakes["shop"].tasks = true
+	fakes["shop"].task = mcp.Task{TaskID: "t9", Status: mcp.TaskWorking}
+	out, err := box(e, "mcp_start", "shop transcribe\n{\"video\": \"a\"}")
+	if err != nil || !strings.Contains(out, "[task t9 started on shop (working)") || !strings.Contains(out, `"shop t9"`) {
+		t.Fatalf("%v %q", err, out)
+	}
+	if (*asked)[0].Command != `mcp_start shop transcribe {"video": "a"}` || fakes["shop"].calls[0] != "task:transcribe" ||
+		fakes["shop"].args[0] != "1h0m0s" {
+		t.Fatalf("asked %+v calls %v %v", *asked, fakes["shop"].calls, fakes["shop"].args)
+	}
+}
+
+func TestMCPStartRefusals(t *testing.T) {
+	e, fakes, _ := mcpAgent(t, true)
+	out, _ := box(e, "mcp_start", "shop transcribe")
+	if !strings.Contains(out, "does not run tools in the background: use mcp_call") {
+		t.Fatalf("%q", out)
+	}
+	fakes["shop"].tasks = true
+	fakes["shop"].taskErr = errors.New("busy")
+	schema := json.RawMessage(`{"properties":{"x":{}},"required":["x"]}`)
+	fakes["shop"].ask = &mcp.ElicitRequest{Message: "q", Schema: schema}
+	out, _ = box(e, "mcp_start", "shop transcribe")
+	if !strings.Contains(out, "[failed: busy") || !strings.Contains(out, "asked the person for x") {
+		t.Fatalf("%q", out)
+	}
+}
+
+func TestMCPTaskReportsAndCollects(t *testing.T) {
+	e, fakes, asked := mcpAgent(t, true)
+	fk := fakes["shop"]
+	if out, _ := box(e, "mcp_task", "shop t1"); !strings.Contains(out, "no task was started on shop") {
+		t.Fatalf("not connected: %q", out)
+	}
+	fk.tasks = true
+	fk.task = mcp.Task{TaskID: "t1", Status: mcp.TaskWorking}
+	_, _ = box(e, "mcp_start", "shop go")
+	*asked = nil
+	out, _ := box(e, "mcp_task", "shop t1")
+	if !strings.Contains(out, "[task t1 is working. Do something else and ask again later]") {
+		t.Fatalf("working: %q", out)
+	}
+	fk.task = mcp.Task{TaskID: "t1", Status: mcp.TaskInputRequired, StatusMessage: "waiting\nfor you"}
+	if out, _ := box(e, "mcp_task", "shop t1"); !strings.Contains(out, "is input_required: waiting for you.") {
+		t.Fatalf("input: %q", out)
+	}
+	fk.task = mcp.Task{TaskID: "t1", Status: mcp.TaskCompleted}
+	fk.taskRes = mcp.CallResult{Content: []mcp.Content{{Type: "text", Text: "the transcript"}}}
+	out, _ = box(e, "mcp_task", "shop t1")
+	if !strings.Contains(out, "the transcript") || !strings.Contains(out, "third party") || strings.Contains(out, "failed") {
+		t.Fatalf("completed: %q", out)
+	}
+	fk.task = mcp.Task{TaskID: "t1", Status: mcp.TaskFailed, StatusMessage: "disk full"}
+	fk.taskRes = mcp.CallResult{IsError: true, Content: []mcp.Content{{Type: "text", Text: "oops"}}}
+	if out, _ := box(e, "mcp_task", "shop t1"); !strings.Contains(out, "[the task failed: disk full]\noops") {
+		t.Fatalf("failed: %q", out)
+	}
+	fk.task = mcp.Task{TaskID: "t1", Status: mcp.TaskCancelled}
+	if out, _ := box(e, "mcp_task", "shop t1"); !strings.Contains(out, "[task t1 was cancelled]") {
+		t.Fatalf("cancelled: %q", out)
+	}
+	fk.task = mcp.Task{TaskID: "t1", Status: mcp.TaskCompleted}
+	fk.resErr = errors.New("expired")
+	if out, _ := box(e, "mcp_task", "shop t1"); !strings.Contains(out, "[failed: task t1 completed: expired") {
+		t.Fatalf("result error: %q", out)
+	}
+	if len(*asked) != 0 {
+		t.Fatal("collecting a task asks nothing")
+	}
+}
+
+func TestMCPTaskCancelAndErrors(t *testing.T) {
+	e, fakes, _ := mcpAgent(t, true)
+	fk := fakes["shop"]
+	fk.tasks = true
+	fk.task = mcp.Task{TaskID: "t1", Status: mcp.TaskWorking}
+	_, _ = box(e, "mcp_start", "shop go")
+	out, _ := box(e, "mcp_task", "shop t1\ncancel")
+	if !strings.Contains(out, "[task t1 is cancelled]") || fk.cancels[0] != "t1" {
+		t.Fatalf("cancel: %q", out)
+	}
+	if out, _ := box(e, "mcp_task", "shop"); !strings.Contains(out, "<server> <task id>") {
+		t.Fatalf("usage: %q", out)
+	}
+	fk.taskErr = errors.New("unknown task")
+	if out, _ := box(e, "mcp_task", "shop t1"); !strings.Contains(out, "[failed: unknown task]") {
+		t.Fatalf("get error: %q", out)
+	}
+	if out, _ := box(e, "mcp_task", "shop t1\ncancel"); !strings.Contains(out, "[failed: unknown task]") {
+		t.Fatalf("cancel error: %q", out)
+	}
+}
+
+func TestMCPToolsMarkBackgroundTools(t *testing.T) {
+	e, fakes, _ := mcpAgent(t, true)
+	var req, opt mcp.Tool
+	req.Name, req.Execution.TaskSupport = "r", "required"
+	opt.Name, opt.Execution.TaskSupport = "o", "optional"
+	fakes["shop"].tools = []mcp.Tool{req, opt, {Name: "p"}}
+	out, _ := box(e, "mcp_tools", "shop")
+	for _, want := range []string{"- r [background: required, use mcp_start]:", "- o [background: optional]:", "- p:"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("missing %q in %q", want, out)
+		}
 	}
 }
