@@ -699,6 +699,11 @@ jobs:
     # verify stands for every quality job (and fails when one did).
     needs: [verify, build, android-seccomp, gateway]
     runs-on: ubuntu-latest
+    # The signing key belongs to this environment. Move the RELEASE_SIGNING_KEY secret from the
+    # repository to the "release" environment and add required reviewers there, so that a pushed
+    # tag alone cannot get anything signed (GHSA-ww38-259g-x8c5, SUP-01).
+    environment:
+      name: release
     # id-token and attestations are granted here only: they are what the provenance
     # attestation below needs, and no other job signs anything.
     permissions:
@@ -708,7 +713,21 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
+          # The whole history: the next step asks whether the tagged commit is on main.
+          fetch-depth: 0
           persist-credentials: false
+
+      - name: Refuse a tag that is not on main
+        # A v* tag can be pushed from any branch by anyone with write access, and everything
+        # below builds, signs and publishes what it points at. Only a commit that main already
+        # holds (the one semantic-release tags) is released.
+        run: |
+          set -eu
+          git fetch --no-tags origin main
+          if ! git merge-base --is-ancestor "$GITHUB_SHA" origin/main; then
+            echo "::error::$GITHUB_REF_NAME points at $GITHUB_SHA, which is not on main; nothing is signed or published"
+            exit 1
+          fi
 
       - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
