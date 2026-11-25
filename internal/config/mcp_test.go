@@ -12,6 +12,7 @@ func TestMCPServersLoadAndValidate(t *testing.T) {
       command: npx
       args: [-y, "@shop/mcp"]
       env: {TOKEN: abc}
+      skills: true
     - name: db_1
       command: /usr/bin/db-mcp
       dir: /srv
@@ -25,6 +26,9 @@ func TestMCPServersLoadAndValidate(t *testing.T) {
 		t.Fatalf("servers = %+v", s)
 	}
 	if s[0].Env["TOKEN"] != "abc" || s[1].Dir != "/srv" {
+		t.Fatalf("servers = %+v", s)
+	}
+	if !s[0].Skills || s[1].Skills {
 		t.Fatalf("servers = %+v", s)
 	}
 }

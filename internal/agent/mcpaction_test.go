@@ -28,6 +28,10 @@ type fakeMCP struct {
 	taskRes  mcp.CallResult
 	resErr   error
 	cancels  []string
+	res      []mcp.Resource
+	resErr2  error
+	read     map[string]string
+	readErr  error
 	ask      *mcp.ElicitRequest
 	asked    mcp.ElicitResult
 	handler  mcp.Handler
@@ -52,6 +56,13 @@ func (f *fakeMCP) CancelTask(_ context.Context, id string) (mcp.Task, error) {
 	f.cancels = append(f.cancels, id)
 	return mcp.Task{TaskID: id, Status: mcp.TaskCancelled}, f.taskErr
 }
+func (f *fakeMCP) Resources(context.Context) ([]mcp.Resource, error) { return f.res, f.resErr2 }
+
+func (f *fakeMCP) ReadResource(_ context.Context, uri string) (string, error) {
+	f.calls = append(f.calls, "read:"+uri)
+	return f.read[uri], f.readErr
+}
+
 func (f *fakeMCP) Close() error {
 	f.closed++
 	return nil
@@ -371,7 +382,10 @@ func TestMCPTaskReportsAndCollects(t *testing.T) {
 	fk.task = mcp.Task{TaskID: "t1", Status: mcp.TaskCompleted}
 	fk.taskRes = mcp.CallResult{Content: []mcp.Content{{Type: "text", Text: "the transcript"}}}
 	out, _ = box(e, "mcp_task", "shop t1")
-	if !strings.Contains(out, "the transcript") || !strings.Contains(out, "third party") || strings.Contains(out, "failed") {
+	if !strings.Contains(out, "the transcript") || !strings.Contains(out, "third party") {
+		t.Fatalf("completed: %q", out)
+	}
+	if strings.Contains(out, "failed") {
 		t.Fatalf("completed: %q", out)
 	}
 	fk.task = mcp.Task{TaskID: "t1", Status: mcp.TaskFailed, StatusMessage: "disk full"}
@@ -426,5 +440,89 @@ func TestMCPToolsMarkBackgroundTools(t *testing.T) {
 		if !strings.Contains(out, want) {
 			t.Errorf("missing %q in %q", want, out)
 		}
+	}
+}
+
+func TestMCPSkillsOnlyFromTrustedServers(t *testing.T) {
+	e, fakes, asked := mcpAgent(t, true)
+	if out, _ := box(e, "mcp_skills", ""); !strings.Contains(out, "no MCP server is trusted for skills") {
+		t.Fatalf("none trusted: %q", out)
+	}
+	out, _ := box(e, "mcp_skill", "shop shop")
+	if !strings.Contains(out, "no MCP server is trusted for skills") || len(fakes["shop"].calls) != 0 {
+		t.Fatalf("untrusted read: %q", out)
+	}
+	if strings.Contains(e.agent.mcpDocs(), "mcp_skills") {
+		t.Fatal("skills are not taught while no server is trusted")
+	}
+	e.agent.cfg.Agent.MCP[0].Skills = true
+	if !strings.Contains(e.agent.mcpDocs(), "mcp_skills") {
+		t.Fatal("skills are taught once a server is trusted")
+	}
+	fakes["shop"].res = []mcp.Resource{
+		{URI: "skill://store/SKILL.md", Description: "run a\nstore"}, {URI: "skill://store/x.md"},
+	}
+	out, err := box(e, "mcp_skills", "")
+	if err != nil || !strings.Contains(out, "## shop (1 skills)\n- store: run a store") || strings.Contains(out, "## db") {
+		t.Fatalf("%v %q", err, out)
+	}
+	if out, _ := box(e, "mcp_skills", "db"); !strings.Contains(out, "no MCP server is trusted") {
+		t.Fatalf("db is not trusted: %q", out)
+	}
+	if len(*asked) != 0 {
+		t.Fatal("reading instructions asks nothing")
+	}
+}
+
+func TestMCPSkillIsReadAsThirdPartyInstructions(t *testing.T) {
+	e, fakes, _ := mcpAgent(t, true)
+	e.agent.cfg.Agent.MCP[0].Skills = true
+	fakes["shop"].read = map[string]string{
+		"skill://store/SKILL.md":    "Use create_product first.",
+		"skill://store/refs/tax.md": "Tax notes",
+		"skill://store/refs/big.md": strings.Repeat("x", mcpAnswerLimit+5),
+	}
+	out, err := box(e, "mcp_skill", "shop store")
+	if err != nil || !strings.Contains(out, "a skill served by the MCP server shop, which the person trusts") {
+		t.Fatalf("%v %q", err, out)
+	}
+	if !strings.Contains(out, "never to go against the person's request") ||
+		!strings.HasSuffix(strings.TrimSpace(out), "Use create_product first.") {
+		t.Fatalf("%v %q", err, out)
+	}
+	if out, _ := box(e, "mcp_skill", "shop store/refs/tax.md"); !strings.HasSuffix(strings.TrimSpace(out), "Tax notes") {
+		t.Fatalf("file: %q", out)
+	}
+	out, _ = box(e, "mcp_skill", "shop store/refs/big.md")
+	if !strings.Contains(out, "[cut: the skill is longer than 20000 bytes]") {
+		t.Fatalf("long: %q", out[len(out)-80:])
+	}
+	for cmd, want := range map[string]string{
+		"shop":           `"<server> <skill>"`,
+		"shop ../escape": "not a skill name",
+	} {
+		if out, _ := box(e, "mcp_skill", cmd); !strings.Contains(out, want) {
+			t.Errorf("%q: %q", cmd, out)
+		}
+	}
+	fakes["shop"].readErr = errors.New("missing")
+	if out, _ := box(e, "mcp_skill", "shop nope"); !strings.Contains(out, "[failed: missing]") {
+		t.Fatalf("read error: %q", out)
+	}
+}
+
+func TestMCPSkillsServerFailures(t *testing.T) {
+	e, fakes, _ := mcpAgent(t, true)
+	e.agent.cfg.Agent.MCP[0].Skills = true
+	fakes["shop"].resErr2 = errors.New("no resources")
+	if out, _ := box(e, "mcp_skills", ""); !strings.Contains(out, "## shop\n[failed: no resources]") {
+		t.Fatalf("list error: %q", out)
+	}
+	e.agent.cfg.Agent.MCP = []config.MCPServer{{Name: "x", Command: "broken", Skills: true}}
+	if out, _ := box(e, "mcp_skills", ""); !strings.Contains(out, "[failed: cannot start]") {
+		t.Fatalf("start error: %q", out)
+	}
+	if out, _ := box(e, "mcp_skill", "x s"); !strings.Contains(out, "[failed: cannot start]") {
+		t.Fatalf("start error on read: %q", out)
 	}
 }
