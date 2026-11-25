@@ -334,8 +334,6 @@ type Server struct {
 	claudeProbe claudeProbe
 	// local is Motita's own local model (localmodel.go), made on first use.
 	local localSlot
-	// inference orders the writers of the registry of inference servers (inferenceservers.go).
-	inference sync.Mutex
 
 	// baseCtx is cancelled when this server closes, and every run derives its context from it.
 	//

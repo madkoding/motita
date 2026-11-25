@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"sort"
 	"strings"
+	"sync"
 	"time"
 	"unicode"
 
@@ -47,6 +48,9 @@ type probeResult struct {
 	Models    []string `json:"models,omitempty"`
 	Error     string   `json:"error,omitempty"`
 }
+
+// inferenceMu orders the writers of the registry; it is process-wide like the registry.
+var inferenceMu sync.Mutex
 
 // updateInference is the write of an edit, as a variable so a test can make it fail.
 var updateInference = (*inference.Store).Update
@@ -175,8 +179,8 @@ func (s *Server) handleInferenceAdd(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	st := s.inferenceStore()
-	s.inference.Lock()
-	defer s.inference.Unlock()
+	inferenceMu.Lock()
+	defer inferenceMu.Unlock()
 	added, err := st.Add(v)
 	if err != nil {
 		writeInferenceError(w, err)
@@ -215,8 +219,8 @@ func (s *Server) handleInferenceEdit(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	st := s.inferenceStore()
-	s.inference.Lock()
-	defer s.inference.Unlock()
+	inferenceMu.Lock()
+	defer inferenceMu.Unlock()
 	cur, err := st.Get(id)
 	if err != nil {
 		writeInferenceError(w, err)
@@ -265,8 +269,8 @@ func (s *Server) handleInferenceRemove(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusNotFound, inference.ErrNotFound.Error())
 		return
 	}
-	s.inference.Lock()
-	defer s.inference.Unlock()
+	inferenceMu.Lock()
+	defer inferenceMu.Unlock()
 	if err := s.inferenceStore().Remove(id); err != nil {
 		writeInferenceError(w, err)
 		return
